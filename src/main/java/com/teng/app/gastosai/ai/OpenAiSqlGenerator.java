@@ -46,7 +46,6 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 
 		ObjectNode body = objectMapper.createObjectNode();
 		body.put("model", openAiProperties.getModel());
-		body.put("temperature", 0);
 		ArrayNode messages = body.putArray("messages");
 		ObjectNode system = messages.addObject();
 		system.put("role", "system");
