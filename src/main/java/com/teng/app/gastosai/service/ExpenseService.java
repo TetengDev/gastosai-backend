@@ -24,9 +24,13 @@ public class ExpenseService {
 	private final ExpenseRepository expenseRepository;
 	private final CategoryService categoryService;
 
+	private static final String DEFAULT_CATEGORY = "Uncategorized";
+
 	@Transactional
 	public ExpenseResponse create(ExpenseRequest request) {
-		Category category = categoryService.getOrCreateByName(request.category());
+		String categoryName = (request.category() == null || request.category().isBlank())
+				? DEFAULT_CATEGORY : request.category();
+		Category category = categoryService.getOrCreateByName(categoryName);
 		Expense expense = Expense.builder()
 				.amount(request.amount())
 				.category(category)
@@ -52,7 +56,9 @@ public class ExpenseService {
 		Expense expense = expenseRepository.findById(id)
 				.orElseThrow(() -> new ResourceNotFoundException("Expense not found: " + id));
 
-		Category category = categoryService.getOrCreateByName(request.category());
+		String categoryName = (request.category() == null || request.category().isBlank())
+				? DEFAULT_CATEGORY : request.category();
+		Category category = categoryService.getOrCreateByName(categoryName);
 		expense.setAmount(request.amount());
 		expense.setCategory(category);
 		expense.setDate(request.date() != null ? request.date() : expense.getDate());
