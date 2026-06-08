@@ -32,6 +32,10 @@ build/
 ### VS Code ###
 .vscode/
 
+### Logs ###
+logs/
+*.log
+
 ### Secrets & local overrides (DB URLs, API keys, OpenAI) ###
 .env
 .env.*
