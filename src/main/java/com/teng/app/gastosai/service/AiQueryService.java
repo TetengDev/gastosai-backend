@@ -1,5 +1,7 @@
 package com.teng.app.gastosai.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.ai.SqlGuard;
 import com.teng.app.gastosai.dto.AiQueryResponse;
@@ -23,6 +25,7 @@ public class AiQueryService {
 
 	private final SqlGenerator sqlGenerator;
 	private final JdbcTemplate jdbcTemplate;
+	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	public AiQueryResponse runNaturalLanguageQuery(String question) {
 		String rawSql = sqlGenerator.generateSql(question);
@@ -30,7 +33,21 @@ public class AiQueryService {
 		log.info("AI-generated SQL (validated): {}", sql);
 
 		List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql);
-		return new AiQueryResponse(normalizeAnswer(rows));
+		Object normalizedData = normalizeAnswer(rows);
+
+		try {
+			String dataJson = objectMapper.writeValueAsString(normalizedData);
+			String summary = sqlGenerator.generateSummary(question, dataJson);
+			return new AiQueryResponse(summary);
+		}
+		catch (JsonProcessingException e) {
+			log.warn("Failed to serialize query results for summary, returning raw data", e);
+			return new AiQueryResponse(normalizedData);
+		}
+		catch (Exception e) {
+			log.warn("Summary generation failed, returning raw data: {}", e.getMessage());
+			return new AiQueryResponse(normalizedData);
+		}
 	}
 
 	private static Object normalizeAnswer(List<Map<String, Object>> rows) {
