@@ -19,6 +19,6 @@ public class AiController {
 
 	@PostMapping("/query")
 	public AiQueryResponse query(@Valid @RequestBody AiQueryRequest request) {
-		return aiQueryService.runNaturalLanguageQuery(request.question());
+		return aiQueryService.runNaturalLanguageQuery(request.question(), request.mode());
 	}
 }

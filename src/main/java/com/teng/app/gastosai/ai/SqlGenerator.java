@@ -4,6 +4,6 @@ public interface SqlGenerator {
 
 	String generateSql(String question);
 
-	String generateSummary(String question, String dataJson);
+	String generateSummary(String question, String dataJson, String mode);
 }
 
