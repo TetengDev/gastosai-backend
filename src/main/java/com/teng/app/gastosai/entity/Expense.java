@@ -15,7 +15,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "expenses")
@@ -37,8 +37,8 @@ public class Expense {
 	@JoinColumn(name = "category_id")
 	private Category category;
 
-	private LocalDate date;
+	private LocalDateTime date;
 
-	@Column(columnDefinition = "text")
-	private String note;
+	@Column(nullable = false, columnDefinition = "text")
+	private String description;
 }

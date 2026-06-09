@@ -3,6 +3,7 @@ package com.teng.app.gastosai.service;
 import com.teng.app.gastosai.dto.CategoryRequest;
 import com.teng.app.gastosai.dto.CategoryResponse;
 import com.teng.app.gastosai.entity.Category;
+import com.teng.app.gastosai.entity.Expense;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.CategoryRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
@@ -15,6 +16,8 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class CategoryService {
+
+	private static final String DEFAULT_CATEGORY = "Uncategorized";
 
 	private final CategoryRepository categoryRepository;
 	private final ExpenseRepository expenseRepository;
@@ -61,13 +64,16 @@ public class CategoryService {
 
 	@Transactional
 	public void delete(Long id) {
-		if (!categoryRepository.existsById(id)) {
-			throw new ResourceNotFoundException("Category not found: " + id);
+		Category toDelete = categoryRepository.findById(id)
+				.orElseThrow(() -> new ResourceNotFoundException("Category not found: " + id));
+
+		List<Expense> affected = expenseRepository.findByCategory_Id(toDelete.getId());
+		if (!affected.isEmpty()) {
+			Category fallback = getOrCreateByName(DEFAULT_CATEGORY);
+			affected.forEach(e -> e.setCategory(fallback));
+			expenseRepository.saveAll(affected);
 		}
-		long used = expenseRepository.countByCategory_Id(id);
-		if (used > 0) {
-			throw new IllegalStateException("Cannot delete category; it is used by " + used + " expense(s)");
-		}
+
 		categoryRepository.deleteById(id);
 	}
 

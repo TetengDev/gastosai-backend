@@ -67,7 +67,7 @@ public class AppDataLoader implements ApplicationRunner {
 							.amount(sample.amount())
 							.category(category)
 							.date(sample.date())
-							.note(sample.note())
+							.description(sample.description())
 							.build();
 				})
 				.toList();

@@ -14,17 +14,17 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class ExpenseService {
 
+	private static final String DEFAULT_CATEGORY = "Uncategorized";
+
 	private final ExpenseRepository expenseRepository;
 	private final CategoryService categoryService;
-
-	private static final String DEFAULT_CATEGORY = "Uncategorized";
 
 	@Transactional
 	public ExpenseResponse create(ExpenseRequest request) {
@@ -34,8 +34,8 @@ public class ExpenseService {
 		Expense expense = Expense.builder()
 				.amount(request.amount())
 				.category(category)
-				.date(request.date() != null ? request.date() : LocalDate.now())
-				.note(request.note())
+				.date(request.date() != null ? request.date() : LocalDateTime.now())
+				.description(request.description())
 				.build();
 		return toResponse(expenseRepository.save(expense));
 	}
@@ -62,7 +62,7 @@ public class ExpenseService {
 		expense.setAmount(request.amount());
 		expense.setCategory(category);
 		expense.setDate(request.date() != null ? request.date() : expense.getDate());
-		expense.setNote(request.note());
+		expense.setDescription(request.description());
 		return toResponse(expenseRepository.save(expense));
 	}
 
@@ -98,7 +98,7 @@ public class ExpenseService {
 
 	private ExpenseResponse toResponse(final Expense e) {
 		String categoryName = e.getCategory() != null ? e.getCategory().getName() : "Uncategorized";
-		return new ExpenseResponse(e.getId(), e.getAmount().setScale(2, RoundingMode.HALF_UP), categoryName, e.getDate(), e.getNote());
+		return new ExpenseResponse(e.getId(), e.getAmount().setScale(2, RoundingMode.HALF_UP), categoryName, e.getDate(), e.getDescription());
 	}
 
 	private static BigDecimal toBigDecimal(Object value) {
