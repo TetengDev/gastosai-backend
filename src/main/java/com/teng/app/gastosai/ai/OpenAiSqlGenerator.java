@@ -92,7 +92,7 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 	public String generateSummary(String question, String dataJson) {
 		ObjectNode body = objectMapper.createObjectNode();
 		body.put("model", openAiProperties.getModel());
-		body.put("max_tokens", 256);
+		body.put("max_completion_tokens", 256);
 		ArrayNode messages = body.putArray("messages");
 		ObjectNode system = messages.addObject();
 		system.put("role", "system");
