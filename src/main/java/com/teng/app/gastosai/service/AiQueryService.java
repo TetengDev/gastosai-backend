@@ -27,7 +27,7 @@ public class AiQueryService {
 	private final JdbcTemplate jdbcTemplate;
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
-	public AiQueryResponse runNaturalLanguageQuery(String question) {
+	public AiQueryResponse runNaturalLanguageQuery(String question, String mode) {
 		String rawSql = sqlGenerator.generateSql(question);
 		String sql = SqlGuard.validateAndNormalize(rawSql);
 		log.info("AI-generated SQL (validated): {}", sql);
@@ -35,9 +35,11 @@ public class AiQueryService {
 		List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql);
 		Object normalizedData = normalizeAnswer(rows);
 
+		String resolvedMode = (mode != null && !mode.isBlank()) ? mode : "plain";
+
 		try {
 			String dataJson = objectMapper.writeValueAsString(normalizedData);
-			String summary = sqlGenerator.generateSummary(question, dataJson);
+			String summary = sqlGenerator.generateSummary(question, dataJson, resolvedMode);
 			return new AiQueryResponse(summary);
 		}
 		catch (JsonProcessingException e) {
