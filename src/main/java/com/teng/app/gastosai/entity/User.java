@@ -49,6 +49,9 @@ public class User implements UserDetails {
 	@Builder.Default
 	private Role role = Role.USER;
 
+	@Column(length = 50)
+	private String nickname;
+
 	@Column(nullable = false, updatable = false)
 	private LocalDateTime createdAt;
 
