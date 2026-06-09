@@ -59,7 +59,7 @@ To capture logs:
 .\mvnw.cmd test
 
 # Single test class
-.\mvnw.cmd test -Dtest=ExpenseApiIT
+.\mvnw.cmd test -Dtest=ExpenseApiIntegrationTest
 
 # Build without tests
 .\mvnw.cmd clean install -DskipTests
