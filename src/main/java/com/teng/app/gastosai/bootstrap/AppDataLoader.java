@@ -6,9 +6,9 @@ import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.CategoryRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import com.teng.app.gastosai.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -21,20 +21,36 @@ import java.util.List;
 import java.util.Map;
 
 @Component
-@Order(0)
+@Order(1)
 @ConditionalOnProperty(name = "gastos.seed-sample-data", havingValue = "true")
-@RequiredArgsConstructor
 public class AppDataLoader implements ApplicationRunner {
 
 	private static final Logger log = LoggerFactory.getLogger(AppDataLoader.class);
-
-	private static final String DEMO_EMAIL = "demo@gastosai.dev";
-	private static final String DEMO_PASSWORD = "demo123";
 
 	private final ExpenseRepository expenseRepository;
 	private final CategoryRepository categoryRepository;
 	private final UserRepository userRepository;
 	private final PasswordEncoder passwordEncoder;
+	private final String demoName;
+	private final String demoEmail;
+	private final String demoPassword;
+
+	public AppDataLoader(
+			ExpenseRepository expenseRepository,
+			CategoryRepository categoryRepository,
+			UserRepository userRepository,
+			PasswordEncoder passwordEncoder,
+			@Value("${gastos.demo.name:Demo User}") String demoName,
+			@Value("${gastos.demo.email:demo@gastosai.dev}") String demoEmail,
+			@Value("${gastos.demo.password:demo123}") String demoPassword) {
+		this.expenseRepository = expenseRepository;
+		this.categoryRepository = categoryRepository;
+		this.userRepository = userRepository;
+		this.passwordEncoder = passwordEncoder;
+		this.demoName = demoName;
+		this.demoEmail = demoEmail;
+		this.demoPassword = demoPassword;
+	}
 
 	@Override
 	public void run(ApplicationArguments args) {
@@ -43,14 +59,14 @@ public class AppDataLoader implements ApplicationRunner {
 	}
 
 	private User getOrCreateDemoUser() {
-		return userRepository.findByEmail(DEMO_EMAIL).orElseGet(() -> {
+		return userRepository.findByEmail(demoEmail).orElseGet(() -> {
 			User user = User.builder()
-					.name("Demo User")
-					.email(DEMO_EMAIL)
-					.password(passwordEncoder.encode(DEMO_PASSWORD))
+					.name(demoName)
+					.email(demoEmail)
+					.password(passwordEncoder.encode(demoPassword))
 					.build();
 			User saved = userRepository.save(user);
-			log.info("Demo account created — email: {} / password: {}", DEMO_EMAIL, DEMO_PASSWORD);
+			log.info("Demo account created — email: {} / password: {}", demoEmail, demoPassword);
 			return saved;
 		});
 	}

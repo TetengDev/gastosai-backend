@@ -30,7 +30,7 @@ public class CategoryDataLoader implements ApplicationRunner {
 			"Monthly Utilities",
 			"Training/Upskilling",
 			"Transaction Fees",
-			"Transporation",
+			"Transportation",
 			"Uncategorized",
 			"Vacation"
 	);
