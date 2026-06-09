@@ -3,6 +3,7 @@ package com.teng.app.gastosai.service;
 import com.teng.app.gastosai.dto.ImportResult;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
+import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.csv.CSVFormat;
@@ -41,7 +42,7 @@ public class CsvImportService {
 	private final ExpenseRepository expenseRepository;
 	private final CategoryService categoryService;
 
-	public ImportResult importCsv(MultipartFile file) throws IOException {
+	public ImportResult importCsv(MultipartFile file, User user) throws IOException {
 		int imported = 0;
 		int skipped = 0;
 		List<String> errors = new ArrayList<>();
@@ -78,6 +79,7 @@ public class CsvImportService {
 
 					expenseRepository.save(Expense.builder()
 							.amount(amount)
+							.user(user)
 							.category(category)
 							.date(date)
 							.description(description)

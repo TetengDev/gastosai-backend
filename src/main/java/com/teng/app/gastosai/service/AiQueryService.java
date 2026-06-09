@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.ai.SqlGuard;
 import com.teng.app.gastosai.dto.AiQueryResponse;
+import com.teng.app.gastosai.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,12 +28,13 @@ public class AiQueryService {
 	private final JdbcTemplate jdbcTemplate;
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
-	public AiQueryResponse runNaturalLanguageQuery(String question, String mode) {
+	public AiQueryResponse runNaturalLanguageQuery(String question, String mode, User user) {
 		String rawSql = sqlGenerator.generateSql(question);
 		String sql = SqlGuard.validateAndNormalize(rawSql);
-		log.info("AI-generated SQL (validated): {}", sql);
+		String scopedSql = appendUserFilter(sql, user.getId());
+		log.info("AI-generated SQL (user-scoped): {}", scopedSql);
 
-		List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql);
+		List<Map<String, Object>> rows = jdbcTemplate.queryForList(scopedSql);
 		Object normalizedData = normalizeAnswer(rows);
 
 		String resolvedMode = (mode != null && !mode.isBlank()) ? mode : "plain";
@@ -50,6 +52,26 @@ public class AiQueryService {
 			log.warn("Summary generation failed, returning raw data: {}", e.getMessage());
 			return new AiQueryResponse(normalizedData);
 		}
+	}
+
+	private static String appendUserFilter(String sql, Long userId) {
+		String s = sql.trim();
+		String lower = s.toLowerCase();
+		String filter = " AND user_id = " + userId;
+
+		int insertAt = s.length();
+		for (String kw : List.of(" group by ", " order by ", " limit ", " having ")) {
+			int idx = lower.lastIndexOf(kw);
+			if (idx > 0 && idx < insertAt) insertAt = idx;
+		}
+
+		String before = s.substring(0, insertAt);
+		String after = s.substring(insertAt);
+
+		if (lower.substring(0, insertAt).contains(" where ")) {
+			return before + filter + after;
+		}
+		return before + " WHERE user_id = " + userId + after;
 	}
 
 	private static Object normalizeAnswer(List<Map<String, Object>> rows) {

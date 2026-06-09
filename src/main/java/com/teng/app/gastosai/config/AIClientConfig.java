@@ -12,7 +12,7 @@ import com.teng.app.gastosai.ai.OpenAiSqlGenerator;
 import com.teng.app.gastosai.ai.ClaudeSqlGenerator;
 
 @Configuration
-@EnableConfigurationProperties({OpenAiProperties.class, ClaudeProperties.class, AiProviderProperties.class, FeatureProperties.class})
+@EnableConfigurationProperties({OpenAiProperties.class, ClaudeProperties.class, AiProviderProperties.class, FeatureProperties.class, JwtProperties.class})
 public class AIClientConfig
 {
 
