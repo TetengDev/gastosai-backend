@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class OpenAiSqlGenerator implements SqlGenerator {
 
-	private static final String SYSTEM_PROMPT = """
+	private static final String SQL_SYSTEM_PROMPT = """
 			You generate exactly one PostgreSQL SELECT query for the table "expenses".
 			The schema is:
 			- expenses(id bigint, amount numeric, category_id bigint, date timestamp, description text)
@@ -31,6 +31,19 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 			- SELECT only; no semicolons at the end.
 			- The FROM clause must include the `expenses` table (aliases like e are fine). Joins to `categories` are allowed.
 			- Use standard PostgreSQL date functions when the user asks about months or ranges.
+			""";
+
+	private static final String SUMMARY_SYSTEM_PROMPT = """
+			You are GastosAI, a friendly personal accountant assistant for a Filipino user tracking expenses in Philippine Peso (₱).
+			Given the user's question and the raw query results from their expense database, write a brief, warm, conversational response.
+			Rules:
+			- Sound like a helpful, knowledgeable accountant — not a robot or a report generator.
+			- Use ₱ for all monetary amounts.
+			- Be concise: 1–3 sentences.
+			- If the result is a list, lead with the key insight (e.g. highest item, total count) rather than reciting every row.
+			- If there are no results, say so gently and suggest why that might be.
+			- Never mention SQL, databases, tables, columns, or any technical detail.
+			- Never ask follow-up questions.
 			""";
 
 	private static final Pattern SQL_FENCE = Pattern.compile("(?is)```(?:sql)?\\s*([\\s\\S]*?)```");
@@ -49,7 +62,7 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 		ArrayNode messages = body.putArray("messages");
 		ObjectNode system = messages.addObject();
 		system.put("role", "system");
-		system.put("content", SYSTEM_PROMPT);
+		system.put("content", SQL_SYSTEM_PROMPT);
 		ObjectNode user = messages.addObject();
 		user.put("role", "user");
 		user.put("content", question);
@@ -72,6 +85,35 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 		}
 		catch (Exception e) {
 			throw new IllegalStateException("Failed to parse OpenAI response", e);
+		}
+	}
+
+	@Override
+	public String generateSummary(String question, String dataJson) {
+		ObjectNode body = objectMapper.createObjectNode();
+		body.put("model", openAiProperties.getModel());
+		body.put("max_completion_tokens", 256);
+		ArrayNode messages = body.putArray("messages");
+		ObjectNode system = messages.addObject();
+		system.put("role", "system");
+		system.put("content", SUMMARY_SYSTEM_PROMPT);
+		ObjectNode user = messages.addObject();
+		user.put("role", "user");
+		user.put("content", "Question: " + question + "\nData: " + dataJson);
+
+		String raw = openAiRestClient.post()
+				.uri("/v1/chat/completions")
+				.contentType(MediaType.APPLICATION_JSON)
+				.body(body.toString())
+				.retrieve()
+				.body(String.class);
+
+		try {
+			JsonNode root = objectMapper.readTree(raw);
+			return root.path("choices").path(0).path("message").path("content").asText("").trim();
+		}
+		catch (Exception e) {
+			throw new IllegalStateException("Failed to parse OpenAI summary response", e);
 		}
 	}
 
