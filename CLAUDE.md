@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./mvnw test
 
 # Run a single test class
-./mvnw test -Dtest=ExpenseApiIT
+./mvnw test -Dtest=ExpenseApiIntegrationTest
 
 # Skip tests during build
 ./mvnw clean install -DskipTests
