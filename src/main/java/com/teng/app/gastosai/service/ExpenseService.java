@@ -74,6 +74,11 @@ public class ExpenseService {
 		expenseRepository.deleteById(id);
 	}
 
+	@Transactional
+	public void deleteAll() {
+		expenseRepository.deleteAll();
+	}
+
 	@Transactional(readOnly = true)
 	public List<MonthlyReportItem> monthlyReport() {
 		return expenseRepository.sumByYearMonth().stream()

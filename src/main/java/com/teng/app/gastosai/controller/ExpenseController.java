@@ -55,6 +55,12 @@ public class ExpenseController {
 		expenseService.delete(id);
 	}
 
+	@DeleteMapping
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	public void deleteAll() {
+		expenseService.deleteAll();
+	}
+
 	@GetMapping("/report/monthly")
 	public List<MonthlyReportItem> monthlyReport() {
 		return expenseService.monthlyReport();

@@ -78,6 +78,24 @@ public class CategoryService {
 	}
 
 	@Transactional
+	public void deleteAllExceptDefault() {
+		List<Category> toDelete = categoryRepository.findAll().stream()
+				.filter(c -> !c.getName().equals(DEFAULT_CATEGORY))
+				.toList();
+		if (toDelete.isEmpty()) return;
+
+		Category fallback = getOrCreateByName(DEFAULT_CATEGORY);
+		for (Category cat : toDelete) {
+			List<Expense> affected = expenseRepository.findByCategory_Id(cat.getId());
+			if (!affected.isEmpty()) {
+				affected.forEach(e -> e.setCategory(fallback));
+				expenseRepository.saveAll(affected);
+			}
+		}
+		categoryRepository.deleteAll(toDelete);
+	}
+
+	@Transactional
 	public Category getOrCreateByName(String categoryName) {
 		String trimmed = categoryName.trim();
 		return categoryRepository.findByName(trimmed)

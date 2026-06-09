@@ -51,5 +51,11 @@ public class CategoryController {
 	public void delete(@PathVariable Long id) {
 		categoryService.delete(id);
 	}
+
+	@DeleteMapping
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	public void deleteAll() {
+		categoryService.deleteAllExceptDefault();
+	}
 }
 
