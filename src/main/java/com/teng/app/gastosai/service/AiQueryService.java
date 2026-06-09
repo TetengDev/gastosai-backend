@@ -31,7 +31,7 @@ public class AiQueryService {
 	public AiQueryResponse runNaturalLanguageQuery(String question, String mode, User user) {
 		String rawSql = sqlGenerator.generateSql(question);
 		String sql = SqlGuard.validateAndNormalize(rawSql);
-		String scopedSql = appendUserFilter(sql, user.getId());
+		String scopedSql = user.isAdmin() ? sql : appendUserFilter(sql, user.getId());
 		log.info("AI-generated SQL (user-scoped): {}", scopedSql);
 
 		List<Map<String, Object>> rows = jdbcTemplate.queryForList(scopedSql);

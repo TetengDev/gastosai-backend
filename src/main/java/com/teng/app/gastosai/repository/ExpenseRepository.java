@@ -41,6 +41,24 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
 			""")
 	List<Object[]> sumByCategory(@Param("user") User user);
 
+	@Query("""
+			SELECT YEAR(e.date), MONTH(e.date), COALESCE(SUM(e.amount), 0)
+			FROM Expense e
+			WHERE e.date IS NOT NULL
+			GROUP BY YEAR(e.date), MONTH(e.date)
+			ORDER BY YEAR(e.date), MONTH(e.date)
+			""")
+	List<Object[]> sumByYearMonthAll();
+
+	@Query("""
+			SELECT COALESCE(c.name, 'Uncategorized'), COALESCE(SUM(e.amount), 0)
+			FROM Expense e
+			LEFT JOIN e.category c
+			GROUP BY c.name
+			ORDER BY SUM(e.amount) DESC
+			""")
+	List<Object[]> sumByCategoryAll();
+
 	long countByCategory_Id(Long categoryId);
 
 	List<Expense> findByCategory_Id(Long categoryId);

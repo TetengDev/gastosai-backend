@@ -44,19 +44,26 @@ public class ExpenseService {
 
 	@Transactional(readOnly = true)
 	public List<ExpenseResponse> findAll(User user) {
-		return expenseRepository.findAllByUser(user).stream().map(this::toResponse).toList();
+		List<Expense> expenses = user.isAdmin()
+				? expenseRepository.findAll()
+				: expenseRepository.findAllByUser(user);
+		return expenses.stream().map(this::toResponse).toList();
 	}
 
 	@Transactional(readOnly = true)
 	public ExpenseResponse findById(Long id, User user) {
-		return expenseRepository.findByIdAndUser(id, user)
+		return (user.isAdmin()
+				? expenseRepository.findById(id)
+				: expenseRepository.findByIdAndUser(id, user))
 				.map(this::toResponse)
 				.orElseThrow(() -> new ResourceNotFoundException("Expense not found: " + id));
 	}
 
 	@Transactional
 	public ExpenseResponse update(Long id, ExpenseRequest request, User user) {
-		Expense expense = expenseRepository.findByIdAndUser(id, user)
+		Expense expense = (user.isAdmin()
+				? expenseRepository.findById(id)
+				: expenseRepository.findByIdAndUser(id, user))
 				.orElseThrow(() -> new ResourceNotFoundException("Expense not found: " + id));
 
 		String categoryName = (request.category() == null || request.category().isBlank())
@@ -71,7 +78,11 @@ public class ExpenseService {
 
 	@Transactional
 	public void delete(Long id, User user) {
-		if (!expenseRepository.existsByIdAndUser(id, user)) {
+		if (user.isAdmin()) {
+			if (!expenseRepository.existsById(id)) {
+				throw new ResourceNotFoundException("Expense not found: " + id);
+			}
+		} else if (!expenseRepository.existsByIdAndUser(id, user)) {
 			throw new ResourceNotFoundException("Expense not found: " + id);
 		}
 		expenseRepository.deleteById(id);
@@ -79,12 +90,17 @@ public class ExpenseService {
 
 	@Transactional
 	public void deleteAll(User user) {
-		expenseRepository.deleteAllByUser(user);
+		if (!user.isAdmin()) {
+			expenseRepository.deleteAllByUser(user);
+		}
 	}
 
 	@Transactional(readOnly = true)
 	public List<MonthlyReportItem> monthlyReport(User user) {
-		return expenseRepository.sumByYearMonth(user).stream()
+		List<Object[]> rows = user.isAdmin()
+				? expenseRepository.sumByYearMonthAll()
+				: expenseRepository.sumByYearMonth(user);
+		return rows.stream()
 				.map(row -> {
 					int year = ((Number) row[0]).intValue();
 					int month = ((Number) row[1]).intValue();
@@ -96,7 +112,10 @@ public class ExpenseService {
 
 	@Transactional(readOnly = true)
 	public List<CategoryReportItem> categoryReport(User user) {
-		return expenseRepository.sumByCategory(user).stream()
+		List<Object[]> rows = user.isAdmin()
+				? expenseRepository.sumByCategoryAll()
+				: expenseRepository.sumByCategory(user);
+		return rows.stream()
 				.map(row -> {
 					String category = row[0] != null ? (String) row[0] : "Uncategorized";
 					return new CategoryReportItem(category, toBigDecimal(row[1]));
