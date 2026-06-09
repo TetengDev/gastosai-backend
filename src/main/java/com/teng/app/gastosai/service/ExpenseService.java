@@ -4,9 +4,10 @@ import com.teng.app.gastosai.dto.CategoryReportItem;
 import com.teng.app.gastosai.dto.ExpenseRequest;
 import com.teng.app.gastosai.dto.ExpenseResponse;
 import com.teng.app.gastosai.dto.MonthlyReportItem;
-import com.teng.app.gastosai.entity.Expense;
-import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.entity.Category;
+import com.teng.app.gastosai.entity.Expense;
+import com.teng.app.gastosai.entity.User;
+import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -27,12 +28,13 @@ public class ExpenseService {
 	private final CategoryService categoryService;
 
 	@Transactional
-	public ExpenseResponse create(ExpenseRequest request) {
+	public ExpenseResponse create(ExpenseRequest request, User user) {
 		String categoryName = (request.category() == null || request.category().isBlank())
 				? DEFAULT_CATEGORY : request.category();
 		Category category = categoryService.getOrCreateByName(categoryName);
 		Expense expense = Expense.builder()
 				.amount(request.amount())
+				.user(user)
 				.category(category)
 				.date(request.date() != null ? request.date() : LocalDateTime.now())
 				.description(request.description())
@@ -41,19 +43,20 @@ public class ExpenseService {
 	}
 
 	@Transactional(readOnly = true)
-	public List<ExpenseResponse> findAll() {
-		return expenseRepository.findAll().stream().map(this::toResponse).toList();
+	public List<ExpenseResponse> findAll(User user) {
+		return expenseRepository.findAllByUser(user).stream().map(this::toResponse).toList();
 	}
 
 	@Transactional(readOnly = true)
-	public ExpenseResponse findById(Long id) {
-		return expenseRepository.findById(id).map(this::toResponse)
+	public ExpenseResponse findById(Long id, User user) {
+		return expenseRepository.findByIdAndUser(id, user)
+				.map(this::toResponse)
 				.orElseThrow(() -> new ResourceNotFoundException("Expense not found: " + id));
 	}
 
 	@Transactional
-	public ExpenseResponse update(Long id, ExpenseRequest request) {
-		Expense expense = expenseRepository.findById(id)
+	public ExpenseResponse update(Long id, ExpenseRequest request, User user) {
+		Expense expense = expenseRepository.findByIdAndUser(id, user)
 				.orElseThrow(() -> new ResourceNotFoundException("Expense not found: " + id));
 
 		String categoryName = (request.category() == null || request.category().isBlank())
@@ -67,21 +70,21 @@ public class ExpenseService {
 	}
 
 	@Transactional
-	public void delete(Long id) {
-		if (!expenseRepository.existsById(id)) {
+	public void delete(Long id, User user) {
+		if (!expenseRepository.existsByIdAndUser(id, user)) {
 			throw new ResourceNotFoundException("Expense not found: " + id);
 		}
 		expenseRepository.deleteById(id);
 	}
 
 	@Transactional
-	public void deleteAll() {
-		expenseRepository.deleteAll();
+	public void deleteAll(User user) {
+		expenseRepository.deleteAllByUser(user);
 	}
 
 	@Transactional(readOnly = true)
-	public List<MonthlyReportItem> monthlyReport() {
-		return expenseRepository.sumByYearMonth().stream()
+	public List<MonthlyReportItem> monthlyReport(User user) {
+		return expenseRepository.sumByYearMonth(user).stream()
 				.map(row -> {
 					int year = ((Number) row[0]).intValue();
 					int month = ((Number) row[1]).intValue();
@@ -92,8 +95,8 @@ public class ExpenseService {
 	}
 
 	@Transactional(readOnly = true)
-	public List<CategoryReportItem> categoryReport() {
-		return expenseRepository.sumByCategory().stream()
+	public List<CategoryReportItem> categoryReport(User user) {
+		return expenseRepository.sumByCategory(user).stream()
 				.map(row -> {
 					String category = row[0] != null ? (String) row[0] : "Uncategorized";
 					return new CategoryReportItem(category, toBigDecimal(row[1]));
