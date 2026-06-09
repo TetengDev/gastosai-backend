@@ -20,7 +20,7 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 	private static final String SYSTEM_PROMPT = """
 			You generate exactly one PostgreSQL SELECT query for the table "expenses".
 			The schema is:
-			- expenses(id bigint, amount numeric, category_id bigint, date date, note text)
+			- expenses(id bigint, amount numeric, category_id bigint, date timestamp, description text)
 			- categories(id bigint, name varchar)
 
 			When you need the category name, join:

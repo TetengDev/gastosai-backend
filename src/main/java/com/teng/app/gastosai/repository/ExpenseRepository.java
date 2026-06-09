@@ -27,4 +27,6 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
 	List<Object[]> sumByCategory();
 
 	long countByCategory_Id(Long categoryId);
+
+	List<Expense> findByCategory_Id(Long categoryId);
 }
