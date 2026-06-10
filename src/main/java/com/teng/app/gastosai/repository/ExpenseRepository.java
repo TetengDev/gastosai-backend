@@ -7,6 +7,8 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -65,4 +67,19 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
 
 	@Query("SELECT e.category.id, SUM(e.amount) FROM Expense e WHERE e.user = :user AND YEAR(e.date) = :year AND MONTH(e.date) = :month GROUP BY e.category.id")
 	List<Object[]> sumByCategoryAndMonth(@Param("user") User user, @Param("year") int year, @Param("month") int month);
+
+	List<Expense> findAllByUserAndDateGreaterThanEqualOrderByDateDesc(User user, LocalDateTime from);
+
+	List<Expense> findAllByUserAndDateLessThanOrderByDateDesc(User user, LocalDateTime to);
+
+	List<Expense> findAllByUserAndDateGreaterThanEqualAndDateLessThanOrderByDateDesc(User user, LocalDateTime from, LocalDateTime to);
+
+	List<Expense> findAllByDateGreaterThanEqualOrderByDateDesc(LocalDateTime from);
+
+	List<Expense> findAllByDateLessThanOrderByDateDesc(LocalDateTime to);
+
+	List<Expense> findAllByDateGreaterThanEqualAndDateLessThanOrderByDateDesc(LocalDateTime from, LocalDateTime to);
+
+	@Query("SELECT COALESCE(SUM(e.amount), 0) FROM Expense e WHERE e.user = :user AND YEAR(e.date) = :year AND MONTH(e.date) = :month")
+	BigDecimal sumForMonth(@Param("user") User user, @Param("year") int year, @Param("month") int month);
 }

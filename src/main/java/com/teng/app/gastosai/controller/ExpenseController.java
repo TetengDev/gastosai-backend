@@ -5,6 +5,7 @@ import com.teng.app.gastosai.dto.CategoryReportItem;
 import com.teng.app.gastosai.dto.ExpenseRequest;
 import com.teng.app.gastosai.dto.ExpenseResponse;
 import com.teng.app.gastosai.dto.ImportResult;
+import com.teng.app.gastosai.dto.MonthlyComparisonResponse;
 import com.teng.app.gastosai.dto.MonthlyReportItem;
 import com.teng.app.gastosai.dto.ParseExpenseRequest;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
@@ -30,6 +31,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -49,8 +51,10 @@ public class ExpenseController {
 	}
 
 	@GetMapping
-	public List<ExpenseResponse> list(@AuthenticationPrincipal User user) {
-		return expenseService.findAll(user);
+	public List<ExpenseResponse> list(@RequestParam(required = false) LocalDate from,
+			@RequestParam(required = false) LocalDate to,
+			@AuthenticationPrincipal User user) {
+		return expenseService.findAll(user, from, to);
 	}
 
 	@GetMapping("/{id}")
@@ -96,6 +100,15 @@ public class ExpenseController {
 	@GetMapping("/report/monthly")
 	public List<MonthlyReportItem> monthlyReport(@AuthenticationPrincipal User user) {
 		return expenseService.monthlyReport(user);
+	}
+
+	@GetMapping("/report/monthly-comparison")
+	public MonthlyComparisonResponse monthlyComparison(@RequestParam String month,
+			@AuthenticationPrincipal User user) {
+		if (!month.matches("\\d{4}-\\d{2}")) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "month must be in YYYY-MM format");
+		}
+		return expenseService.monthlyComparison(user, month);
 	}
 
 	@GetMapping("/report/category")

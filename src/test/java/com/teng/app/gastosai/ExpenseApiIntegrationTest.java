@@ -85,4 +85,50 @@ class ExpenseApiIntegrationTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$[0].category").value("Food"));
 	}
+
+	@Test
+	void list_dateRange_returnsFilteredExpenses() throws Exception {
+		mockMvc.perform(post("/expenses")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"amount": 100.00, "category": "Food", "date": "2026-01-15T00:00:00", "description": "Jan"}
+								"""))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(post("/expenses")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"amount": 200.00, "category": "Food", "date": "2026-06-15T00:00:00", "description": "Jun"}
+								"""))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(get("/expenses")
+						.header("Authorization", authHeader)
+						.param("from", "2026-06-01")
+						.param("to", "2026-06-30"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(1))
+				.andExpect(jsonPath("$[0].description").value("Jun"));
+	}
+
+	@Test
+	void monthlyComparison_returnsExpectedFields() throws Exception {
+		mockMvc.perform(get("/expenses/report/monthly-comparison")
+						.header("Authorization", authHeader)
+						.param("month", "2030-06"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.month").value("2030-06"))
+				.andExpect(jsonPath("$.currentTotal").exists())
+				.andExpect(jsonPath("$.previousTotal").exists());
+	}
+
+	@Test
+	void monthlyComparison_returns400_forInvalidMonth() throws Exception {
+		mockMvc.perform(get("/expenses/report/monthly-comparison")
+						.header("Authorization", authHeader)
+						.param("month", "invalid"))
+				.andExpect(status().isBadRequest());
+	}
 }

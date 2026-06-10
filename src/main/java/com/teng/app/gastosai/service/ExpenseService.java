@@ -3,6 +3,7 @@ package com.teng.app.gastosai.service;
 import com.teng.app.gastosai.dto.CategoryReportItem;
 import com.teng.app.gastosai.dto.ExpenseRequest;
 import com.teng.app.gastosai.dto.ExpenseResponse;
+import com.teng.app.gastosai.dto.MonthlyComparisonResponse;
 import com.teng.app.gastosai.dto.MonthlyReportItem;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
@@ -16,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -109,6 +111,55 @@ public class ExpenseService {
 					return new MonthlyReportItem(String.format("%04d-%02d", year, month), total);
 				})
 				.toList();
+	}
+
+	@Transactional(readOnly = true)
+	public List<ExpenseResponse> findAll(User user, LocalDate from, LocalDate to) {
+		if (from == null && to == null) {
+			return findAll(user);
+		}
+		List<Expense> expenses;
+		if (from != null && to != null) {
+			LocalDateTime fromDt = from.atStartOfDay();
+			LocalDateTime toDt = to.plusDays(1).atStartOfDay();
+			expenses = user.isAdmin()
+					? expenseRepository.findAllByDateGreaterThanEqualAndDateLessThanOrderByDateDesc(fromDt, toDt)
+					: expenseRepository.findAllByUserAndDateGreaterThanEqualAndDateLessThanOrderByDateDesc(user, fromDt, toDt);
+		} else if (from != null) {
+			LocalDateTime fromDt = from.atStartOfDay();
+			expenses = user.isAdmin()
+					? expenseRepository.findAllByDateGreaterThanEqualOrderByDateDesc(fromDt)
+					: expenseRepository.findAllByUserAndDateGreaterThanEqualOrderByDateDesc(user, fromDt);
+		} else {
+			LocalDateTime toDt = to.plusDays(1).atStartOfDay();
+			expenses = user.isAdmin()
+					? expenseRepository.findAllByDateLessThanOrderByDateDesc(toDt)
+					: expenseRepository.findAllByUserAndDateLessThanOrderByDateDesc(user, toDt);
+		}
+		return expenses.stream().map(this::toResponse).toList();
+	}
+
+	@Transactional(readOnly = true)
+	public MonthlyComparisonResponse monthlyComparison(User user, String month) {
+		String[] parts = month.split("-");
+		int year = Integer.parseInt(parts[0]);
+		int m = Integer.parseInt(parts[1]);
+		int prevYear = (m == 1) ? year - 1 : year;
+		int prevMonth = (m == 1) ? 12 : m - 1;
+
+		BigDecimal current = expenseRepository.sumForMonth(user, year, m)
+				.setScale(2, RoundingMode.HALF_UP);
+		BigDecimal previous = expenseRepository.sumForMonth(user, prevYear, prevMonth)
+				.setScale(2, RoundingMode.HALF_UP);
+
+		BigDecimal changePercent = null;
+		if (previous.compareTo(BigDecimal.ZERO) != 0) {
+			changePercent = current.subtract(previous)
+					.divide(previous, 4, RoundingMode.HALF_UP)
+					.multiply(new BigDecimal("100"))
+					.setScale(2, RoundingMode.HALF_UP);
+		}
+		return new MonthlyComparisonResponse(month, current, previous, changePercent);
 	}
 
 	@Transactional(readOnly = true)
