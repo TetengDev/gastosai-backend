@@ -40,7 +40,7 @@ public class CategoryDataLoader implements ApplicationRunner {
 	@Override
 	public void run(ApplicationArguments args) {
 		long created = PREDEFINED_CATEGORIES.stream()
-				.filter(name -> categoryRepository.findByName(name).isEmpty())
+				.filter(name -> categoryRepository.findByNameIgnoreCase(name).isEmpty())
 				.map(name -> categoryRepository.save(Category.builder().name(name).build()))
 				.count();
 		log.info("Predefined categories: {} created, {} already present",

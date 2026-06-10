@@ -78,7 +78,7 @@ public class AppDataLoader implements ApplicationRunner {
 		samples.forEach(sample -> {
 			String trimmed = sample.categoryName().trim();
 			byName.computeIfAbsent(trimmed, k ->
-					categoryRepository.findByName(k)
+					categoryRepository.findByNameIgnoreCase(k)
 							.orElseGet(() -> categoryRepository.save(
 									Category.builder()
 											.name(trimmed)

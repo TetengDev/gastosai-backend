@@ -25,7 +25,7 @@ public class CategoryService {
 	@Transactional
 	public CategoryResponse create(CategoryRequest request) {
 		String trimmed = request.name().trim();
-		if (categoryRepository.existsByName(trimmed)) {
+		if (categoryRepository.existsByNameIgnoreCase(trimmed)) {
 			throw new IllegalArgumentException("Category already exists: " + request.name());
 		}
 		Category saved = categoryRepository.save(Category.builder()
@@ -55,7 +55,7 @@ public class CategoryService {
 				.orElseThrow(() -> new ResourceNotFoundException("Category not found: " + id));
 
 		String trimmed = request.name().trim();
-		Category conflicting = categoryRepository.findByName(trimmed).orElse(null);
+		Category conflicting = categoryRepository.findByNameIgnoreCase(trimmed).orElse(null);
 		if (conflicting != null && !conflicting.getId().equals(existing.getId())) {
 			throw new IllegalArgumentException("Category already exists: " + request.name());
 		}
@@ -84,7 +84,7 @@ public class CategoryService {
 	@Transactional
 	public void deleteAllExceptDefault() {
 		List<Category> toDelete = categoryRepository.findAll().stream()
-				.filter(c -> !c.getName().equals(DEFAULT_CATEGORY))
+				.filter(c -> !c.getName().equalsIgnoreCase(DEFAULT_CATEGORY))
 				.toList();
 		if (toDelete.isEmpty()) return;
 
@@ -102,7 +102,7 @@ public class CategoryService {
 	@Transactional
 	public Category getOrCreateByName(String categoryName) {
 		String trimmed = categoryName.trim();
-		return categoryRepository.findByName(trimmed)
+		return categoryRepository.findByNameIgnoreCase(trimmed)
 				.orElseGet(() -> categoryRepository.save(Category.builder().name(trimmed).build()));
 	}
 
