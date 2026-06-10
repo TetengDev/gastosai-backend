@@ -1,5 +1,7 @@
 package com.teng.app.gastosai.controller;
 
+import com.teng.app.gastosai.config.JwtUtil;
+import com.teng.app.gastosai.dto.UpdateProfileResponse;
 import com.teng.app.gastosai.dto.UserProfileRequest;
 import com.teng.app.gastosai.dto.UserProfileResponse;
 import com.teng.app.gastosai.service.UserProfileService;
@@ -18,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class UserProfileController {
 
 	private final UserProfileService userProfileService;
+	private final JwtUtil jwtUtil;
 
 	@GetMapping("/profile")
 	public UserProfileResponse getProfile(Authentication authentication) {
@@ -25,10 +28,12 @@ public class UserProfileController {
 	}
 
 	@PutMapping("/profile")
-	public UserProfileResponse updateProfile(
+	public UpdateProfileResponse updateProfile(
 			Authentication authentication,
 			@RequestBody @Valid UserProfileRequest request
 	) {
-		return userProfileService.updateProfile(authentication.getName(), request);
+		UserProfileResponse profile = userProfileService.updateProfile(authentication.getName(), request);
+		String token = jwtUtil.generate(profile.email());
+		return new UpdateProfileResponse(profile.email(), profile.name(), profile.nickname(), profile.avatarColor(), token);
 	}
 }

@@ -27,4 +27,7 @@ public class Category {
 
 	@Column(nullable = false, length = 50, unique = true)
 	private String name;
+
+	@Column(length = 50)
+	private String icon;
 }

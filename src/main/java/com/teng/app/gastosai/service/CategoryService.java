@@ -28,21 +28,24 @@ public class CategoryService {
 		if (categoryRepository.existsByName(trimmed)) {
 			throw new IllegalArgumentException("Category already exists: " + request.name());
 		}
-		Category saved = categoryRepository.save(Category.builder().name(trimmed).build());
-		return new CategoryResponse(saved.getId(), saved.getName());
+		Category saved = categoryRepository.save(Category.builder()
+				.name(trimmed)
+				.icon(request.icon() != null ? request.icon().trim() : null)
+				.build());
+		return toResponse(saved);
 	}
 
 	@Transactional(readOnly = true)
 	public List<CategoryResponse> findAll() {
 		return categoryRepository.findAll().stream()
-				.map(c -> new CategoryResponse(c.getId(), c.getName()))
+				.map(this::toResponse)
 				.toList();
 	}
 
 	@Transactional(readOnly = true)
 	public CategoryResponse findById(Long id) {
 		return categoryRepository.findById(id)
-				.map(c -> new CategoryResponse(c.getId(), c.getName()))
+				.map(this::toResponse)
 				.orElseThrow(() -> new ResourceNotFoundException("Category not found: " + id));
 	}
 
@@ -58,8 +61,9 @@ public class CategoryService {
 		}
 
 		existing.setName(trimmed);
+		existing.setIcon(request.icon() != null ? request.icon().trim() : null);
 		Category saved = categoryRepository.save(existing);
-		return new CategoryResponse(saved.getId(), saved.getName());
+		return toResponse(saved);
 	}
 
 	@Transactional
@@ -100,5 +104,9 @@ public class CategoryService {
 		String trimmed = categoryName.trim();
 		return categoryRepository.findByName(trimmed)
 				.orElseGet(() -> categoryRepository.save(Category.builder().name(trimmed).build()));
+	}
+
+	private CategoryResponse toResponse(Category c) {
+		return new CategoryResponse(c.getId(), c.getName(), c.getIcon());
 	}
 }

@@ -23,10 +23,21 @@ public class UserProfileService {
 	}
 
 	@Transactional
-	public UserProfileResponse updateProfile(String email, UserProfileRequest request) {
-		User user = findUser(email);
+	public UserProfileResponse updateProfile(String currentEmail, UserProfileRequest request) {
+		User user = findUser(currentEmail);
+
+		String newEmail = request.email().strip();
+		if (!newEmail.equalsIgnoreCase(user.getEmail())) {
+			if (userRepository.existsByEmail(newEmail)) {
+				throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already registered");
+			}
+			user.setEmail(newEmail);
+		}
+
 		user.setName(request.name());
 		user.setNickname(request.nickname() != null ? request.nickname().strip() : null);
+		user.setAvatarColor(request.avatarColor() != null ? request.avatarColor().strip() : null);
+
 		return toResponse(userRepository.save(user));
 	}
 
@@ -36,6 +47,6 @@ public class UserProfileService {
 	}
 
 	private UserProfileResponse toResponse(User user) {
-		return new UserProfileResponse(user.getEmail(), user.getName(), user.getNickname());
+		return new UserProfileResponse(user.getEmail(), user.getName(), user.getNickname(), user.getAvatarColor());
 	}
 }

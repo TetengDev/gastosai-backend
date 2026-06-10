@@ -52,6 +52,9 @@ public class User implements UserDetails {
 	@Column(length = 50)
 	private String nickname;
 
+	@Column(length = 20)
+	private String avatarColor;
+
 	@Column(nullable = false, updatable = false)
 	private LocalDateTime createdAt;
 
