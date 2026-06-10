@@ -45,7 +45,7 @@ Spring Boot 4.0.5 / Java 25 REST API. PostgreSQL via JPA/Hibernate with DDL auto
 
 **AI provider config** is split into `ClaudeProperties`, `OpenAiProperties` (model + API key), and `AiProviderProperties` (which provider to activate), all bound via `@ConfigurationProperties`.
 
-**Domain model**: two entities — `Expense` (amount as `BigDecimal(19,4)`, date, note, FK to Category) and `Category` (unique name). `CategoryService` auto-creates a category by name when creating an expense if it doesn't exist, and prevents deletion of categories that still have expenses.
+**Domain model**: three entities — `Expense` (amount `BigDecimal(19,4)`, date `LocalDateTime`, description `String`, FK to Category), `Category` (unique name `String(50)`, icon `String(50)` nullable), `User` (email unique, name, nickname, avatarColor `String(20)`, password BCrypt, createdAt). JWT is issued on login, register, and profile update; subject = email. `CategoryService` auto-creates a category by name when creating an expense if it doesn't exist, and reassigns expenses to Uncategorized on category delete.
 
 **Reporting**: `ExpenseRepository` has JPQL queries for monthly aggregation (year/month + total) and category aggregation (category name + total), surfaced via `GET /expenses/report/monthly` and `GET /expenses/report/category`.
 
