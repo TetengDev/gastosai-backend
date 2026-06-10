@@ -62,4 +62,7 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
 	long countByCategory_Id(Long categoryId);
 
 	List<Expense> findByCategory_Id(Long categoryId);
+
+	@Query("SELECT e.category.id, SUM(e.amount) FROM Expense e WHERE e.user = :user AND YEAR(e.date) = :year AND MONTH(e.date) = :month GROUP BY e.category.id")
+	List<Object[]> sumByCategoryAndMonth(@Param("user") User user, @Param("year") int year, @Param("month") int month);
 }
