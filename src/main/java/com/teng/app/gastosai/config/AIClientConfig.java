@@ -7,9 +7,12 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
-import com.teng.app.gastosai.ai.SqlGenerator;
-import com.teng.app.gastosai.ai.OpenAiSqlGenerator;
+import com.teng.app.gastosai.ai.ClaudeExpenseParser;
 import com.teng.app.gastosai.ai.ClaudeSqlGenerator;
+import com.teng.app.gastosai.ai.ExpenseParser;
+import com.teng.app.gastosai.ai.OpenAiExpenseParser;
+import com.teng.app.gastosai.ai.OpenAiSqlGenerator;
+import com.teng.app.gastosai.ai.SqlGenerator;
 
 @Configuration
 @EnableConfigurationProperties({OpenAiProperties.class, ClaudeProperties.class, AiProviderProperties.class, FeatureProperties.class, JwtProperties.class})
@@ -51,5 +54,11 @@ public class AIClientConfig
 	@Primary
 	public SqlGenerator sqlGenerator(AiProviderProperties providerProps, OpenAiSqlGenerator openAiGenerator, ClaudeSqlGenerator claudeGenerator) {
 		return "claude".equalsIgnoreCase(providerProps.getProvider()) ? claudeGenerator : openAiGenerator;
+	}
+
+	@Bean
+	@Primary
+	public ExpenseParser expenseParser(AiProviderProperties providerProps, OpenAiExpenseParser openAiParser, ClaudeExpenseParser claudeParser) {
+		return "claude".equalsIgnoreCase(providerProps.getProvider()) ? claudeParser : openAiParser;
 	}
 }

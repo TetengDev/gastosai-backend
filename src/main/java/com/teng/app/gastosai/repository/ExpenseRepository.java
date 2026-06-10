@@ -12,7 +12,7 @@ import java.util.Optional;
 
 public interface ExpenseRepository extends JpaRepository<Expense, Long> {
 
-	List<Expense> findAllByUser(User user);
+	List<Expense> findAllByUserOrderByDateDesc(User user);
 
 	Optional<Expense> findByIdAndUser(Long id, User user);
 

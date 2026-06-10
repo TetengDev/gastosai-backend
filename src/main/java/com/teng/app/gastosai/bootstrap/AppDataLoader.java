@@ -85,7 +85,7 @@ public class AppDataLoader implements ApplicationRunner {
 											.build())));
 		});
 
-		long expenseCount = expenseRepository.findAllByUser(demoUser).size();
+		long expenseCount = expenseRepository.findAllByUserOrderByDateDesc(demoUser).size();
 		if (expenseCount > 0) {
 			log.info("Skipping sample expense seed: {} row(s) already exist for demo user", expenseCount);
 			return;

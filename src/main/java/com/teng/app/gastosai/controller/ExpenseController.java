@@ -1,10 +1,13 @@
 package com.teng.app.gastosai.controller;
 
+import com.teng.app.gastosai.ai.ExpenseParser;
 import com.teng.app.gastosai.dto.CategoryReportItem;
 import com.teng.app.gastosai.dto.ExpenseRequest;
 import com.teng.app.gastosai.dto.ExpenseResponse;
 import com.teng.app.gastosai.dto.ImportResult;
 import com.teng.app.gastosai.dto.MonthlyReportItem;
+import com.teng.app.gastosai.dto.ParseExpenseRequest;
+import com.teng.app.gastosai.dto.ParsedExpenseResult;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.service.CsvImportService;
 import com.teng.app.gastosai.service.ExpenseService;
@@ -36,6 +39,7 @@ public class ExpenseController {
 
 	private final ExpenseService expenseService;
 	private final CsvImportService csvImportService;
+	private final ExpenseParser expenseParser;
 
 	@PostMapping
 	@ResponseStatus(HttpStatus.CREATED)
@@ -81,6 +85,12 @@ public class ExpenseController {
 		} catch (IOException e) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Failed to read CSV: " + e.getMessage());
 		}
+	}
+
+	@PostMapping("/parse")
+	public ParsedExpenseResult parse(@Valid @RequestBody ParseExpenseRequest request,
+			@AuthenticationPrincipal User user) {
+		return expenseParser.parse(request.text());
 	}
 
 	@GetMapping("/report/monthly")

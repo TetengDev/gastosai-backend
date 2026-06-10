@@ -10,6 +10,7 @@ import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,8 +46,8 @@ public class ExpenseService {
 	@Transactional(readOnly = true)
 	public List<ExpenseResponse> findAll(User user) {
 		List<Expense> expenses = user.isAdmin()
-				? expenseRepository.findAll()
-				: expenseRepository.findAllByUser(user);
+				? expenseRepository.findAll(Sort.by(Sort.Direction.DESC, "date"))
+				: expenseRepository.findAllByUserOrderByDateDesc(user);
 		return expenses.stream().map(this::toResponse).toList();
 	}
 
