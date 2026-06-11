@@ -1,5 +1,7 @@
 package com.teng.app.gastosai.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,6 +20,13 @@ import com.teng.app.gastosai.ai.SqlGenerator;
 @EnableConfigurationProperties({OpenAiProperties.class, ClaudeProperties.class, AiProviderProperties.class, FeatureProperties.class, JwtProperties.class})
 public class AIClientConfig
 {
+
+	@Bean
+	public ObjectMapper objectMapper() {
+		ObjectMapper mapper = new ObjectMapper();
+		mapper.registerModule(new JavaTimeModule());
+		return mapper;
+	}
 
 	@Bean
 	public RestClient openAiRestClient(OpenAiProperties properties) {

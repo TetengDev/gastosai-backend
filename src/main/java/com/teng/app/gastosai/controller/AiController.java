@@ -2,6 +2,7 @@ package com.teng.app.gastosai.controller;
 
 import com.teng.app.gastosai.dto.AiQueryRequest;
 import com.teng.app.gastosai.dto.AiQueryResponse;
+import com.teng.app.gastosai.dto.ParsedExpenseResult;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.service.AiQueryService;
 import com.teng.app.gastosai.service.VisionService;
@@ -35,7 +36,7 @@ public class AiController {
 	}
 
 	@PostMapping(value = "/vision", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-	public AiQueryResponse vision(
+	public ParsedExpenseResult vision(
 			@RequestParam("file") MultipartFile file,
 			@RequestParam(value = "question", required = false) String question) {
 		try {

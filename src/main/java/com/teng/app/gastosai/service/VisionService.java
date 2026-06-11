@@ -1,5 +1,6 @@
 package com.teng.app.gastosai.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -7,7 +8,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.teng.app.gastosai.config.AiProviderProperties;
 import com.teng.app.gastosai.config.ClaudeProperties;
 import com.teng.app.gastosai.config.OpenAiProperties;
-import com.teng.app.gastosai.dto.AiQueryResponse;
+import com.teng.app.gastosai.dto.ParsedExpenseResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -22,12 +23,14 @@ import java.util.Base64;
 public class VisionService {
 
 	private static final String SYSTEM_PROMPT = """
-			You are GastosAI, an AI expense assistant for a Filipino user tracking expenses in Philippine Peso (₱).
-			The user has shared an image. Analyze it and:
-			- If it is a receipt, bill, or financial document: extract the merchant name, total amount, date, and suggest a category (e.g. Food, Transport, Utilities).
-			- If it is not expense-related: briefly describe what you see.
-			- Format monetary amounts as ₱ X,XXX.XX when the currency appears to be PHP; otherwise use the visible symbol.
-			- Be concise and structured. Do not mention SQL, databases, or technical implementation details.
+			You are GastosAI, an AI receipt parser for a Filipino expense tracker.
+			Analyze the image and return ONLY a raw JSON object — no markdown fences, no explanation.
+			The JSON must match this exact shape:
+			{"amount":250.00,"category":"Food","date":"2026-06-11T00:00:00","description":"Jollibee lunch","confidence":"high","saveable":true,"hint":null}
+			Fields: amount (number or null), category (string or null), date (ISO-8601 LocalDateTime or null),
+			description (string or null), confidence ("high"/"medium"/"low"), saveable (boolean), hint (string or null).
+			If the image is a receipt/bill/financial document: populate amount, category, date, description; set saveable=true; hint=null.
+			If the image is NOT expense-related: set saveable=false, hint=<brief description of what you see>, other fields null.
 			""";
 
 	private final RestClient claudeRestClient;
@@ -35,12 +38,12 @@ public class VisionService {
 	private final AiProviderProperties providerProps;
 	private final ClaudeProperties claudeProperties;
 	private final OpenAiProperties openAiProperties;
-	private final ObjectMapper objectMapper = new ObjectMapper();
+	private final ObjectMapper objectMapper;
 
-	public AiQueryResponse analyze(String question, MultipartFile file) throws IOException {
+	public ParsedExpenseResult analyze(String question, MultipartFile file) throws IOException {
 		String prompt = (question != null && !question.isBlank())
 				? question
-				: "What expense information can you extract from this image?";
+				: "Extract expense information from this image.";
 		String base64 = Base64.getEncoder().encodeToString(file.getBytes());
 		String mediaType = file.getContentType() != null ? file.getContentType() : "image/jpeg";
 
@@ -49,7 +52,7 @@ public class VisionService {
 				: callOpenAi(prompt, base64, mediaType);
 	}
 
-	private AiQueryResponse callClaude(String prompt, String base64, String mediaType) {
+	private ParsedExpenseResult callClaude(String prompt, String base64, String mediaType) {
 		ObjectNode body = objectMapper.createObjectNode();
 		body.put("model", claudeProperties.getModel());
 		body.put("max_tokens", 1024);
@@ -80,13 +83,14 @@ public class VisionService {
 
 		try {
 			JsonNode root = objectMapper.readTree(raw);
-			return new AiQueryResponse(root.path("content").path(0).path("text").asText("").trim());
+			String text = root.path("content").path(0).path("text").asText("").trim();
+			return parseResult(text);
 		} catch (Exception e) {
 			throw new IllegalStateException("Failed to parse Claude vision response", e);
 		}
 	}
 
-	private AiQueryResponse callOpenAi(String prompt, String base64, String mediaType) {
+	private ParsedExpenseResult callOpenAi(String prompt, String base64, String mediaType) {
 		ObjectNode body = objectMapper.createObjectNode();
 		body.put("model", openAiProperties.getModel());
 		body.put("max_completion_tokens", 1024);
@@ -117,10 +121,23 @@ public class VisionService {
 
 		try {
 			JsonNode root = objectMapper.readTree(raw);
-			return new AiQueryResponse(
-					root.path("choices").path(0).path("message").path("content").asText("").trim());
+			String text = root.path("choices").path(0).path("message").path("content").asText("").trim();
+			return parseResult(text);
 		} catch (Exception e) {
 			throw new IllegalStateException("Failed to parse OpenAI vision response", e);
+		}
+	}
+
+	private ParsedExpenseResult parseResult(String rawText) {
+		String cleaned = rawText
+				.replaceAll("(?s)^```json\\s*", "")
+				.replaceAll("(?s)^```\\s*", "")
+				.replaceAll("(?s)\\s*```$", "")
+				.trim();
+		try {
+			return objectMapper.readValue(cleaned, ParsedExpenseResult.class);
+		} catch (JsonProcessingException e) {
+			return new ParsedExpenseResult(null, null, null, null, "low", false, rawText);
 		}
 	}
 }
