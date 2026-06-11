@@ -82,4 +82,24 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
 
 	@Query("SELECT COALESCE(SUM(e.amount), 0) FROM Expense e WHERE e.user = :user AND YEAR(e.date) = :year AND MONTH(e.date) = :month")
 	BigDecimal sumForMonth(@Param("user") User user, @Param("year") int year, @Param("month") int month);
+
+	@Query("""
+			SELECT COALESCE(c.name, 'Uncategorized'), COALESCE(SUM(e.amount), 0)
+			FROM Expense e
+			LEFT JOIN e.category c
+			WHERE e.user = :user AND YEAR(e.date) = :year AND MONTH(e.date) = :month
+			GROUP BY c.name
+			ORDER BY SUM(e.amount) DESC
+			""")
+	List<Object[]> sumByCategoryForMonth(@Param("user") User user, @Param("year") int year, @Param("month") int month);
+
+	@Query("""
+			SELECT COALESCE(c.name, 'Uncategorized'), COALESCE(SUM(e.amount), 0)
+			FROM Expense e
+			LEFT JOIN e.category c
+			WHERE YEAR(e.date) = :year AND MONTH(e.date) = :month
+			GROUP BY c.name
+			ORDER BY SUM(e.amount) DESC
+			""")
+	List<Object[]> sumByCategoryForMonthAll(@Param("year") int year, @Param("month") int month);
 }

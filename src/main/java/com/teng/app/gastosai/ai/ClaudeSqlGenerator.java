@@ -69,6 +69,12 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 			- Never mention SQL, databases, tables, or technical details.
 			""";
 
+	private static final String INSIGHT_SUMMARY_PROMPT =
+			"You are GastosAI, a personal finance assistant for Filipino users. Given a JSON object with monthly expense data, write a 2–4 sentence natural-language summary of the user's spending. Use ₱ for currency. Do not mention SQL, databases, or technical terms. Keep the tone helpful and personal.";
+
+	private static final String RECOMMENDATIONS_PROMPT =
+			"You are GastosAI, a personal finance assistant for Filipino users. Given a JSON object with monthly expense data, return a JSON array of exactly 2–3 short, actionable spending recommendations as plain-text strings. Example: [\"Consider reducing Food spending which took 40% of your budget.\",\"Your Transport costs rose 20% vs last month.\"]. Use ₱ for currency. Return only the JSON array, no other text.";
+
 	private static final Pattern SQL_FENCE = Pattern.compile("(?is)```(?:sql)?\\s*([\\s\\S]*?)```");
 
 	private final RestClient claudeRestClient;
@@ -142,6 +148,34 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 		}
 		catch (Exception e) {
 			throw new IllegalStateException("Failed to parse Claude summary response", e);
+		}
+	}
+
+	@Override
+	public String generateInsightSummary(String contextJson, String insightType, String mode) {
+		String systemPrompt = "recommendations".equals(insightType) ? RECOMMENDATIONS_PROMPT : INSIGHT_SUMMARY_PROMPT;
+		ObjectNode body = objectMapper.createObjectNode();
+		body.put("model", claudeProperties.getModel());
+		body.put("max_tokens", 512);
+		body.put("system", systemPrompt);
+		ArrayNode messages = body.putArray("messages");
+		ObjectNode user = messages.addObject();
+		user.put("role", "user");
+		user.put("content", contextJson);
+
+		String raw = claudeRestClient.post()
+				.uri("/messages")
+				.contentType(MediaType.APPLICATION_JSON)
+				.body(body.toString())
+				.retrieve()
+				.body(String.class);
+
+		try {
+			JsonNode root = objectMapper.readTree(raw);
+			return root.path("content").path(0).path("text").asText("").trim();
+		}
+		catch (Exception e) {
+			throw new IllegalStateException("Failed to parse Claude insight response", e);
 		}
 	}
 

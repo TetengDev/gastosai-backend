@@ -19,6 +19,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.List;
 
 @Service
@@ -167,6 +168,20 @@ public class ExpenseService {
 		List<Object[]> rows = user.isAdmin()
 				? expenseRepository.sumByCategoryAll()
 				: expenseRepository.sumByCategory(user);
+		return rows.stream()
+				.map(row -> {
+					String category = row[0] != null ? (String) row[0] : "Uncategorized";
+					return new CategoryReportItem(category, toBigDecimal(row[1]));
+				})
+				.toList();
+	}
+
+	@Transactional(readOnly = true)
+	public List<CategoryReportItem> categoryReportForMonth(User user, String month) {
+		YearMonth ym = YearMonth.parse(month);
+		List<Object[]> rows = user.isAdmin()
+				? expenseRepository.sumByCategoryForMonthAll(ym.getYear(), ym.getMonthValue())
+				: expenseRepository.sumByCategoryForMonth(user, ym.getYear(), ym.getMonthValue());
 		return rows.stream()
 				.map(row -> {
 					String category = row[0] != null ? (String) row[0] : "Uncategorized";
