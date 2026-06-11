@@ -14,8 +14,10 @@ import com.teng.app.gastosai.service.CsvImportService;
 import com.teng.app.gastosai.service.ExpenseService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -79,6 +81,18 @@ public class ExpenseController {
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public void deleteAll(@AuthenticationPrincipal User user) {
 		expenseService.deleteAll(user);
+	}
+
+	@GetMapping("/export")
+	public ResponseEntity<byte[]> export(
+			@RequestParam(required = false) LocalDate from,
+			@RequestParam(required = false) LocalDate to,
+			@AuthenticationPrincipal User user) throws IOException {
+		byte[] csv = expenseService.exportCsv(user, from, to);
+		return ResponseEntity.ok()
+				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"expenses.csv\"")
+				.contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
+				.body(csv);
 	}
 
 	@PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

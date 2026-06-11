@@ -11,15 +11,21 @@ import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVPrinter;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+import java.io.StringWriter;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @Service
@@ -188,6 +194,26 @@ public class ExpenseService {
 					return new CategoryReportItem(category, toBigDecimal(row[1]));
 				})
 				.toList();
+	}
+
+	@Transactional(readOnly = true)
+	public byte[] exportCsv(User user, LocalDate from, LocalDate to) throws IOException {
+		List<ExpenseResponse> expenses = findAll(user, from, to);
+		StringWriter sw = new StringWriter();
+		try (CSVPrinter printer = new CSVPrinter(sw, CSVFormat.DEFAULT.builder()
+				.setHeader("Date", "Description", "Category", "Amount")
+				.build())) {
+			DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+			for (ExpenseResponse e : expenses) {
+				printer.printRecord(
+						e.date().format(fmt),
+						e.description(),
+						e.category(),
+						e.amount().toPlainString()
+				);
+			}
+		}
+		return sw.toString().getBytes(StandardCharsets.UTF_8);
 	}
 
 	private ExpenseResponse toResponse(final Expense e) {

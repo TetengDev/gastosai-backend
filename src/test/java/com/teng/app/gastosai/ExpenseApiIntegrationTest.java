@@ -14,9 +14,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -122,6 +125,25 @@ class ExpenseApiIntegrationTest {
 				.andExpect(jsonPath("$.month").value("2030-06"))
 				.andExpect(jsonPath("$.currentTotal").exists())
 				.andExpect(jsonPath("$.previousTotal").exists());
+	}
+
+	@Test
+	void export_returnsCSV() throws Exception {
+		mockMvc.perform(post("/expenses")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"amount": 150.00, "category": "Food", "date": "2026-05-10T12:00:00", "description": "Lunch export test"}
+								"""))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(get("/expenses/export")
+						.header("Authorization", authHeader))
+				.andExpect(status().isOk())
+				.andExpect(header().string("Content-Disposition", containsString("attachment")))
+				.andExpect(content().contentTypeCompatibleWith("text/csv"))
+				.andExpect(content().string(containsString("Date,Description,Category,Amount")))
+				.andExpect(content().string(containsString("Lunch export test")));
 	}
 
 	@Test
