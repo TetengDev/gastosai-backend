@@ -75,6 +75,11 @@ public class BudgetService {
 		budgetRepository.delete(budget);
 	}
 
+	@Transactional
+	public void deleteAllByUserAndMonth(User user, String month) {
+		budgetRepository.deleteAll(budgetRepository.findAllByUserAndMonth(user, month));
+	}
+
 	@Transactional(readOnly = true)
 	public BudgetSummaryResponse getSummary(String month, User user) {
 		String[] parts = month.split("-");

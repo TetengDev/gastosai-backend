@@ -56,6 +56,13 @@ public class BudgetController {
 		budgetService.delete(id, user);
 	}
 
+	@DeleteMapping
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	public void deleteAll(@RequestParam String month,
+			@AuthenticationPrincipal User user) {
+		budgetService.deleteAllByUserAndMonth(user, month);
+	}
+
 	@GetMapping("/summary")
 	public BudgetSummaryResponse summary(@RequestParam String month,
 			@AuthenticationPrincipal User user) {
