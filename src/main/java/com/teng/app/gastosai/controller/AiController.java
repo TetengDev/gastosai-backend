@@ -38,9 +38,10 @@ public class AiController {
 	@PostMapping(value = "/vision", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 	public ParsedExpenseResult vision(
 			@RequestParam("file") MultipartFile file,
-			@RequestParam(value = "question", required = false) String question) {
+			@RequestParam(value = "question", required = false) String question,
+			@RequestParam(value = "mode", required = false, defaultValue = "plain") String mode) {
 		try {
-			return visionService.analyze(question, file);
+			return visionService.analyze(question, file, mode);
 		} catch (IOException e) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Failed to read file: " + e.getMessage());
 		}

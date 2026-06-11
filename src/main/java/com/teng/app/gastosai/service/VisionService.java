@@ -22,15 +22,17 @@ import java.util.Base64;
 @RequiredArgsConstructor
 public class VisionService {
 
-	private static final String SYSTEM_PROMPT = """
+	private static final String SYSTEM_PROMPT_TEMPLATE = """
 			You are GastosAI, an AI receipt parser for a Filipino expense tracker.
 			Analyze the image and return ONLY a raw JSON object — no markdown fences, no explanation.
 			The JSON must match this exact shape:
-			{"amount":250.00,"category":"Food","date":"2026-06-11T00:00:00","description":"Jollibee lunch","confidence":"high","saveable":true,"hint":null}
+			{"amount":250.00,"category":"Food","date":"2026-06-11T00:00:00","description":"Jollibee lunch","confidence":"high","saveable":true,"hint":null,"rejectionMessage":null}
 			Fields: amount (number or null), category (string or null), date (ISO-8601 LocalDateTime or null),
-			description (string or null), confidence ("high"/"medium"/"low"), saveable (boolean), hint (string or null).
-			If the image is a receipt/bill/financial document: populate amount, category, date, description; set saveable=true; hint=null.
+			description (string or null), confidence ("high"/"medium"/"low"), saveable (boolean), hint (string or null), rejectionMessage (string or null).
+			If the image is a receipt/bill/financial document: populate amount, category, date, description; set saveable=true; hint=null; rejectionMessage=null.
 			If the image is NOT expense-related: set saveable=false, hint=<brief description of what you see>, other fields null.
+			Chat mode: %s — plain=clear friendly English, professional=formal business tone, genz=casual Gen Z slang with emojis.
+			When saveable=false: populate rejectionMessage with a short mode-appropriate message telling the user this is not a receipt and to attach one instead.
 			""";
 
 	private final RestClient claudeRestClient;
@@ -40,23 +42,24 @@ public class VisionService {
 	private final OpenAiProperties openAiProperties;
 	private final ObjectMapper objectMapper;
 
-	public ParsedExpenseResult analyze(String question, MultipartFile file) throws IOException {
+	public ParsedExpenseResult analyze(String question, MultipartFile file, String mode) throws IOException {
 		String prompt = (question != null && !question.isBlank())
 				? question
 				: "Extract expense information from this image.";
 		String base64 = Base64.getEncoder().encodeToString(file.getBytes());
 		String mediaType = file.getContentType() != null ? file.getContentType() : "image/jpeg";
+		String systemPrompt = String.format(SYSTEM_PROMPT_TEMPLATE, mode != null ? mode : "plain");
 
 		return "claude".equalsIgnoreCase(providerProps.getProvider())
-				? callClaude(prompt, base64, mediaType)
-				: callOpenAi(prompt, base64, mediaType);
+				? callClaude(prompt, base64, mediaType, systemPrompt)
+				: callOpenAi(prompt, base64, mediaType, systemPrompt);
 	}
 
-	private ParsedExpenseResult callClaude(String prompt, String base64, String mediaType) {
+	private ParsedExpenseResult callClaude(String prompt, String base64, String mediaType, String systemPrompt) {
 		ObjectNode body = objectMapper.createObjectNode();
 		body.put("model", claudeProperties.getModel());
 		body.put("max_tokens", 1024);
-		body.put("system", SYSTEM_PROMPT);
+		body.put("system", systemPrompt);
 
 		ArrayNode messages = body.putArray("messages");
 		ObjectNode userMsg = messages.addObject();
@@ -90,7 +93,7 @@ public class VisionService {
 		}
 	}
 
-	private ParsedExpenseResult callOpenAi(String prompt, String base64, String mediaType) {
+	private ParsedExpenseResult callOpenAi(String prompt, String base64, String mediaType, String systemPrompt) {
 		ObjectNode body = objectMapper.createObjectNode();
 		body.put("model", openAiProperties.getModel());
 		body.put("max_completion_tokens", 1024);
@@ -98,7 +101,7 @@ public class VisionService {
 		ArrayNode messages = body.putArray("messages");
 		ObjectNode system = messages.addObject();
 		system.put("role", "system");
-		system.put("content", SYSTEM_PROMPT);
+		system.put("content", systemPrompt);
 
 		ObjectNode userMsg = messages.addObject();
 		userMsg.put("role", "user");
@@ -137,7 +140,7 @@ public class VisionService {
 		try {
 			return objectMapper.readValue(cleaned, ParsedExpenseResult.class);
 		} catch (JsonProcessingException e) {
-			return new ParsedExpenseResult(null, null, null, null, "low", false, rawText);
+			return new ParsedExpenseResult(null, null, null, null, "low", false, rawText, null);
 		}
 	}
 }

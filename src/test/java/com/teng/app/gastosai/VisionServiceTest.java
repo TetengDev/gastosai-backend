@@ -82,7 +82,7 @@ class VisionServiceTest {
                 """;
         mockOpenAiChain(openAiResponse);
 
-        ParsedExpenseResult result = visionService.analyze(null, whitePixel());
+        ParsedExpenseResult result = visionService.analyze(null, whitePixel(), "plain");
 
         assertThat(result.saveable()).isTrue();
         assertThat(result.amount()).isNotNull();
@@ -95,7 +95,7 @@ class VisionServiceTest {
                 """;
         mockOpenAiChain(openAiResponse);
 
-        ParsedExpenseResult result = visionService.analyze(null, whitePixel());
+        ParsedExpenseResult result = visionService.analyze(null, whitePixel(), "plain");
 
         assertThat(result.saveable()).isFalse();
         assertThat(result.hint()).isEqualTo("A photo of a cat");
@@ -108,7 +108,7 @@ class VisionServiceTest {
                 """;
         mockOpenAiChain(openAiResponse);
 
-        ParsedExpenseResult result = visionService.analyze(null, whitePixel());
+        ParsedExpenseResult result = visionService.analyze(null, whitePixel(), "plain");
 
         assertThat(result.saveable()).isFalse();
         assertThat(result.hint()).contains("not valid json");

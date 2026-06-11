@@ -13,5 +13,6 @@ public record ParsedExpenseResult(
         String description,
         String confidence,
         boolean saveable,
-        String hint
+        String hint,
+        String rejectionMessage
 ) {}

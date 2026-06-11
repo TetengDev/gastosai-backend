@@ -72,6 +72,6 @@ public class OpenAiExpenseParser implements ExpenseParser {
         boolean saveable = "HIGH".equals(confidence) && amount.compareTo(BigDecimal.ZERO) > 0;
         String hint = saveable ? null : "Amount or description unclear - please provide more details.";
 
-        return new ParsedExpenseResult(amount, category, date, description, confidence, saveable, hint);
+        return new ParsedExpenseResult(amount, category, date, description, confidence, saveable, hint, null);
     }
 }

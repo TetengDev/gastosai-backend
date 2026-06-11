@@ -70,6 +70,7 @@ class ExpenseParseIntegrationTest {
                 "Lunch at Jollibee",
                 "HIGH",
                 true,
+                null,
                 null
         );
         when(expenseParser.parse("spent 250 on lunch at Jollibee")).thenReturn(draft);
@@ -98,7 +99,8 @@ class ExpenseParseIntegrationTest {
                 "Payment, details not specified",
                 "LOW",
                 false,
-                "Amount or description unclear - please provide more details."
+                "Amount or description unclear - please provide more details.",
+                null
         );
         when(expenseParser.parse("may binayad ako kanina")).thenReturn(vague);
 
