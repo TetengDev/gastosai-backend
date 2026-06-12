@@ -115,6 +115,8 @@ public class AppDataLoader implements ApplicationRunner {
 							.category(category)
 							.date(sample.date())
 							.description(sample.description())
+							.expenseType(sample.expenseType())
+							.reimbursable(sample.reimbursable())
 							.build();
 				})
 				.toList();

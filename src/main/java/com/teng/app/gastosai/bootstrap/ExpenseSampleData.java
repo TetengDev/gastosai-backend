@@ -1,5 +1,7 @@
 package com.teng.app.gastosai.bootstrap;
 
+import com.teng.app.gastosai.entity.ExpenseType;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -9,7 +11,12 @@ public final class ExpenseSampleData {
 	private ExpenseSampleData() {
 	}
 
-	public record SampleExpense(BigDecimal amount, String categoryName, LocalDateTime date, String description) {
+	public record SampleExpense(BigDecimal amount, String categoryName, LocalDateTime date, String description,
+			ExpenseType expenseType, boolean reimbursable) {
+
+		public SampleExpense(BigDecimal amount, String categoryName, LocalDateTime date, String description) {
+			this(amount, categoryName, date, description, ExpenseType.PERSONAL, false);
+		}
 	}
 
 	public static List<SampleExpense> samples() {
@@ -55,6 +62,7 @@ public final class ExpenseSampleData {
 				new SampleExpense(new BigDecimal("760.00"),  "Meal Plan",            LocalDateTime.of(2026, 4,  9, 11,  0), "Weekly groceries"),
 				new SampleExpense(new BigDecimal("135.00"),  "Meal Plan",            LocalDateTime.of(2026, 4, 12,  9,  0), "Coffee and pastries"),
 				new SampleExpense(new BigDecimal("599.00"),  "Training/Upskilling",  LocalDateTime.of(2026, 4, 15, 14,  0), "Online course"),
+				new SampleExpense(new BigDecimal("1200.00"), "Training/Upskilling",  LocalDateTime.of(2026, 4, 18, 10,  0), "Tech conference registration", ExpenseType.BUSINESS, false),
 				new SampleExpense(new BigDecimal("950.00"),  "Extras",               LocalDateTime.of(2026, 4, 20, 16,  0), "Clothing"),
 				new SampleExpense(new BigDecimal("25.00"),   "Transaction Fees",     LocalDateTime.of(2026, 4, 25, 11,  0), "Bank transfer fee"),
 
@@ -65,20 +73,38 @@ public final class ExpenseSampleData {
 				new SampleExpense(new BigDecimal("1150.00"), "Transportation",       LocalDateTime.of(2026, 5,  8,  9, 30), "Gas refill"),
 				new SampleExpense(new BigDecimal("870.00"),  "Meal Plan",            LocalDateTime.of(2026, 5, 11, 11,  0), "Weekly groceries"),
 				new SampleExpense(new BigDecimal("175.00"),  "Meal Plan",            LocalDateTime.of(2026, 5, 16, 12, 30), "Lunch out"),
+				new SampleExpense(new BigDecimal("2400.00"), "Training/Upskilling",  LocalDateTime.of(2026, 5, 19,  9,  0), "Work laptop stand and peripherals", ExpenseType.BUSINESS, true),
 				new SampleExpense(new BigDecimal("245.00"),  "Hygiene Essentials",   LocalDateTime.of(2026, 5, 22, 14,  0), "Sunscreen and lotion"),
 				new SampleExpense(new BigDecimal("3200.00"), "Vacation",             LocalDateTime.of(2026, 5, 22, 16,  0), "Hotel for long weekend"),
 				new SampleExpense(new BigDecimal("320.00"),  "Meal Plan",            LocalDateTime.of(2026, 5, 23, 13,  0), "Meals during trip"),
 
-				// June 2026
+				// June 2026 — spread across more days for daily trend chart
 				new SampleExpense(new BigDecimal("1900.00"), "Monthly Utilities",    LocalDateTime.of(2026, 6,  1,  9,  0), "Rent"),
+				new SampleExpense(new BigDecimal("85.00"),   "Meal Plan",            LocalDateTime.of(2026, 6,  2,  8, 30), "Coffee and snacks"),
+				new SampleExpense(new BigDecimal("160.00"),  "Meal Plan",            LocalDateTime.of(2026, 6,  3, 12, 30), "Lunch out"),
+				new SampleExpense(new BigDecimal("90.00"),   "Transportation",       LocalDateTime.of(2026, 6,  4,  7, 45), "Commute fare"),
 				new SampleExpense(new BigDecimal("543.00"),  "Monthly Utilities",    LocalDateTime.of(2026, 6,  5, 10,  0), "Electricity bill"),
 				new SampleExpense(new BigDecimal("480.00"),  "Monthly Utilities",    LocalDateTime.of(2026, 6,  5, 10, 30), "Internet subscription"),
+				new SampleExpense(new BigDecimal("220.00"),  "Meal Plan",            LocalDateTime.of(2026, 6,  6, 19,  0), "Dinner"),
 				new SampleExpense(new BigDecimal("90.00"),   "Transportation",       LocalDateTime.of(2026, 6,  7,  7, 45), "Commute fare"),
+				new SampleExpense(new BigDecimal("70.00"),   "Meal Plan",            LocalDateTime.of(2026, 6,  8,  9,  0), "Coffee and pastries"),
 				new SampleExpense(new BigDecimal("810.00"),  "Meal Plan",            LocalDateTime.of(2026, 6,  9, 11,  0), "Weekly groceries"),
+				new SampleExpense(new BigDecimal("145.00"),  "Meal Plan",            LocalDateTime.of(2026, 6, 10, 12, 30), "Lunch"),
+				new SampleExpense(new BigDecimal("85.00"),   "Transportation",       LocalDateTime.of(2026, 6, 11,  7, 45), "Commute fare"),
 				new SampleExpense(new BigDecimal("155.00"),  "Meal Plan",            LocalDateTime.of(2026, 6, 12, 12, 30), "Lunch out"),
+				new SampleExpense(new BigDecimal("650.00"),  "Meal Plan",            LocalDateTime.of(2026, 6, 13, 19,  0), "Client dinner", ExpenseType.BUSINESS, true),
+				new SampleExpense(new BigDecimal("75.00"),   "Meal Plan",            LocalDateTime.of(2026, 6, 14,  8, 30), "Coffee"),
 				new SampleExpense(new BigDecimal("750.00"),  "Monthly Personal",     LocalDateTime.of(2026, 6, 15,  8,  0), "Gym membership renewal"),
+				new SampleExpense(new BigDecimal("55.00"),   "Meal Plan",            LocalDateTime.of(2026, 6, 16,  9,  0), "Snacks"),
+				new SampleExpense(new BigDecimal("90.00"),   "Transportation",       LocalDateTime.of(2026, 6, 17,  7, 45), "Commute fare"),
 				new SampleExpense(new BigDecimal("420.00"),  "Training/Upskilling",  LocalDateTime.of(2026, 6, 18, 14,  0), "Books and study materials"),
-				new SampleExpense(new BigDecimal("180.00"),  "Uncategorized",        LocalDateTime.of(2026, 6, 22, 15, 30), "Miscellaneous items")
+				new SampleExpense(new BigDecimal("130.00"),  "Meal Plan",            LocalDateTime.of(2026, 6, 19, 12, 30), "Lunch"),
+				new SampleExpense(new BigDecimal("899.00"),  "Training/Upskilling",  LocalDateTime.of(2026, 6, 20, 10,  0), "Software subscription — annual", ExpenseType.BUSINESS, true),
+				new SampleExpense(new BigDecimal("85.00"),   "Transportation",       LocalDateTime.of(2026, 6, 21,  7, 45), "Commute fare"),
+				new SampleExpense(new BigDecimal("180.00"),  "Uncategorized",        LocalDateTime.of(2026, 6, 22, 15, 30), "Miscellaneous items"),
+				new SampleExpense(new BigDecimal("140.00"),  "Meal Plan",            LocalDateTime.of(2026, 6, 23, 12, 30), "Lunch"),
+				new SampleExpense(new BigDecimal("75.00"),   "Meal Plan",            LocalDateTime.of(2026, 6, 24,  8, 30), "Coffee"),
+				new SampleExpense(new BigDecimal("90.00"),   "Transportation",       LocalDateTime.of(2026, 6, 25,  7, 45), "Commute fare")
 		);
 	}
 }

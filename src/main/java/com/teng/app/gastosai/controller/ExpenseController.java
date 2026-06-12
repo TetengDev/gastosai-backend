@@ -2,6 +2,7 @@ package com.teng.app.gastosai.controller;
 
 import com.teng.app.gastosai.ai.ExpenseParser;
 import com.teng.app.gastosai.dto.CategoryReportItem;
+import com.teng.app.gastosai.dto.DailyReportItem;
 import com.teng.app.gastosai.dto.ExpenseRequest;
 import com.teng.app.gastosai.dto.ExpenseResponse;
 import com.teng.app.gastosai.dto.ImportResult;
@@ -128,5 +129,20 @@ public class ExpenseController {
 	@GetMapping("/report/category")
 	public List<CategoryReportItem> categoryReport(@AuthenticationPrincipal User user) {
 		return expenseService.categoryReport(user);
+	}
+
+	@GetMapping("/report/daily")
+	public ResponseEntity<List<DailyReportItem>> dailyReport(@RequestParam String month,
+			@AuthenticationPrincipal User user) {
+		return ResponseEntity.ok(expenseService.dailyReport(user, month));
+	}
+
+	@GetMapping("/report/top")
+	public ResponseEntity<List<ExpenseResponse>> topTransactions(
+			@RequestParam String month,
+			@RequestParam(defaultValue = "5") int limit,
+			@AuthenticationPrincipal User user) {
+		int cappedLimit = Math.min(limit, 50);
+		return ResponseEntity.ok(expenseService.topTransactions(user, month, cappedLimit));
 	}
 }

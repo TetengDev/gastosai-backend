@@ -1,6 +1,7 @@
 package com.teng.app.gastosai.service;
 
 import com.teng.app.gastosai.dto.CategoryReportItem;
+import com.teng.app.gastosai.dto.DailyReportItem;
 import com.teng.app.gastosai.dto.ExpenseRequest;
 import com.teng.app.gastosai.dto.ExpenseResponse;
 import com.teng.app.gastosai.dto.MonthlyComparisonResponse;
@@ -14,9 +15,12 @@ import com.teng.app.gastosai.repository.ExpenseRepository;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.io.StringWriter;
@@ -206,6 +210,45 @@ public class ExpenseService {
 					String category = row[0] != null ? (String) row[0] : "Uncategorized";
 					return new CategoryReportItem(category, toBigDecimal(row[1]));
 				})
+				.toList();
+	}
+
+	@Transactional(readOnly = true)
+	public List<DailyReportItem> dailyReport(User user, String month) {
+		if (month == null || !month.matches("\\d{4}-\\d{2}")) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "month must be in YYYY-MM format");
+		}
+		YearMonth ym = YearMonth.parse(month);
+		List<Object[]> rows = expenseRepository.sumByDayForMonth(user, ym.getYear(), ym.getMonthValue());
+		var dayTotals = new java.util.HashMap<Integer, BigDecimal>();
+		for (Object[] row : rows) {
+			int day = ((Number) row[0]).intValue();
+			BigDecimal total = toBigDecimal(row[1]);
+			dayTotals.put(day, total);
+		}
+		return java.util.stream.IntStream.rangeClosed(1, ym.lengthOfMonth())
+				.mapToObj(day -> {
+					String dateStr = String.format("%04d-%02d-%02d", ym.getYear(), ym.getMonthValue(), day);
+					BigDecimal total = dayTotals.getOrDefault(day, BigDecimal.ZERO)
+							.setScale(2, RoundingMode.HALF_UP);
+					return new DailyReportItem(dateStr, total);
+				})
+				.toList();
+	}
+
+	@Transactional(readOnly = true)
+	public List<ExpenseResponse> topTransactions(User user, String month, int limit) {
+		if (month == null || !month.matches("\\d{4}-\\d{2}")) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "month must be in YYYY-MM format");
+		}
+		int cappedLimit = Math.min(limit, 50);
+		YearMonth ym = YearMonth.parse(month);
+		LocalDateTime startOfMonth = ym.atDay(1).atStartOfDay();
+		LocalDateTime endOfMonth = ym.atEndOfMonth().atTime(23, 59, 59);
+		var pageable = PageRequest.of(0, cappedLimit);
+		return expenseRepository.findByUserAndDateBetweenOrderByAmountDesc(user, startOfMonth, endOfMonth, pageable)
+				.stream()
+				.map(this::toResponse)
 				.toList();
 	}
 

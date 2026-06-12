@@ -1,5 +1,6 @@
 package com.teng.app.gastosai;
 
+import com.teng.app.gastosai.dto.DailyReportItem;
 import com.teng.app.gastosai.dto.ExpenseRequest;
 import com.teng.app.gastosai.dto.ExpenseResponse;
 import com.teng.app.gastosai.dto.MonthlyComparisonResponse;
@@ -15,17 +16,21 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -305,5 +310,70 @@ class ExpenseServiceTest {
                 new ExpenseRequest(new BigDecimal("30"), null, null, "No date", null, null), user);
 
         assertThat(response.date()).isNotNull();
+    }
+
+    @Test
+    void dailyReport_fillsMissingDaysWithZero() {
+        User user = regularUser();
+        List<Object[]> rows = new ArrayList<>();
+        rows.add(new Object[]{15, new BigDecimal("100.00")});
+        when(expenseRepository.sumByDayForMonth(user, 2026, 6)).thenReturn(rows);
+
+        List<DailyReportItem> result = expenseService.dailyReport(user, "2026-06");
+
+        assertThat(result).hasSize(30);
+        DailyReportItem day15 = result.stream().filter(r -> r.date().equals("2026-06-15")).findFirst().orElseThrow();
+        assertThat(day15.total()).isEqualByComparingTo("100.00");
+        long zeroCount = result.stream().filter(r -> r.total().compareTo(BigDecimal.ZERO) == 0).count();
+        assertThat(zeroCount).isEqualTo(29);
+    }
+
+    @Test
+    void dailyReport_returnsOnlyDaysInMonth() {
+        User user = regularUser();
+        when(expenseRepository.sumByDayForMonth(user, 2026, 2)).thenReturn(List.of());
+
+        List<DailyReportItem> result = expenseService.dailyReport(user, "2026-02");
+
+        assertThat(result).hasSize(YearMonth.of(2026, 2).lengthOfMonth());
+    }
+
+    @Test
+    void topTransactions_returnsDescByAmount() {
+        User user = regularUser();
+        Category cat = Category.builder().id(1L).name("Food").build();
+        Expense e1 = Expense.builder().id(1L).amount(new BigDecimal("300.0000")).category(cat)
+                .date(LocalDateTime.of(2026, 6, 10, 10, 0)).description("A").build();
+        Expense e2 = Expense.builder().id(2L).amount(new BigDecimal("500.0000")).category(cat)
+                .date(LocalDateTime.of(2026, 6, 11, 10, 0)).description("B").build();
+        Expense e3 = Expense.builder().id(3L).amount(new BigDecimal("100.0000")).category(cat)
+                .date(LocalDateTime.of(2026, 6, 12, 10, 0)).description("C").build();
+
+        when(expenseRepository.findByUserAndDateBetweenOrderByAmountDesc(
+                eq(user), any(LocalDateTime.class), any(LocalDateTime.class), any(Pageable.class)))
+                .thenReturn(List.of(e2, e1, e3));
+
+        List<ExpenseResponse> result = expenseService.topTransactions(user, "2026-06", 5);
+
+        assertThat(result).hasSize(3);
+        assertThat(result.get(0).amount()).isEqualByComparingTo("500.00");
+        assertThat(result.get(1).amount()).isEqualByComparingTo("300.00");
+        assertThat(result.get(2).amount()).isEqualByComparingTo("100.00");
+    }
+
+    @Test
+    void topTransactions_respectsLimit() {
+        User user = regularUser();
+
+        when(expenseRepository.findByUserAndDateBetweenOrderByAmountDesc(
+                eq(user), any(LocalDateTime.class), any(LocalDateTime.class),
+                argThat(p -> p.getPageSize() == 3)))
+                .thenReturn(List.of());
+
+        expenseService.topTransactions(user, "2026-06", 3);
+
+        verify(expenseRepository).findByUserAndDateBetweenOrderByAmountDesc(
+                eq(user), any(LocalDateTime.class), any(LocalDateTime.class),
+                argThat(p -> p.getPageSize() == 3));
     }
 }

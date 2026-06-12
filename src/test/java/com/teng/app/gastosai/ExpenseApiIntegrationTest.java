@@ -14,6 +14,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
+import java.time.LocalDate;
+import java.time.YearMonth;
+
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -166,5 +169,91 @@ class ExpenseApiIntegrationTest {
 				.andExpect(status().isCreated())
 				.andExpect(jsonPath("$.expenseType").value("BUSINESS"))
 				.andExpect(jsonPath("$.reimbursable").value(true));
+	}
+
+	@Test
+	void dailyReport_returnsAllDaysInMonth() throws Exception {
+		String month = "2026-03";
+		int expectedDays = YearMonth.of(2026, 3).lengthOfMonth();
+
+		mockMvc.perform(post("/expenses")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"amount":150.00,"category":"Food","date":"2026-03-05T10:00:00","description":"Day5"}
+								"""))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(post("/expenses")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"amount":200.00,"category":"Food","date":"2026-03-20T10:00:00","description":"Day20"}
+								"""))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(get("/expenses/report/daily")
+						.header("Authorization", authHeader)
+						.param("month", month))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(expectedDays))
+				.andExpect(jsonPath("$[4].date").value("2026-03-05"))
+				.andExpect(jsonPath("$[4].total").value(150.00))
+				.andExpect(jsonPath("$[19].date").value("2026-03-20"))
+				.andExpect(jsonPath("$[19].total").value(200.00));
+	}
+
+	@Test
+	void topTransactions_returnsTopByAmount() throws Exception {
+		String month = "2026-04";
+
+		mockMvc.perform(post("/expenses")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"amount":50.00,"category":"Food","date":"2026-04-10T10:00:00","description":"Low"}
+								"""))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(post("/expenses")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"amount":300.00,"category":"Food","date":"2026-04-15T10:00:00","description":"High"}
+								"""))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(post("/expenses")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"amount":150.00,"category":"Food","date":"2026-04-20T10:00:00","description":"Mid"}
+								"""))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(get("/expenses/report/top")
+						.header("Authorization", authHeader)
+						.param("month", month)
+						.param("limit", "2"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(2))
+				.andExpect(jsonPath("$[0].description").value("High"))
+				.andExpect(jsonPath("$[1].description").value("Mid"));
+	}
+
+	@Test
+	void dailyReport_badMonthFormat_returns400() throws Exception {
+		mockMvc.perform(get("/expenses/report/daily")
+						.header("Authorization", authHeader)
+						.param("month", "bad-format"))
+				.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	void topTransactions_badMonthFormat_returns400() throws Exception {
+		mockMvc.perform(get("/expenses/report/top")
+						.header("Authorization", authHeader)
+						.param("month", "bad-format"))
+				.andExpect(status().isBadRequest());
 	}
 }

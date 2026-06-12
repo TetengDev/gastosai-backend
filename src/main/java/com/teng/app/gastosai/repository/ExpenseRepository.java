@@ -7,6 +7,8 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import org.springframework.data.domain.Pageable;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -82,6 +84,11 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
 
 	@Query("SELECT COALESCE(SUM(e.amount), 0) FROM Expense e WHERE e.user = :user AND YEAR(e.date) = :year AND MONTH(e.date) = :month")
 	BigDecimal sumForMonth(@Param("user") User user, @Param("year") int year, @Param("month") int month);
+
+	@Query("SELECT DAY(e.date), SUM(e.amount) FROM Expense e WHERE e.user = :user AND YEAR(e.date) = :year AND MONTH(e.date) = :month GROUP BY DAY(e.date)")
+	List<Object[]> sumByDayForMonth(@Param("user") User user, @Param("year") int year, @Param("month") int month);
+
+	List<Expense> findByUserAndDateBetweenOrderByAmountDesc(User user, LocalDateTime from, LocalDateTime to, Pageable pageable);
 
 	@Query("""
 			SELECT COALESCE(c.name, 'Uncategorized'), COALESCE(SUM(e.amount), 0)
