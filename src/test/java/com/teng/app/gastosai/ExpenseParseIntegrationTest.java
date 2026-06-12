@@ -133,6 +133,6 @@ class ExpenseParseIntegrationTest {
                         .content("""
                                 {"text": "coffee 75 pesos"}
                                 """))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 }

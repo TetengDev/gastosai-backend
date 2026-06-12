@@ -67,7 +67,7 @@ class ExpenseServiceTest {
         when(expenseRepository.save(any(Expense.class))).thenReturn(saved);
 
         ExpenseResponse response = expenseService.create(
-                new ExpenseRequest(new BigDecimal("50"), "", null, "Test"), user);
+                new ExpenseRequest(new BigDecimal("50"), "", null, "Test", null, null), user);
 
         assertThat(response.category()).isEqualTo("Uncategorized");
         verify(categoryService).getOrCreateByName("Uncategorized");
@@ -89,7 +89,7 @@ class ExpenseServiceTest {
         when(expenseRepository.save(any(Expense.class))).thenReturn(saved);
 
         ExpenseResponse response = expenseService.create(
-                new ExpenseRequest(new BigDecimal("120"), "Meal Plan", null, "Lunch"), user);
+                new ExpenseRequest(new BigDecimal("120"), "Meal Plan", null, "Lunch", null, null), user);
 
         assertThat(response.category()).isEqualTo("Meal Plan");
         verify(categoryService).getOrCreateByName("Meal Plan");
@@ -154,7 +154,7 @@ class ExpenseServiceTest {
         when(expenseRepository.save(any(Expense.class))).thenReturn(existing);
 
         ExpenseResponse response = expenseService.update(7L,
-                new ExpenseRequest(new BigDecimal("90"), "Meal Plan", null, "New desc"), user);
+                new ExpenseRequest(new BigDecimal("90"), "Meal Plan", null, "New desc", null, null), user);
 
         assertThat(existing.getDescription()).isEqualTo("New desc");
         assertThat(existing.getCategory().getName()).isEqualTo("Meal Plan");
@@ -302,7 +302,7 @@ class ExpenseServiceTest {
                 });
 
         ExpenseResponse response = expenseService.create(
-                new ExpenseRequest(new BigDecimal("30"), null, null, "No date"), user);
+                new ExpenseRequest(new BigDecimal("30"), null, null, "No date", null, null), user);
 
         assertThat(response.date()).isNotNull();
     }

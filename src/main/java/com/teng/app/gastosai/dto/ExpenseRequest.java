@@ -14,6 +14,8 @@ public record ExpenseRequest(
 		@Digits(integer = 15, fraction = 4) BigDecimal amount,
 		@Size(max = 50) String category,
 		LocalDateTime date,
-		@NotBlank String description
+		@NotBlank String description,
+		String expenseType,
+		Boolean reimbursable
 ) {
 }

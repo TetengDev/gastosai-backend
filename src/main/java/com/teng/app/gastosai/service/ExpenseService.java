@@ -7,6 +7,7 @@ import com.teng.app.gastosai.dto.MonthlyComparisonResponse;
 import com.teng.app.gastosai.dto.MonthlyReportItem;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
+import com.teng.app.gastosai.entity.ExpenseType;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.ExpenseRepository;
@@ -42,12 +43,18 @@ public class ExpenseService {
 		String categoryName = (request.category() == null || request.category().isBlank())
 				? DEFAULT_CATEGORY : request.category();
 		Category category = categoryService.getOrCreateByName(categoryName);
+		ExpenseType expenseType = request.expenseType() != null
+				? ExpenseType.valueOf(request.expenseType())
+				: ExpenseType.PERSONAL;
+		boolean reimbursable = request.reimbursable() != null && request.reimbursable();
 		Expense expense = Expense.builder()
 				.amount(request.amount())
 				.user(user)
 				.category(category)
 				.date(request.date() != null ? request.date() : LocalDateTime.now())
 				.description(request.description())
+				.expenseType(expenseType)
+				.reimbursable(reimbursable)
 				.build();
 		return toResponse(expenseRepository.save(expense));
 	}
@@ -83,6 +90,12 @@ public class ExpenseService {
 		expense.setCategory(category);
 		expense.setDate(request.date() != null ? request.date() : expense.getDate());
 		expense.setDescription(request.description());
+		if (request.expenseType() != null) {
+			expense.setExpenseType(ExpenseType.valueOf(request.expenseType()));
+		}
+		if (request.reimbursable() != null) {
+			expense.setReimbursable(request.reimbursable());
+		}
 		return toResponse(expenseRepository.save(expense));
 	}
 
@@ -218,7 +231,7 @@ public class ExpenseService {
 
 	private ExpenseResponse toResponse(final Expense e) {
 		String categoryName = e.getCategory() != null ? e.getCategory().getName() : "Uncategorized";
-		return new ExpenseResponse(e.getId(), e.getAmount().setScale(2, RoundingMode.HALF_UP), categoryName, e.getDate(), e.getDescription());
+		return new ExpenseResponse(e.getId(), e.getAmount().setScale(2, RoundingMode.HALF_UP), categoryName, e.getDate(), e.getDescription(), e.getExpenseType().name(), e.isReimbursable());
 	}
 
 	private static BigDecimal toBigDecimal(Object value) {

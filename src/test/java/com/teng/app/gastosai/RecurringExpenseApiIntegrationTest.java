@@ -182,6 +182,6 @@ class RecurringExpenseApiIntegrationTest {
 						.content("""
 								{"name":"Test","amount":100.00,"frequency":"MONTHLY"}
 								"""))
-				.andExpect(status().isForbidden());
+				.andExpect(status().isUnauthorized());
 	}
 }

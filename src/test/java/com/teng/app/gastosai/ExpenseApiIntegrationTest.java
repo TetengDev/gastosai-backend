@@ -153,4 +153,18 @@ class ExpenseApiIntegrationTest {
 						.param("month", "invalid"))
 				.andExpect(status().isBadRequest());
 	}
+
+	@Test
+	void createBusinessExpense_returnsCorrectTypeAndReimbursable() throws Exception {
+		mockMvc.perform(post("/expenses")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"amount":100.00,"category":"Office","date":"2026-06-01T00:00:00",
+								 "description":"Laptop","expenseType":"BUSINESS","reimbursable":true}
+								"""))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.expenseType").value("BUSINESS"))
+				.andExpect(jsonPath("$.reimbursable").value(true));
+	}
 }

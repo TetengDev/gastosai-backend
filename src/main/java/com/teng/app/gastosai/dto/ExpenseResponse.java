@@ -11,5 +11,7 @@ public record ExpenseResponse(
 		String category,
 		@JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
 		LocalDateTime date,
-		String description
+		String description,
+		String expenseType,
+		boolean reimbursable
 ) {}
