@@ -13,5 +13,8 @@ public record ExpenseResponse(
 		LocalDateTime date,
 		String description,
 		String expenseType,
-		boolean reimbursable
+		boolean reimbursable,
+		String currency,
+		BigDecimal exchangeRate,
+		BigDecimal amountInBaseCurrency
 ) {}

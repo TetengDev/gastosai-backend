@@ -10,6 +10,7 @@ public record UpcomingBillResponse(
 		BigDecimal amount,
 		String categoryName,
 		Frequency frequency,
-		String dueDate
+		String dueDate,
+		String currency
 ) {
 }

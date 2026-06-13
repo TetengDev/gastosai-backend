@@ -27,7 +27,7 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
 	void deleteAllByUser(@Param("user") User user);
 
 	@Query("""
-			SELECT YEAR(e.date), MONTH(e.date), COALESCE(SUM(e.amount), 0)
+			SELECT YEAR(e.date), MONTH(e.date), COALESCE(SUM(e.amountInBaseCurrency), 0)
 			FROM Expense e
 			WHERE e.date IS NOT NULL AND e.user = :user
 			GROUP BY YEAR(e.date), MONTH(e.date)
@@ -36,17 +36,17 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
 	List<Object[]> sumByYearMonth(@Param("user") User user);
 
 	@Query("""
-			SELECT COALESCE(c.name, 'Uncategorized'), COALESCE(SUM(e.amount), 0)
+			SELECT COALESCE(c.name, 'Uncategorized'), COALESCE(SUM(e.amountInBaseCurrency), 0)
 			FROM Expense e
 			LEFT JOIN e.category c
 			WHERE e.user = :user
 			GROUP BY c.name
-			ORDER BY SUM(e.amount) DESC
+			ORDER BY SUM(e.amountInBaseCurrency) DESC
 			""")
 	List<Object[]> sumByCategory(@Param("user") User user);
 
 	@Query("""
-			SELECT YEAR(e.date), MONTH(e.date), COALESCE(SUM(e.amount), 0)
+			SELECT YEAR(e.date), MONTH(e.date), COALESCE(SUM(e.amountInBaseCurrency), 0)
 			FROM Expense e
 			WHERE e.date IS NOT NULL
 			GROUP BY YEAR(e.date), MONTH(e.date)
@@ -55,11 +55,11 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
 	List<Object[]> sumByYearMonthAll();
 
 	@Query("""
-			SELECT COALESCE(c.name, 'Uncategorized'), COALESCE(SUM(e.amount), 0)
+			SELECT COALESCE(c.name, 'Uncategorized'), COALESCE(SUM(e.amountInBaseCurrency), 0)
 			FROM Expense e
 			LEFT JOIN e.category c
 			GROUP BY c.name
-			ORDER BY SUM(e.amount) DESC
+			ORDER BY SUM(e.amountInBaseCurrency) DESC
 			""")
 	List<Object[]> sumByCategoryAll();
 
@@ -67,7 +67,7 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
 
 	List<Expense> findByCategory_Id(Long categoryId);
 
-	@Query("SELECT e.category.id, SUM(e.amount) FROM Expense e WHERE e.user = :user AND YEAR(e.date) = :year AND MONTH(e.date) = :month GROUP BY e.category.id")
+	@Query("SELECT e.category.id, SUM(e.amountInBaseCurrency) FROM Expense e WHERE e.user = :user AND YEAR(e.date) = :year AND MONTH(e.date) = :month GROUP BY e.category.id")
 	List<Object[]> sumByCategoryAndMonth(@Param("user") User user, @Param("year") int year, @Param("month") int month);
 
 	List<Expense> findAllByUserAndDateGreaterThanEqualOrderByDateDesc(User user, LocalDateTime from);
@@ -82,31 +82,31 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
 
 	List<Expense> findAllByDateGreaterThanEqualAndDateLessThanOrderByDateDesc(LocalDateTime from, LocalDateTime to);
 
-	@Query("SELECT COALESCE(SUM(e.amount), 0) FROM Expense e WHERE e.user = :user AND YEAR(e.date) = :year AND MONTH(e.date) = :month")
+	@Query("SELECT COALESCE(SUM(e.amountInBaseCurrency), 0) FROM Expense e WHERE e.user = :user AND YEAR(e.date) = :year AND MONTH(e.date) = :month")
 	BigDecimal sumForMonth(@Param("user") User user, @Param("year") int year, @Param("month") int month);
 
-	@Query("SELECT DAY(e.date), SUM(e.amount) FROM Expense e WHERE e.user = :user AND YEAR(e.date) = :year AND MONTH(e.date) = :month GROUP BY DAY(e.date)")
+	@Query("SELECT DAY(e.date), SUM(e.amountInBaseCurrency) FROM Expense e WHERE e.user = :user AND YEAR(e.date) = :year AND MONTH(e.date) = :month GROUP BY DAY(e.date)")
 	List<Object[]> sumByDayForMonth(@Param("user") User user, @Param("year") int year, @Param("month") int month);
 
 	List<Expense> findByUserAndDateBetweenOrderByAmountDesc(User user, LocalDateTime from, LocalDateTime to, Pageable pageable);
 
 	@Query("""
-			SELECT COALESCE(c.name, 'Uncategorized'), COALESCE(SUM(e.amount), 0)
+			SELECT COALESCE(c.name, 'Uncategorized'), COALESCE(SUM(e.amountInBaseCurrency), 0)
 			FROM Expense e
 			LEFT JOIN e.category c
 			WHERE e.user = :user AND YEAR(e.date) = :year AND MONTH(e.date) = :month
 			GROUP BY c.name
-			ORDER BY SUM(e.amount) DESC
+			ORDER BY SUM(e.amountInBaseCurrency) DESC
 			""")
 	List<Object[]> sumByCategoryForMonth(@Param("user") User user, @Param("year") int year, @Param("month") int month);
 
 	@Query("""
-			SELECT COALESCE(c.name, 'Uncategorized'), COALESCE(SUM(e.amount), 0)
+			SELECT COALESCE(c.name, 'Uncategorized'), COALESCE(SUM(e.amountInBaseCurrency), 0)
 			FROM Expense e
 			LEFT JOIN e.category c
 			WHERE YEAR(e.date) = :year AND MONTH(e.date) = :month
 			GROUP BY c.name
-			ORDER BY SUM(e.amount) DESC
+			ORDER BY SUM(e.amountInBaseCurrency) DESC
 			""")
 	List<Object[]> sumByCategoryForMonthAll(@Param("year") int year, @Param("month") int month);
 }

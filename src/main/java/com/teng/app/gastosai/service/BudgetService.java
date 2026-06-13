@@ -42,11 +42,16 @@ public class BudgetService {
 			throw new ResponseStatusException(HttpStatus.CONFLICT, "Budget already exists for this category and month");
 		}
 
+		String currency = req.currency() != null ? req.currency() : "PHP";
+		BigDecimal rate = req.exchangeRate() != null ? req.exchangeRate() : BigDecimal.ONE;
 		Budget saved = budgetRepository.save(Budget.builder()
 				.user(user)
 				.category(category)
 				.month(req.month())
 				.amountLimit(req.amountLimit())
+				.currency(currency)
+				.exchangeRate(rate)
+				.amountLimitInBaseCurrency(req.amountLimit().multiply(rate))
 				.build());
 
 		return toResponse(saved);
@@ -64,7 +69,12 @@ public class BudgetService {
 		Budget budget = budgetRepository.findByIdAndUser(id, user)
 				.orElseThrow(() -> new ResourceNotFoundException("Budget not found: " + id));
 
+		String currency = req.currency() != null ? req.currency() : "PHP";
+		BigDecimal rate = req.exchangeRate() != null ? req.exchangeRate() : BigDecimal.ONE;
 		budget.setAmountLimit(req.amountLimit());
+		budget.setCurrency(currency);
+		budget.setExchangeRate(rate);
+		budget.setAmountLimitInBaseCurrency(req.amountLimit().multiply(rate));
 		return toResponse(budgetRepository.save(budget));
 	}
 
@@ -96,7 +106,7 @@ public class BudgetService {
 				));
 
 		List<BudgetSummaryItem> items = budgets.stream().map(b -> {
-			BigDecimal budgeted = b.getAmountLimit().setScale(2, RoundingMode.HALF_UP);
+			BigDecimal budgeted = b.getAmountLimitInBaseCurrency().setScale(2, RoundingMode.HALF_UP);
 			BigDecimal spent = spentByCategory.getOrDefault(b.getCategory().getId(), BigDecimal.ZERO)
 					.setScale(2, RoundingMode.HALF_UP);
 			BigDecimal remaining = budgeted.subtract(spent);
@@ -171,7 +181,10 @@ public class BudgetService {
 				b.getCategory().getId(),
 				b.getCategory().getName(),
 				b.getMonth(),
-				b.getAmountLimit().setScale(2, RoundingMode.HALF_UP)
+				b.getAmountLimit().setScale(2, RoundingMode.HALF_UP),
+				b.getCurrency(),
+				b.getExchangeRate().setScale(4, RoundingMode.HALF_UP),
+				b.getAmountLimitInBaseCurrency().setScale(2, RoundingMode.HALF_UP)
 		);
 	}
 

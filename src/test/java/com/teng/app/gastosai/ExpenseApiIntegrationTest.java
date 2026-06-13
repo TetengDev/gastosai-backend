@@ -256,4 +256,18 @@ class ExpenseApiIntegrationTest {
 						.param("month", "bad-format"))
 				.andExpect(status().isBadRequest());
 	}
+
+	@Test
+	void multiCurrencyExpense_isCreatedAndReturnsNormalizedBase() throws Exception {
+		mockMvc.perform(post("/expenses")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"amount":45,"currency":"USD","exchangeRate":57.75,"description":"Hotel","date":"2026-06-01T10:00:00"}
+								"""))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.currency").value("USD"))
+				.andExpect(jsonPath("$.exchangeRate").value(57.750000))
+				.andExpect(jsonPath("$.amountInBaseCurrency").value(2598.75));
+	}
 }

@@ -16,6 +16,8 @@ public record RecurringExpenseRequest(
 		Integer dayOfMonth,
 		Integer dayOfWeek,
 		Integer monthOfYear,
-		Boolean active
+		Boolean active,
+		String currency,
+		BigDecimal exchangeRate
 ) {
 }

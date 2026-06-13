@@ -51,6 +51,9 @@ public class ExpenseService {
 				? ExpenseType.valueOf(request.expenseType())
 				: ExpenseType.PERSONAL;
 		boolean reimbursable = request.reimbursable() != null && request.reimbursable();
+		String currency = (request.currency() == null || request.currency().isBlank()) ? "PHP" : request.currency();
+		BigDecimal rate = (request.exchangeRate() == null) ? BigDecimal.ONE : request.exchangeRate();
+		BigDecimal base = request.amount().multiply(rate).setScale(4, RoundingMode.HALF_UP);
 		Expense expense = Expense.builder()
 				.amount(request.amount())
 				.user(user)
@@ -59,6 +62,9 @@ public class ExpenseService {
 				.description(request.description())
 				.expenseType(expenseType)
 				.reimbursable(reimbursable)
+				.currency(currency)
+				.exchangeRate(rate)
+				.amountInBaseCurrency(base)
 				.build();
 		return toResponse(expenseRepository.save(expense));
 	}
@@ -100,6 +106,12 @@ public class ExpenseService {
 		if (request.reimbursable() != null) {
 			expense.setReimbursable(request.reimbursable());
 		}
+		String currency = (request.currency() == null || request.currency().isBlank()) ? "PHP" : request.currency();
+		BigDecimal rate = (request.exchangeRate() == null) ? BigDecimal.ONE : request.exchangeRate();
+		BigDecimal base = request.amount().multiply(rate).setScale(4, RoundingMode.HALF_UP);
+		expense.setCurrency(currency);
+		expense.setExchangeRate(rate);
+		expense.setAmountInBaseCurrency(base);
 		return toResponse(expenseRepository.save(expense));
 	}
 
@@ -274,7 +286,17 @@ public class ExpenseService {
 
 	private ExpenseResponse toResponse(final Expense e) {
 		String categoryName = e.getCategory() != null ? e.getCategory().getName() : "Uncategorized";
-		return new ExpenseResponse(e.getId(), e.getAmount().setScale(2, RoundingMode.HALF_UP), categoryName, e.getDate(), e.getDescription(), e.getExpenseType().name(), e.isReimbursable());
+		return new ExpenseResponse(
+				e.getId(),
+				e.getAmount().setScale(2, RoundingMode.HALF_UP),
+				categoryName,
+				e.getDate(),
+				e.getDescription(),
+				e.getExpenseType().name(),
+				e.isReimbursable(),
+				e.getCurrency(),
+				e.getExchangeRate().setScale(6, RoundingMode.HALF_UP),
+				e.getAmountInBaseCurrency().setScale(2, RoundingMode.HALF_UP));
 	}
 
 	private static BigDecimal toBigDecimal(Object value) {

@@ -60,4 +60,15 @@ public class Expense {
 	@Column(nullable = false)
 	@Builder.Default
 	private boolean reimbursable = false;
+
+	@Column(nullable = false, length = 3)
+	@Builder.Default
+	private String currency = "PHP";
+
+	@Column(nullable = false, precision = 19, scale = 6)
+	@Builder.Default
+	private BigDecimal exchangeRate = BigDecimal.ONE;
+
+	@Column(nullable = false, precision = 19, scale = 4)
+	private BigDecimal amountInBaseCurrency;
 }

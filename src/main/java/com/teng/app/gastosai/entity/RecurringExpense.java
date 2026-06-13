@@ -48,6 +48,14 @@ public class RecurringExpense {
 	@Column(nullable = false, precision = 19, scale = 4)
 	private BigDecimal amount;
 
+	@Column(nullable = false, length = 3)
+	@Builder.Default
+	private String currency = "PHP";
+
+	@Column(nullable = false, precision = 19, scale = 4)
+	@Builder.Default
+	private BigDecimal exchangeRate = BigDecimal.ONE;
+
 	@ManyToOne(fetch = FetchType.EAGER)
 	@JoinColumn(name = "category_id")
 	private Category category;

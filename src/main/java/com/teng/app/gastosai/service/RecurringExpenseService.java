@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -45,6 +46,8 @@ public class RecurringExpenseService {
 				.dayOfWeek(req.dayOfWeek())
 				.monthOfYear(req.monthOfYear())
 				.active(req.active() == null || req.active())
+				.currency(req.currency() != null ? req.currency() : "PHP")
+				.exchangeRate(req.exchangeRate() != null ? req.exchangeRate() : BigDecimal.ONE)
 				.build());
 
 		return toResponse(saved);
@@ -77,6 +80,8 @@ public class RecurringExpenseService {
 		if (req.active() != null) {
 			expense.setActive(req.active());
 		}
+		expense.setCurrency(req.currency() != null ? req.currency() : "PHP");
+		expense.setExchangeRate(req.exchangeRate() != null ? req.exchangeRate() : BigDecimal.ONE);
 
 		return toResponse(recurringExpenseRepository.save(expense));
 	}
@@ -138,7 +143,8 @@ public class RecurringExpenseService {
 				bill.getAmount().setScale(2, RoundingMode.HALF_UP),
 				bill.getCategory() != null ? bill.getCategory().getName() : "Uncategorized",
 				bill.getFrequency(),
-				due.format(DateTimeFormatter.ISO_LOCAL_DATE)
+				due.format(DateTimeFormatter.ISO_LOCAL_DATE),
+				bill.getCurrency()
 		);
 	}
 
@@ -152,7 +158,9 @@ public class RecurringExpenseService {
 				e.getDayOfMonth(),
 				e.getDayOfWeek(),
 				e.getMonthOfYear(),
-				e.isActive()
+				e.isActive(),
+				e.getCurrency(),
+				e.getExchangeRate().setScale(4, RoundingMode.HALF_UP)
 		);
 	}
 }

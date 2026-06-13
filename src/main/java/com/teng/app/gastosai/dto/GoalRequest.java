@@ -12,5 +12,6 @@ public record GoalRequest(
         @NotNull @DecimalMin("0.01") BigDecimal targetAmount,
         @NotNull @DecimalMin("0.00") BigDecimal savedAmount,
         LocalDate targetDate,
-        boolean paused
+        boolean paused,
+        String currency
 ) {}

@@ -47,4 +47,16 @@ public class Budget {
 
 	@Column(nullable = false, precision = 19, scale = 4)
 	private BigDecimal amountLimit;
+
+	@Column(nullable = false, length = 3)
+	@Builder.Default
+	private String currency = "PHP";
+
+	@Column(nullable = false, precision = 19, scale = 4)
+	@Builder.Default
+	private BigDecimal exchangeRate = BigDecimal.ONE;
+
+	@Column(nullable = false, precision = 19, scale = 4)
+	@Builder.Default
+	private BigDecimal amountLimitInBaseCurrency = BigDecimal.ZERO;
 }

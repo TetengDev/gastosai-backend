@@ -34,6 +34,7 @@ public class SavingsGoalService {
 				.savedAmount(request.savedAmount())
 				.targetDate(request.targetDate())
 				.paused(request.paused())
+				.currency(request.currency() != null ? request.currency() : "PHP")
 				.build());
 		return toResponse(goal);
 	}
@@ -61,6 +62,7 @@ public class SavingsGoalService {
 		goal.setSavedAmount(request.savedAmount());
 		goal.setTargetDate(request.targetDate());
 		goal.setPaused(request.paused());
+		goal.setCurrency(request.currency() != null ? request.currency() : "PHP");
 		return toResponse(savingsGoalRepository.save(goal));
 	}
 
@@ -81,7 +83,8 @@ public class SavingsGoalService {
 						.min(HUNDRED)
 						.setScale(2, RoundingMode.HALF_UP);
 		return new GoalResponse(g.getId(), g.getName(), target, saved, progressPercent,
-				g.getTargetDate(), deriveStatus(g, saved, target), g.isPaused(), g.getCreatedAt());
+				g.getTargetDate(), deriveStatus(g, saved, target), g.isPaused(), g.getCreatedAt(),
+				g.getCurrency());
 	}
 
 	private GoalStatus deriveStatus(SavingsGoal g, BigDecimal saved, BigDecimal target) {

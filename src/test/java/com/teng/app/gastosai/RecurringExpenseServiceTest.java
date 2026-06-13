@@ -53,7 +53,7 @@ class RecurringExpenseServiceTest {
 		Category cat = testCategory();
 		RecurringExpenseRequest req = new RecurringExpenseRequest(
 				"Electric Bill", new BigDecimal("1500.00"), "Utilities",
-				Frequency.MONTHLY, 15, null, null, true
+				Frequency.MONTHLY, 15, null, null, true, null, null
 		);
 
 		when(categoryService.getOrCreateByName("Utilities")).thenReturn(cat);
@@ -88,7 +88,7 @@ class RecurringExpenseServiceTest {
 		User user = testUser();
 		RecurringExpenseRequest req = new RecurringExpenseRequest(
 				"Water Bill", new BigDecimal("500.00"), "Utilities",
-				Frequency.MONTHLY, 10, null, null, true
+				Frequency.MONTHLY, 10, null, null, true, null, null
 		);
 
 		when(recurringExpenseRepository.findByIdAndUser(999L, user)).thenReturn(Optional.empty());

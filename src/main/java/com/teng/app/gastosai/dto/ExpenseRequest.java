@@ -16,6 +16,8 @@ public record ExpenseRequest(
 		LocalDateTime date,
 		@NotBlank String description,
 		String expenseType,
-		Boolean reimbursable
+		Boolean reimbursable,
+		@Size(max = 3) String currency,
+		@DecimalMin("0.000001") @Digits(integer = 13, fraction = 6) BigDecimal exchangeRate
 ) {
 }

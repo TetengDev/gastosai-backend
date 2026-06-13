@@ -109,6 +109,9 @@ public class AppDataLoader implements ApplicationRunner {
 				.map(sample -> {
 					String trimmed = sample.categoryName().trim();
 					Category category = byName.get(trimmed);
+					java.math.BigDecimal rate = sample.exchangeRate();
+					java.math.BigDecimal base = sample.amount().multiply(rate)
+							.setScale(4, java.math.RoundingMode.HALF_UP);
 					return Expense.builder()
 							.amount(sample.amount())
 							.user(demoUser)
@@ -117,6 +120,9 @@ public class AppDataLoader implements ApplicationRunner {
 							.description(sample.description())
 							.expenseType(sample.expenseType())
 							.reimbursable(sample.reimbursable())
+							.currency(sample.currency())
+							.exchangeRate(rate)
+							.amountInBaseCurrency(base)
 							.build();
 				})
 				.toList();

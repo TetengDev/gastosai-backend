@@ -68,11 +68,12 @@ class ExpenseServiceTest {
                 .category(uncategorized)
                 .date(LocalDateTime.now())
                 .description("Test")
+                .amountInBaseCurrency(new BigDecimal("50.0000"))
                 .build();
         when(expenseRepository.save(any(Expense.class))).thenReturn(saved);
 
         ExpenseResponse response = expenseService.create(
-                new ExpenseRequest(new BigDecimal("50"), "", null, "Test", null, null), user);
+                new ExpenseRequest(new BigDecimal("50"), "", null, "Test", null, null, null, null), user);
 
         assertThat(response.category()).isEqualTo("Uncategorized");
         verify(categoryService).getOrCreateByName("Uncategorized");
@@ -90,11 +91,12 @@ class ExpenseServiceTest {
                 .category(mealPlan)
                 .date(LocalDateTime.now())
                 .description("Lunch")
+                .amountInBaseCurrency(new BigDecimal("120.0000"))
                 .build();
         when(expenseRepository.save(any(Expense.class))).thenReturn(saved);
 
         ExpenseResponse response = expenseService.create(
-                new ExpenseRequest(new BigDecimal("120"), "Meal Plan", null, "Lunch", null, null), user);
+                new ExpenseRequest(new BigDecimal("120"), "Meal Plan", null, "Lunch", null, null, null, null), user);
 
         assertThat(response.category()).isEqualTo("Meal Plan");
         verify(categoryService).getOrCreateByName("Meal Plan");
@@ -106,9 +108,11 @@ class ExpenseServiceTest {
         Category cat = Category.builder().id(1L).name("Extras").build();
 
         Expense e1 = Expense.builder().id(1L).amount(new BigDecimal("100.0000"))
-                .category(cat).date(LocalDateTime.now()).description("A").build();
+                .category(cat).date(LocalDateTime.now()).description("A")
+                .amountInBaseCurrency(new BigDecimal("100.0000")).build();
         Expense e2 = Expense.builder().id(2L).amount(new BigDecimal("200.0000"))
-                .category(cat).date(LocalDateTime.now().minusDays(1)).description("B").build();
+                .category(cat).date(LocalDateTime.now().minusDays(1)).description("B")
+                .amountInBaseCurrency(new BigDecimal("200.0000")).build();
 
         when(expenseRepository.findAllByUserOrderByDateDesc(user)).thenReturn(List.of(e1, e2));
 
@@ -131,7 +135,8 @@ class ExpenseServiceTest {
         Category cat = Category.builder().id(1L).name("Extras").build();
 
         Expense e = Expense.builder().id(5L).amount(new BigDecimal("50.0000"))
-                .category(cat).date(LocalDateTime.now()).description("Admin expense").build();
+                .category(cat).date(LocalDateTime.now()).description("Admin expense")
+                .amountInBaseCurrency(new BigDecimal("50.0000")).build();
 
         when(expenseRepository.findAll(any(Sort.class))).thenReturn(List.of(e));
 
@@ -152,6 +157,7 @@ class ExpenseServiceTest {
                 .category(oldCat)
                 .date(LocalDateTime.now())
                 .description("Old desc")
+                .amountInBaseCurrency(new BigDecimal("80.0000"))
                 .build();
 
         when(expenseRepository.findByIdAndUser(7L, user)).thenReturn(Optional.of(existing));
@@ -159,7 +165,7 @@ class ExpenseServiceTest {
         when(expenseRepository.save(any(Expense.class))).thenReturn(existing);
 
         ExpenseResponse response = expenseService.update(7L,
-                new ExpenseRequest(new BigDecimal("90"), "Meal Plan", null, "New desc", null, null), user);
+                new ExpenseRequest(new BigDecimal("90"), "Meal Plan", null, "New desc", null, null, null, null), user);
 
         assertThat(existing.getDescription()).isEqualTo("New desc");
         assertThat(existing.getCategory().getName()).isEqualTo("Meal Plan");
@@ -199,7 +205,8 @@ class ExpenseServiceTest {
         LocalDate from = LocalDate.of(2026, 1, 1);
         LocalDate to = LocalDate.of(2026, 1, 31);
         Expense e = Expense.builder().id(1L).amount(new BigDecimal("100.0000"))
-                .category(cat).date(LocalDateTime.of(2026, 1, 15, 12, 0)).description("A").build();
+                .category(cat).date(LocalDateTime.of(2026, 1, 15, 12, 0)).description("A")
+                .amountInBaseCurrency(new BigDecimal("100.0000")).build();
 
         when(expenseRepository.findAllByUserAndDateGreaterThanEqualAndDateLessThanOrderByDateDesc(
                 user, from.atStartOfDay(), to.plusDays(1).atStartOfDay())).thenReturn(List.of(e));
@@ -214,7 +221,8 @@ class ExpenseServiceTest {
         Category cat = Category.builder().id(1L).name("Food").build();
         LocalDate from = LocalDate.of(2026, 6, 1);
         Expense e = Expense.builder().id(2L).amount(new BigDecimal("50.0000"))
-                .category(cat).date(LocalDateTime.of(2026, 6, 10, 10, 0)).description("B").build();
+                .category(cat).date(LocalDateTime.of(2026, 6, 10, 10, 0)).description("B")
+                .amountInBaseCurrency(new BigDecimal("50.0000")).build();
 
         when(expenseRepository.findAllByUserAndDateGreaterThanEqualOrderByDateDesc(
                 user, from.atStartOfDay())).thenReturn(List.of(e));
@@ -229,7 +237,8 @@ class ExpenseServiceTest {
         Category cat = Category.builder().id(1L).name("Food").build();
         LocalDate to = LocalDate.of(2026, 3, 31);
         Expense e = Expense.builder().id(3L).amount(new BigDecimal("75.0000"))
-                .category(cat).date(LocalDateTime.of(2026, 3, 20, 9, 0)).description("C").build();
+                .category(cat).date(LocalDateTime.of(2026, 3, 20, 9, 0)).description("C")
+                .amountInBaseCurrency(new BigDecimal("75.0000")).build();
 
         when(expenseRepository.findAllByUserAndDateLessThanOrderByDateDesc(
                 user, to.plusDays(1).atStartOfDay())).thenReturn(List.of(e));
@@ -243,7 +252,8 @@ class ExpenseServiceTest {
         User user = regularUser();
         Category cat = Category.builder().id(1L).name("Food").build();
         Expense e = Expense.builder().id(4L).amount(new BigDecimal("200.0000"))
-                .category(cat).date(LocalDateTime.now()).description("D").build();
+                .category(cat).date(LocalDateTime.now()).description("D")
+                .amountInBaseCurrency(new BigDecimal("200.0000")).build();
 
         when(expenseRepository.findAllByUserOrderByDateDesc(user)).thenReturn(List.of(e));
 
@@ -302,12 +312,13 @@ class ExpenseServiceTest {
                             .category(e.getCategory())
                             .date(e.getDate())
                             .description(e.getDescription())
+                            .amountInBaseCurrency(e.getAmount())
                             .build();
                     return e;
                 });
 
         ExpenseResponse response = expenseService.create(
-                new ExpenseRequest(new BigDecimal("30"), null, null, "No date", null, null), user);
+                new ExpenseRequest(new BigDecimal("30"), null, null, "No date", null, null, null, null), user);
 
         assertThat(response.date()).isNotNull();
     }
@@ -343,11 +354,14 @@ class ExpenseServiceTest {
         User user = regularUser();
         Category cat = Category.builder().id(1L).name("Food").build();
         Expense e1 = Expense.builder().id(1L).amount(new BigDecimal("300.0000")).category(cat)
-                .date(LocalDateTime.of(2026, 6, 10, 10, 0)).description("A").build();
+                .date(LocalDateTime.of(2026, 6, 10, 10, 0)).description("A")
+                .amountInBaseCurrency(new BigDecimal("300.0000")).build();
         Expense e2 = Expense.builder().id(2L).amount(new BigDecimal("500.0000")).category(cat)
-                .date(LocalDateTime.of(2026, 6, 11, 10, 0)).description("B").build();
+                .date(LocalDateTime.of(2026, 6, 11, 10, 0)).description("B")
+                .amountInBaseCurrency(new BigDecimal("500.0000")).build();
         Expense e3 = Expense.builder().id(3L).amount(new BigDecimal("100.0000")).category(cat)
-                .date(LocalDateTime.of(2026, 6, 12, 10, 0)).description("C").build();
+                .date(LocalDateTime.of(2026, 6, 12, 10, 0)).description("C")
+                .amountInBaseCurrency(new BigDecimal("100.0000")).build();
 
         when(expenseRepository.findByUserAndDateBetweenOrderByAmountDesc(
                 eq(user), any(LocalDateTime.class), any(LocalDateTime.class), any(Pageable.class)))
@@ -375,5 +389,65 @@ class ExpenseServiceTest {
         verify(expenseRepository).findByUserAndDateBetweenOrderByAmountDesc(
                 eq(user), any(LocalDateTime.class), any(LocalDateTime.class),
                 argThat(p -> p.getPageSize() == 3));
+    }
+
+    @Test
+    void create_computesAmountInBaseCurrency_forForeignCurrency() {
+        User user = regularUser();
+        Category uncategorized = Category.builder().id(1L).name("Uncategorized").build();
+        when(categoryService.getOrCreateByName("Uncategorized")).thenReturn(uncategorized);
+
+        when(expenseRepository.save(any(Expense.class))).thenAnswer(inv -> {
+            Expense e = inv.getArgument(0);
+            return Expense.builder()
+                    .id(30L)
+                    .amount(e.getAmount())
+                    .category(e.getCategory())
+                    .date(e.getDate())
+                    .description(e.getDescription())
+                    .currency(e.getCurrency())
+                    .exchangeRate(e.getExchangeRate())
+                    .amountInBaseCurrency(e.getAmountInBaseCurrency())
+                    .build();
+        });
+
+        expenseService.create(
+                new ExpenseRequest(new BigDecimal("50"), null, null, "Hotel", null, null, "USD", new BigDecimal("57.75")),
+                user);
+
+        verify(expenseRepository).save(argThat(e ->
+                "USD".equals(e.getCurrency())
+                && e.getExchangeRate().compareTo(new BigDecimal("57.75")) == 0
+                && e.getAmountInBaseCurrency().compareTo(new BigDecimal("2887.5000")) == 0));
+    }
+
+    @Test
+    void create_defaultsCurrencyToPhp_whenNotProvided() {
+        User user = regularUser();
+        Category uncategorized = Category.builder().id(1L).name("Uncategorized").build();
+        when(categoryService.getOrCreateByName("Uncategorized")).thenReturn(uncategorized);
+
+        when(expenseRepository.save(any(Expense.class))).thenAnswer(inv -> {
+            Expense e = inv.getArgument(0);
+            return Expense.builder()
+                    .id(31L)
+                    .amount(e.getAmount())
+                    .category(e.getCategory())
+                    .date(e.getDate())
+                    .description(e.getDescription())
+                    .currency(e.getCurrency())
+                    .exchangeRate(e.getExchangeRate())
+                    .amountInBaseCurrency(e.getAmountInBaseCurrency())
+                    .build();
+        });
+
+        expenseService.create(
+                new ExpenseRequest(new BigDecimal("100"), null, null, "Lunch", null, null, null, null),
+                user);
+
+        verify(expenseRepository).save(argThat(e ->
+                "PHP".equals(e.getCurrency())
+                && e.getExchangeRate().compareTo(BigDecimal.ONE) == 0
+                && e.getAmountInBaseCurrency().compareTo(new BigDecimal("100.0000")) == 0));
     }
 }

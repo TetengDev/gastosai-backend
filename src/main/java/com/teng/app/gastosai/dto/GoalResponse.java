@@ -15,5 +15,6 @@ public record GoalResponse(
         LocalDate targetDate,
         GoalStatus status,
         boolean paused,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        String currency
 ) {}

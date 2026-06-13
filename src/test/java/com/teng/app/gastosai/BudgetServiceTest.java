@@ -56,7 +56,7 @@ class BudgetServiceTest {
 	void create_success() {
 		User user = testUser();
 		Category cat = testCategory();
-		BudgetRequest req = new BudgetRequest(10L, "2026-06", new BigDecimal("5000.00"));
+		BudgetRequest req = new BudgetRequest(10L, "2026-06", new BigDecimal("5000.00"), null, null);
 
 		when(categoryRepository.findById(10L)).thenReturn(Optional.of(cat));
 		when(budgetRepository.existsByUserAndCategoryAndMonth(user, cat, "2026-06")).thenReturn(false);
@@ -68,6 +68,9 @@ class BudgetServiceTest {
 					.category(b.getCategory())
 					.month(b.getMonth())
 					.amountLimit(b.getAmountLimit())
+					.currency(b.getCurrency())
+					.exchangeRate(b.getExchangeRate())
+					.amountLimitInBaseCurrency(b.getAmountLimitInBaseCurrency())
 					.build();
 		});
 
@@ -83,7 +86,7 @@ class BudgetServiceTest {
 	void create_duplicateBudget_throwsConflict() {
 		User user = testUser();
 		Category cat = testCategory();
-		BudgetRequest req = new BudgetRequest(10L, "2026-06", new BigDecimal("5000.00"));
+		BudgetRequest req = new BudgetRequest(10L, "2026-06", new BigDecimal("5000.00"), null, null);
 
 		when(categoryRepository.findById(10L)).thenReturn(Optional.of(cat));
 		when(budgetRepository.existsByUserAndCategoryAndMonth(user, cat, "2026-06")).thenReturn(true);
@@ -96,7 +99,7 @@ class BudgetServiceTest {
 	@Test
 	void create_unknownCategory_throwsNotFound() {
 		User user = testUser();
-		BudgetRequest req = new BudgetRequest(99L, "2026-06", new BigDecimal("5000.00"));
+		BudgetRequest req = new BudgetRequest(99L, "2026-06", new BigDecimal("5000.00"), null, null);
 
 		when(categoryRepository.findById(99L)).thenReturn(Optional.empty());
 
@@ -114,6 +117,7 @@ class BudgetServiceTest {
 		Budget budget = Budget.builder()
 				.id(1L).user(user).category(cat).month(month)
 				.amountLimit(new BigDecimal("1000.00"))
+				.amountLimitInBaseCurrency(new BigDecimal("1000.00"))
 				.build();
 
 		ArrayList<Object[]> spent1 = new ArrayList<>();
@@ -137,6 +141,7 @@ class BudgetServiceTest {
 		Budget budget = Budget.builder()
 				.id(1L).user(user).category(cat).month(month)
 				.amountLimit(new BigDecimal("1000.00"))
+				.amountLimitInBaseCurrency(new BigDecimal("1000.00"))
 				.build();
 
 		ArrayList<Object[]> spent2 = new ArrayList<>();
@@ -158,6 +163,7 @@ class BudgetServiceTest {
 		Budget budget = Budget.builder()
 				.id(1L).user(user).category(cat).month(month)
 				.amountLimit(new BigDecimal("1000.00"))
+				.amountLimitInBaseCurrency(new BigDecimal("1000.00"))
 				.build();
 
 		ArrayList<Object[]> spent3 = new ArrayList<>();
@@ -179,6 +185,7 @@ class BudgetServiceTest {
 		Budget budget = Budget.builder()
 				.id(1L).user(user).category(cat).month(month)
 				.amountLimit(new BigDecimal("1000.00"))
+				.amountLimitInBaseCurrency(new BigDecimal("1000.00"))
 				.build();
 
 		when(budgetRepository.findAllByUserAndMonth(user, month)).thenReturn(List.of(budget));

@@ -13,6 +13,8 @@ public record RecurringExpenseResponse(
 		Integer dayOfMonth,
 		Integer dayOfWeek,
 		Integer monthOfYear,
-		boolean active
+		boolean active,
+		String currency,
+		BigDecimal exchangeRate
 ) {
 }

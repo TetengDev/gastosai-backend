@@ -11,6 +11,8 @@ import java.math.BigDecimal;
 public record BudgetRequest(
 		@NotNull Long categoryId,
 		@NotBlank @Pattern(regexp = "\\d{4}-\\d{2}") String month,
-		@NotNull @DecimalMin(value = "0.0", inclusive = false) @Digits(integer = 15, fraction = 4) BigDecimal amountLimit
+		@NotNull @DecimalMin(value = "0.0", inclusive = false) @Digits(integer = 15, fraction = 4) BigDecimal amountLimit,
+		String currency,
+		BigDecimal exchangeRate
 ) {
 }

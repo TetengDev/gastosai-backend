@@ -53,6 +53,10 @@ public class SavingsGoal {
 
 	private boolean paused;
 
+	@Column(nullable = false, length = 3)
+	@Builder.Default
+	private String currency = "PHP";
+
 	@Column(nullable = false)
 	private LocalDateTime createdAt;
 
