@@ -14,5 +14,6 @@ public record AlertResponse(
         String message,
         boolean read,
         boolean dismissed,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        Long recurringExpenseId
 ) {}

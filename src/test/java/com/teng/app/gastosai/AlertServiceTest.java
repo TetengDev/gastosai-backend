@@ -5,6 +5,7 @@ import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.AlertRepository;
 import com.teng.app.gastosai.repository.BudgetRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
+import com.teng.app.gastosai.repository.RecurringExpenseRepository;
 import com.teng.app.gastosai.service.AlertService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,6 +31,7 @@ class AlertServiceTest {
     @Mock AlertRepository alertRepository;
     @Mock BudgetRepository budgetRepository;
     @Mock ExpenseRepository expenseRepository;
+    @Mock RecurringExpenseRepository recurringExpenseRepository;
 
     @InjectMocks AlertService alertService;
 

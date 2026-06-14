@@ -5,17 +5,23 @@ import com.teng.app.gastosai.entity.Alert;
 import com.teng.app.gastosai.entity.AlertSeverity;
 import com.teng.app.gastosai.entity.AlertType;
 import com.teng.app.gastosai.entity.Budget;
+import com.teng.app.gastosai.entity.Frequency;
+import com.teng.app.gastosai.entity.RecurringExpense;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.AlertRepository;
 import com.teng.app.gastosai.repository.BudgetRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
+import com.teng.app.gastosai.repository.RecurringExpenseRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -23,15 +29,20 @@ import java.util.stream.Collectors;
 @Service
 public class AlertService {
 
+    private static final int RECURRING_DUE_DAYS_AHEAD = 3;
+
     private final AlertRepository alertRepository;
     private final BudgetRepository budgetRepository;
     private final ExpenseRepository expenseRepository;
+    private final RecurringExpenseRepository recurringExpenseRepository;
 
     public AlertService(AlertRepository alertRepository, BudgetRepository budgetRepository,
-                        ExpenseRepository expenseRepository) {
+                        ExpenseRepository expenseRepository,
+                        RecurringExpenseRepository recurringExpenseRepository) {
         this.alertRepository = alertRepository;
         this.budgetRepository = budgetRepository;
         this.expenseRepository = expenseRepository;
+        this.recurringExpenseRepository = recurringExpenseRepository;
     }
 
     @Transactional
@@ -42,6 +53,7 @@ public class AlertService {
 
         generateBudgetAlerts(user, month, year, monthInt);
         generateSpendingSpikeAlert(user, month, year, monthInt);
+        generateRecurringDueAlerts(user, month);
 
         return alertRepository
                 .findAllByUserAndMonthAndDismissedFalseOrderBySeverityDescCreatedAtDesc(user, month)
@@ -105,6 +117,62 @@ public class AlertService {
         }
     }
 
+    private void generateRecurringDueAlerts(User user, String month) {
+        LocalDate today = LocalDate.now();
+        LocalDate windowEnd = today.plusDays(RECURRING_DUE_DAYS_AHEAD);
+
+        List<RecurringExpense> expenses = recurringExpenseRepository.findAllByUser(user);
+        for (RecurringExpense expense : expenses) {
+            if (!expense.isActive()) continue;
+
+            LocalDate dueDate = null;
+
+            if (expense.getFrequency() == Frequency.MONTHLY && expense.getDayOfMonth() != null) {
+                try {
+                    dueDate = LocalDate.of(today.getYear(), today.getMonthValue(), expense.getDayOfMonth());
+                } catch (Exception e) {
+                    continue;
+                }
+            } else if (expense.getFrequency() == Frequency.WEEKLY && expense.getDayOfWeek() != null) {
+                dueDate = today.with(TemporalAdjusters.nextOrSame(DayOfWeek.of(expense.getDayOfWeek())));
+            }
+
+            if (dueDate == null) continue;
+            if (dueDate.isBefore(today) || dueDate.isAfter(windowEnd)) continue;
+
+            upsertRecurringDueAlert(user, expense, dueDate, month);
+        }
+    }
+
+    private void upsertRecurringDueAlert(User user, RecurringExpense expense, LocalDate dueDate, String month) {
+        alertRepository.findByUserAndTypeAndMonthAndRecurringExpenseId(
+                        user, AlertType.RECURRING_DUE, month, expense.getId())
+                .ifPresentOrElse(
+                        existing -> {
+                            existing.setMessage(buildRecurringMessage(expense, dueDate));
+                            alertRepository.save(existing);
+                        },
+                        () -> {
+                            String categoryName = expense.getCategory() != null
+                                    ? expense.getCategory().getName()
+                                    : "Uncategorized";
+                            alertRepository.save(Alert.builder()
+                                    .user(user)
+                                    .type(AlertType.RECURRING_DUE)
+                                    .severity(AlertSeverity.INFO)
+                                    .month(month)
+                                    .categoryName(categoryName)
+                                    .message(buildRecurringMessage(expense, dueDate))
+                                    .recurringExpenseId(expense.getId())
+                                    .build());
+                        });
+    }
+
+    private String buildRecurringMessage(RecurringExpense expense, LocalDate dueDate) {
+        return expense.getName() + " is due on " + dueDate
+                + " (₱" + expense.getAmount().setScale(2, RoundingMode.HALF_UP) + ")";
+    }
+
     private void upsertAlert(User user, AlertType type, AlertSeverity severity,
                              String month, String categoryName, String message) {
         alertRepository.findByUserAndTypeAndMonthAndCategoryName(user, type, month, categoryName)
@@ -150,7 +218,8 @@ public class AlertService {
         return new AlertResponse(
                 a.getId(), a.getType(), a.getSeverity(),
                 a.getMonth(), a.getCategoryName(), a.getMessage(),
-                a.isRead(), a.isDismissed(), a.getCreatedAt()
+                a.isRead(), a.isDismissed(), a.getCreatedAt(),
+                a.getRecurringExpenseId()
         );
     }
 }

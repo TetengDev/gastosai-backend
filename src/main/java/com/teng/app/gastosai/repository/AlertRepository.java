@@ -15,4 +15,6 @@ public interface AlertRepository extends JpaRepository<Alert, Long> {
     Optional<Alert> findByUserAndTypeAndMonthAndCategoryName(User user, AlertType type, String month, String categoryName);
 
     Optional<Alert> findByIdAndUser(Long id, User user);
+
+    Optional<Alert> findByUserAndTypeAndMonthAndRecurringExpenseId(User user, AlertType type, String month, Long recurringExpenseId);
 }

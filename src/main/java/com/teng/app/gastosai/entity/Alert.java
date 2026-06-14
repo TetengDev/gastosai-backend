@@ -58,6 +58,9 @@ public class Alert {
     @Column(nullable = false)
     private AlertSeverity severity;
 
+    @Column(name = "recurring_expense_id")
+    private Long recurringExpenseId;
+
     @Column(name = "is_read")
     @Builder.Default
     private boolean read = false;
