@@ -2,6 +2,7 @@ package com.teng.app.gastosai.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.teng.app.gastosai.ai.ChatTool;
 import com.teng.app.gastosai.ai.ChatToolCall;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.dto.BudgetRequest;
@@ -38,6 +39,9 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ChatActionService {
 
+	/** Caller opts in to executing a create action immediately instead of returning a confirmation preview. */
+	private static final String MODE_EXECUTE = "execute";
+
 	private final SqlGenerator sqlGenerator;
 	private final ExpenseService expenseService;
 	private final BudgetService budgetService;
@@ -53,30 +57,31 @@ public class ChatActionService {
 	public ChatResponse dispatch(String message, String mode, User user) {
 		try {
 			ChatToolCall call = sqlGenerator.classifyIntent(message);
+			ChatTool tool = ChatTool.fromKey(call.toolName());
 
-			if ("text".equals(call.toolName())) {
+			if (tool == ChatTool.TEXT) {
 				return new ChatResponse("text", call.paramsJson(), null);
 			}
 
 			JsonNode params = objectMapper.readTree(call.paramsJson());
 
-			if (call.toolName().startsWith("create_") && !"execute".equals(mode)) {
+			if (tool.isCreate() && !MODE_EXECUTE.equals(mode)) {
 				Map<String, Object> previewData = new LinkedHashMap<>();
-				previewData.put("toolName", call.toolName());
+				previewData.put("toolName", tool.key());
 				previewData.put("params", objectMapper.convertValue(params, Map.class));
-				return new ChatResponse("preview", buildPreviewMessage(call.toolName(), params), previewData);
+				return new ChatResponse("preview", buildPreviewMessage(tool, params), previewData);
 			}
 
-			return switch (call.toolName()) {
-				case "create_expense" -> handleCreateExpense(params, user);
-				case "update_expense" -> handleUpdateExpense(params, user);
-				case "delete_expense" -> handleDeleteExpense(params, user);
-				case "create_budget" -> handleCreateBudget(params, user);
-				case "delete_budget" -> handleDeleteBudget(params, user);
-				case "create_goal" -> handleCreateGoal(params, user);
-				case "delete_goal" -> handleDeleteGoal(params, user);
-				case "create_recurring" -> handleCreateRecurring(params, user);
-				case "delete_recurring" -> handleDeleteRecurring(params, user);
+			return switch (tool) {
+				case CREATE_EXPENSE -> handleCreateExpense(params, user);
+				case UPDATE_EXPENSE -> handleUpdateExpense(params, user);
+				case DELETE_EXPENSE -> handleDeleteExpense(params, user);
+				case CREATE_BUDGET -> handleCreateBudget(params, user);
+				case DELETE_BUDGET -> handleDeleteBudget(params, user);
+				case CREATE_GOAL -> handleCreateGoal(params, user);
+				case DELETE_GOAL -> handleDeleteGoal(params, user);
+				case CREATE_RECURRING -> handleCreateRecurring(params, user);
+				case DELETE_RECURRING -> handleDeleteRecurring(params, user);
 				default -> new ChatResponse("text", call.paramsJson(), null);
 			};
 		}
@@ -88,12 +93,12 @@ public class ChatActionService {
 		}
 	}
 
-	private String buildPreviewMessage(String toolName, JsonNode params) {
-		return switch (toolName) {
-			case "create_budget" -> "Create budget for " + params.path("categoryName").asText("category") + " — ₱" + params.path("amountLimit").asText("0") + "?";
-			case "create_goal" -> "Create goal \"" + params.path("name").asText() + "\" — ₱" + params.path("targetAmount").asText("0") + "?";
-			case "create_recurring" -> "Create recurring \"" + params.path("name").asText() + "\" — ₱" + params.path("amount").asText("0") + "/" + params.path("frequency").asText("monthly").toLowerCase() + "?";
-			case "create_expense" -> "Create expense ₱" + params.path("amount").asText("0") + " for " + params.path("description").asText() + "?";
+	private String buildPreviewMessage(ChatTool tool, JsonNode params) {
+		return switch (tool) {
+			case CREATE_BUDGET -> "Create budget for " + params.path("categoryName").asText("category") + " — ₱" + params.path("amountLimit").asText("0") + "?";
+			case CREATE_GOAL -> "Create goal \"" + params.path("name").asText() + "\" — ₱" + params.path("targetAmount").asText("0") + "?";
+			case CREATE_RECURRING -> "Create recurring \"" + params.path("name").asText() + "\" — ₱" + params.path("amount").asText("0") + "/" + params.path("frequency").asText("monthly").toLowerCase() + "?";
+			case CREATE_EXPENSE -> "Create expense ₱" + params.path("amount").asText("0") + " for " + params.path("description").asText() + "?";
 			default -> "Confirm action?";
 		};
 	}
@@ -191,7 +196,7 @@ public class ChatActionService {
 					previewParams.put("currentAmount", currentAmount);
 					previewParams.put("amountLimit", newAmount);
 					Map<String, Object> previewData = new LinkedHashMap<>();
-					previewData.put("toolName", "update_budget");
+					previewData.put("toolName", ChatTool.UPDATE_BUDGET.key());
 					previewData.put("params", previewParams);
 					return new ChatResponse("preview",
 							"A budget for " + categoryName + " already exists this month (₱" + currentAmount.toPlainString() +
