@@ -81,6 +81,20 @@ class SqlGuardTest {
     }
 
     @Test
+    void rejectsSubquery() {
+        assertThrows(IllegalArgumentException.class,
+                () -> SqlGuard.validateAndNormalize(
+                        "SELECT * FROM expenses WHERE user_id IN (SELECT user_id FROM expenses)"));
+    }
+
+    @Test
+    void rejectsCte() {
+        assertThrows(IllegalArgumentException.class,
+                () -> SqlGuard.validateAndNormalize(
+                        "WITH x AS (SELECT * FROM expenses) SELECT * FROM x"));
+    }
+
+    @Test
     void rejectsNullSql() {
         assertThrows(IllegalArgumentException.class,
                 () -> SqlGuard.validateAndNormalize(null));
