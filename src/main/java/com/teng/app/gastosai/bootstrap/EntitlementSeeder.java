@@ -1,0 +1,61 @@
+package com.teng.app.gastosai.bootstrap;
+
+import com.teng.app.gastosai.entity.FeatureKey;
+import com.teng.app.gastosai.entity.PlanFeature;
+import com.teng.app.gastosai.entity.PlanKey;
+import com.teng.app.gastosai.entity.SubscriptionPlan;
+import com.teng.app.gastosai.repository.PlanFeatureRepository;
+import com.teng.app.gastosai.repository.SubscriptionPlanRepository;
+import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.EnumSet;
+import java.util.Set;
+
+/**
+ * Seeds the default plans and their feature grants idempotently at startup, so the entitlement model
+ * is consistent across every environment (including H2 tests, where Flyway is disabled). The
+ * {@link FeatureKey} enum is the source of truth; PREMIUM grants all features, FREE a basic subset.
+ */
+@Component
+@Order(0)
+@RequiredArgsConstructor
+public class EntitlementSeeder implements CommandLineRunner {
+
+    private static final Set<FeatureKey> FREE_FEATURES = EnumSet.of(FeatureKey.EXPORT_CSV);
+
+    private static final Logger log = LoggerFactory.getLogger(EntitlementSeeder.class);
+
+    private final SubscriptionPlanRepository planRepository;
+    private final PlanFeatureRepository planFeatureRepository;
+
+    @Override
+    @Transactional
+    public void run(String... args) {
+        SubscriptionPlan free = ensurePlan(PlanKey.FREE, "Free", 0);
+        SubscriptionPlan premium = ensurePlan(PlanKey.PREMIUM, "Premium", 19900);
+        ensureFeatures(free, FREE_FEATURES);
+        ensureFeatures(premium, EnumSet.allOf(FeatureKey.class));
+    }
+
+    private SubscriptionPlan ensurePlan(PlanKey key, String name, int priceCents) {
+        return planRepository.findByPlanKey(key).orElseGet(() -> {
+            log.info("Seeding subscription plan {}", key);
+            return planRepository.save(SubscriptionPlan.builder()
+                    .planKey(key).name(name).priceCents(priceCents).currency("PHP").active(true).build());
+        });
+    }
+
+    private void ensureFeatures(SubscriptionPlan plan, Set<FeatureKey> features) {
+        for (FeatureKey feature : features) {
+            if (!planFeatureRepository.existsByPlanAndFeatureKey(plan, feature)) {
+                planFeatureRepository.save(PlanFeature.builder().plan(plan).featureKey(feature).build());
+            }
+        }
+    }
+}

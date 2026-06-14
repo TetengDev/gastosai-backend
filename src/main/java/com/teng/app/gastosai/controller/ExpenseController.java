@@ -10,6 +10,8 @@ import com.teng.app.gastosai.dto.MonthlyComparisonResponse;
 import com.teng.app.gastosai.dto.MonthlyReportItem;
 import com.teng.app.gastosai.dto.ParseExpenseRequest;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
+import com.teng.app.gastosai.config.RequiresFeature;
+import com.teng.app.gastosai.entity.FeatureKey;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.service.CsvImportService;
 import com.teng.app.gastosai.service.ExpenseService;
@@ -85,6 +87,7 @@ public class ExpenseController {
 	}
 
 	@GetMapping("/export")
+	@RequiresFeature(FeatureKey.EXPORT_CSV)
 	public ResponseEntity<byte[]> export(
 			@RequestParam(required = false) LocalDate from,
 			@RequestParam(required = false) LocalDate to,

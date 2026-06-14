@@ -24,6 +24,14 @@ public class GlobalExceptionHandler {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(pd);
 	}
 
+	@ExceptionHandler(FeatureLockedException.class)
+	public ResponseEntity<ProblemDetail> featureLocked(FeatureLockedException ex) {
+		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.PAYMENT_REQUIRED, ex.getMessage());
+		pd.setTitle("Upgrade Required");
+		pd.setProperty("feature", ex.getFeature().name());
+		return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED).body(pd);
+	}
+
 	@ExceptionHandler({ IllegalArgumentException.class, IllegalStateException.class })
 	public ResponseEntity<ProblemDetail> badRequest(RuntimeException ex) {
 		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());

@@ -3,6 +3,8 @@ package com.teng.app.gastosai.controller;
 import com.teng.app.gastosai.dto.MonthSummaryInsightResponse;
 import com.teng.app.gastosai.dto.RecommendationsInsightResponse;
 import com.teng.app.gastosai.dto.TopCategoryInsightResponse;
+import com.teng.app.gastosai.config.RequiresFeature;
+import com.teng.app.gastosai.entity.FeatureKey;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.service.AiInsightService;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +24,7 @@ public class AiInsightController {
     private final AiInsightService aiInsightService;
 
     @GetMapping("/top-category")
+    @RequiresFeature(FeatureKey.ADVANCED_INSIGHTS)
     public TopCategoryInsightResponse topCategory(
             @RequestParam String month,
             @AuthenticationPrincipal User user) {
@@ -34,6 +37,7 @@ public class AiInsightController {
     }
 
     @GetMapping("/month-summary")
+    @RequiresFeature(FeatureKey.ADVANCED_INSIGHTS)
     public MonthSummaryInsightResponse monthSummary(
             @RequestParam String month,
             @AuthenticationPrincipal User user) {
@@ -46,6 +50,7 @@ public class AiInsightController {
     }
 
     @GetMapping("/recommendations")
+    @RequiresFeature(FeatureKey.ADVANCED_INSIGHTS)
     public RecommendationsInsightResponse recommendations(
             @RequestParam String month,
             @AuthenticationPrincipal User user) {

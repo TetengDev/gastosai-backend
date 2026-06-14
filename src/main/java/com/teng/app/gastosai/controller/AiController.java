@@ -5,6 +5,8 @@ import com.teng.app.gastosai.dto.AiQueryResponse;
 import com.teng.app.gastosai.dto.ChatRequest;
 import com.teng.app.gastosai.dto.ChatResponse;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
+import com.teng.app.gastosai.config.RequiresFeature;
+import com.teng.app.gastosai.entity.FeatureKey;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.service.AiQueryService;
 import com.teng.app.gastosai.service.ChatActionService;
@@ -35,6 +37,7 @@ public class AiController {
 	private final ChatActionService chatActionService;
 
 	@PostMapping("/query")
+	@RequiresFeature(FeatureKey.AI_ANALYTICS)
 	public AiQueryResponse query(@Valid @RequestBody AiQueryRequest request,
 			@AuthenticationPrincipal User user) {
 		return aiQueryService.runNaturalLanguageQuery(request.question(), request.mode(), user);
@@ -53,6 +56,7 @@ public class AiController {
 	}
 
 	@PostMapping("/chat")
+	@RequiresFeature(FeatureKey.NL_CHATBOT)
 	public ResponseEntity<ChatResponse> chat(@Valid @RequestBody ChatRequest req,
 			@AuthenticationPrincipal User user) {
 		return ResponseEntity.ok(chatActionService.dispatch(req.message(), req.mode(), user));
