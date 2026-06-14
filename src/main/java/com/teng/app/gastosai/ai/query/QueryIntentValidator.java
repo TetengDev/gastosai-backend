@@ -44,8 +44,27 @@ public class QueryIntentValidator {
             return Optional.empty();
         }
 
-        DateRange dateRange = DateRange.fromString(text(node, "dateRange")).orElse(DateRange.CURRENT_MONTH);
-        SortDirection sort = SortDirection.fromString(text(node, "sort")).orElse(SortDirection.DESC);
+        // Absent optional fields default; present-but-unrecognized values are rejected (the AI is not
+        // trusted to invent enum values — a garbled field should fall back, not run the wrong window).
+        DateRange dateRange = DateRange.CURRENT_MONTH;
+        if (has(node, "dateRange")) {
+            Optional<DateRange> parsed = DateRange.fromString(text(node, "dateRange"));
+            if (parsed.isEmpty()) {
+                log.info("Rejecting AI query intent: unknown dateRange [{}]", text(node, "dateRange"));
+                return Optional.empty();
+            }
+            dateRange = parsed.get();
+        }
+
+        SortDirection sort = SortDirection.DESC;
+        if (has(node, "sort")) {
+            Optional<SortDirection> parsed = SortDirection.fromString(text(node, "sort"));
+            if (parsed.isEmpty()) {
+                log.info("Rejecting AI query intent: unknown sort [{}]", text(node, "sort"));
+                return Optional.empty();
+            }
+            sort = parsed.get();
+        }
 
         String category = text(node, "category");
         if (category != null) {
@@ -62,6 +81,11 @@ public class QueryIntentValidator {
         limit = Math.min(limit, MAX_LIMIT);
 
         return Optional.of(new QueryIntent(metric.get(), dateRange, category, sort, limit));
+    }
+
+    private static boolean has(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        return value != null && !value.isNull();
     }
 
     private static String text(JsonNode node, String field) {

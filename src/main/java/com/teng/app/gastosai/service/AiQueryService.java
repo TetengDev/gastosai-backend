@@ -88,11 +88,13 @@ public class AiQueryService {
 		String rawSql = sqlGenerator.generateSql(question);
 		String sql = SqlGuard.validateAndNormalize(rawSql);
 		String scopedSql = user.isAdmin() ? sql : appendUserFilter(sql, user.getId());
-		log.info("AI-generated SQL (user-scoped): {}", scopedSql);
+		// SQL may embed user identifiers / value literals — keep it at DEBUG, not INFO.
+		log.debug("AI-generated SQL (user-scoped): {}", scopedSql);
 		try {
 			return jdbcTemplate.queryForList(scopedSql);
 		} catch (DataAccessException e) {
-			log.warn("AI query execution failed — SQL [{}]: {}", scopedSql, e.getMessage());
+			log.warn("AI query execution failed: {}", e.getMessage());
+			log.debug("Failed SQL: {}", scopedSql);
 			return null;
 		}
 	}

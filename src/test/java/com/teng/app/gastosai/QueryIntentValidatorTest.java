@@ -46,8 +46,18 @@ class QueryIntentValidatorTest {
     }
 
     @Test
-    void defaultsUnknownDateRangeAndSort() {
-        QueryIntent q = validator.parse("{\"metric\":\"TOTAL\",\"dateRange\":\"SINCE_FOREVER\",\"sort\":\"sideways\"}").orElseThrow();
+    void rejectsPresentButUnknownDateRange() {
+        assertThat(validator.parse("{\"metric\":\"TOTAL\",\"dateRange\":\"SINCE_FOREVER\"}")).isEmpty();
+    }
+
+    @Test
+    void rejectsPresentButUnknownSort() {
+        assertThat(validator.parse("{\"metric\":\"TOTAL\",\"dateRange\":\"ALL\",\"sort\":\"sideways\"}")).isEmpty();
+    }
+
+    @Test
+    void defaultsRangeAndSortWhenAbsent() {
+        QueryIntent q = validator.parse("{\"metric\":\"TOTAL\"}").orElseThrow();
         assertThat(q.dateRange()).isEqualTo(DateRange.CURRENT_MONTH);
         assertThat(q.sort()).isEqualTo(SortDirection.DESC);
     }
