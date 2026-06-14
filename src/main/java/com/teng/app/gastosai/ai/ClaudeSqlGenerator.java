@@ -19,7 +19,7 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 	private static final String SQL_SYSTEM_PROMPT = """
 			You generate exactly one PostgreSQL SELECT query for the table "expenses".
 			The schema is:
-			- expenses(id bigint, amount numeric, category_id bigint, date timestamp, description text)
+			- expenses(id bigint, amount numeric, category_id bigint, date timestamp, description text, user_id bigint)
 			- categories(id bigint, name varchar)
 
 			When you need the category name, join:
@@ -29,7 +29,11 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 			- Output only the SQL, no markdown unless you wrap it in a single ```sql code block.
 			- SELECT only; no semicolons at the end.
 			- The FROM clause must include the "expenses" table (aliases like e are fine). Joins to "categories" are allowed.
-			- Use standard PostgreSQL date functions when the user asks about months or ranges.
+			- ALWAYS use PostgreSQL date functions. NEVER use MySQL functions like MONTH(), YEAR(), DATE_FORMAT(), or WEEKDAY().
+			- For current month: WHERE date >= date_trunc('month', NOW()) AND date < date_trunc('month', NOW()) + INTERVAL '1 month'
+			- For specific month extraction: EXTRACT(MONTH FROM date) or date_part('month', date)
+			- For specific year: EXTRACT(YEAR FROM date)
+			- For today: CURRENT_DATE, for now: NOW()
 			""";
 
 	private static final String SUMMARY_PROMPT_PLAIN = """
@@ -79,13 +83,13 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 			[
 			  {"name":"create_expense","description":"Create a new expense","input_schema":{"type":"object","properties":{"amount":{"type":"number"},"category":{"type":"string"},"description":{"type":"string"},"date":{"type":"string","description":"ISO date"}},"required":["amount","description"]}},
 			  {"name":"update_expense","description":"Update an existing expense by id","input_schema":{"type":"object","properties":{"id":{"type":"number"},"amount":{"type":"number"},"category":{"type":"string"},"description":{"type":"string"},"date":{"type":"string"}},"required":["id","amount","description"]}},
-			  {"name":"delete_expense","description":"Delete an expense by id","input_schema":{"type":"object","properties":{"id":{"type":"number"}},"required":["id"]}},
+			  {"name":"delete_expense","description":"Delete an expense. Use id if known, description keywords to find by name, or set latest=true to delete the most recent one.","input_schema":{"type":"object","properties":{"id":{"type":"number","description":"Expense ID if known"},"description":{"type":"string","description":"Keywords to find the expense by description"},"latest":{"type":"boolean","description":"true to delete the most recently added expense"}},"required":[]}},
 			  {"name":"create_budget","description":"Create a budget for a category and month","input_schema":{"type":"object","properties":{"categoryName":{"type":"string"},"month":{"type":"string","description":"YYYY-MM"},"amountLimit":{"type":"number"}},"required":["categoryName","amountLimit"]}},
-			  {"name":"delete_budget","description":"Delete a budget by id","input_schema":{"type":"object","properties":{"id":{"type":"number"}},"required":["id"]}},
+			  {"name":"delete_budget","description":"Delete a budget. Use id if known, or categoryName + optional month (YYYY-MM, defaults to current month).","input_schema":{"type":"object","properties":{"id":{"type":"number","description":"Budget ID if known"},"categoryName":{"type":"string","description":"Category name to find the budget"},"month":{"type":"string","description":"YYYY-MM, defaults to current month"}},"required":[]}},
 			  {"name":"create_goal","description":"Create a savings goal","input_schema":{"type":"object","properties":{"name":{"type":"string"},"targetAmount":{"type":"number"},"savedAmount":{"type":"number"},"targetDate":{"type":"string"}},"required":["name","targetAmount"]}},
-			  {"name":"delete_goal","description":"Delete a savings goal by id","input_schema":{"type":"object","properties":{"id":{"type":"number"}},"required":["id"]}},
+			  {"name":"delete_goal","description":"Delete a savings goal. Use id if known, or name to find it.","input_schema":{"type":"object","properties":{"id":{"type":"number","description":"Goal ID if known"},"name":{"type":"string","description":"Goal name to search for"}},"required":[]}},
 			  {"name":"create_recurring","description":"Create a recurring expense","input_schema":{"type":"object","properties":{"name":{"type":"string"},"amount":{"type":"number"},"frequency":{"type":"string","enum":["MONTHLY","WEEKLY"]},"categoryName":{"type":"string"},"dayOfMonth":{"type":"number"},"dayOfWeek":{"type":"number"}},"required":["name","amount","frequency"]}},
-			  {"name":"delete_recurring","description":"Delete a recurring expense by id","input_schema":{"type":"object","properties":{"id":{"type":"number"}},"required":["id"]}}
+			  {"name":"delete_recurring","description":"Delete a recurring expense. Use id if known, name to find by keyword, or set latest=true to delete the most recently added one.","input_schema":{"type":"object","properties":{"id":{"type":"number","description":"Recurring expense ID if known"},"name":{"type":"string","description":"Keywords to find recurring expense by name"},"latest":{"type":"boolean","description":"true to delete the most recently added recurring expense"}},"required":[]}}
 			]
 			""";
 

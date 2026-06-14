@@ -9,6 +9,7 @@ import com.teng.app.gastosai.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -34,7 +35,13 @@ public class AiQueryService {
 		String scopedSql = user.isAdmin() ? sql : appendUserFilter(sql, user.getId());
 		log.info("AI-generated SQL (user-scoped): {}", scopedSql);
 
-		List<Map<String, Object>> rows = jdbcTemplate.queryForList(scopedSql);
+		List<Map<String, Object>> rows;
+		try {
+			rows = jdbcTemplate.queryForList(scopedSql);
+		} catch (DataAccessException e) {
+			log.warn("AI query execution failed — SQL [{}]: {}", scopedSql, e.getMessage());
+			return new AiQueryResponse("I couldn't run that query right now. Try rephrasing — for example: 'total spent this month' or 'expenses by category this month'.");
+		}
 		Object normalizedData = normalizeAnswer(rows);
 
 		String resolvedMode = (mode != null && !mode.isBlank()) ? mode : "plain";
@@ -55,7 +62,7 @@ public class AiQueryService {
 	}
 
 	private static String appendUserFilter(String sql, Long userId) {
-		String s = sql.trim();
+		String s = sql.trim().replaceAll("\\s+", " ");
 		String lower = s.toLowerCase();
 		String filter = " AND user_id = " + userId;
 
