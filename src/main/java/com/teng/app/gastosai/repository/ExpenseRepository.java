@@ -63,6 +63,10 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
 			""")
 	List<Object[]> sumByCategoryAll();
 
+	Optional<Expense> findTopByUserOrderByDateDesc(User user);
+
+	List<Expense> findByUserAndDescriptionContainingIgnoreCase(User user, String keyword);
+
 	long countByCategory_Id(Long categoryId);
 
 	List<Expense> findByCategory_Id(Long categoryId);

@@ -8,6 +8,10 @@ import com.teng.app.gastosai.dto.ExpenseResponse;
 import com.teng.app.gastosai.entity.Role;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
+import com.teng.app.gastosai.repository.BudgetRepository;
+import com.teng.app.gastosai.repository.ExpenseRepository;
+import com.teng.app.gastosai.repository.RecurringExpenseRepository;
+import com.teng.app.gastosai.repository.SavingsGoalRepository;
 import com.teng.app.gastosai.service.BudgetService;
 import com.teng.app.gastosai.service.CategoryService;
 import com.teng.app.gastosai.service.ChatActionService;
@@ -39,6 +43,10 @@ class ChatActionServiceTest {
     @Mock SavingsGoalService savingsGoalService;
     @Mock RecurringExpenseService recurringExpenseService;
     @Mock CategoryService categoryService;
+    @Mock ExpenseRepository expenseRepository;
+    @Mock RecurringExpenseRepository recurringExpenseRepository;
+    @Mock BudgetRepository budgetRepository;
+    @Mock SavingsGoalRepository savingsGoalRepository;
     @Spy ObjectMapper objectMapper;
 
     @InjectMocks ChatActionService chatActionService;
@@ -54,7 +62,21 @@ class ChatActionServiceTest {
     }
 
     @Test
-    void dispatch_createExpense_routesToExpenseServiceAndReturnsActionResponse() {
+    void dispatch_createExpense_withoutExecuteMode_returnsPreview() {
+        String paramsJson = """
+                {"amount":500,"description":"Lunch","category":"Food"}
+                """;
+        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("create_expense", paramsJson));
+
+        ChatResponse response = chatActionService.dispatch("Add lunch ₱500", null, user());
+
+        assertThat(response.type()).isEqualTo("preview");
+        assertThat(response.message()).contains("500");
+        assertThat(response.message()).contains("Lunch");
+    }
+
+    @Test
+    void dispatch_createExpense_withExecuteMode_routesToExpenseServiceAndReturnsActionResponse() {
         String paramsJson = """
                 {"amount":500,"description":"Lunch","category":"Food"}
                 """;
@@ -66,7 +88,7 @@ class ChatActionServiceTest {
                 BigDecimal.ONE, new BigDecimal("500.00"));
         when(expenseService.create(any(), any())).thenReturn(mockResult);
 
-        ChatResponse response = chatActionService.dispatch("Add lunch ₱500", null, user());
+        ChatResponse response = chatActionService.dispatch("Add lunch ₱500", "execute", user());
 
         assertThat(response.type()).isEqualTo("action");
         assertThat(response.message()).contains("Expense created");
