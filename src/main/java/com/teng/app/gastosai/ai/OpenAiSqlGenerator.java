@@ -76,6 +76,20 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 	private static final String RECOMMENDATIONS_PROMPT =
 			"You are GastosAI, a personal finance assistant for Filipino users. Given a JSON object with monthly expense data, return a JSON array of exactly 2–3 short, actionable spending recommendations as plain-text strings. Example: [\"Consider reducing Food spending which took 40% of your budget.\",\"Your Transport costs rose 20% vs last month.\"]. Use ₱ for currency. Return only the JSON array, no other text.";
 
+	private static final String TOOL_DEFINITIONS = """
+			[
+			  {"type":"function","function":{"name":"create_expense","description":"Create a new expense","parameters":{"type":"object","properties":{"amount":{"type":"number"},"category":{"type":"string"},"description":{"type":"string"},"date":{"type":"string","description":"ISO date"}},"required":["amount","description"]}}},
+			  {"type":"function","function":{"name":"update_expense","description":"Update an existing expense by id","parameters":{"type":"object","properties":{"id":{"type":"number"},"amount":{"type":"number"},"category":{"type":"string"},"description":{"type":"string"},"date":{"type":"string"}},"required":["id","amount","description"]}}},
+			  {"type":"function","function":{"name":"delete_expense","description":"Delete an expense by id","parameters":{"type":"object","properties":{"id":{"type":"number"}},"required":["id"]}}},
+			  {"type":"function","function":{"name":"create_budget","description":"Create a budget for a category and month","parameters":{"type":"object","properties":{"categoryName":{"type":"string"},"month":{"type":"string","description":"YYYY-MM"},"amountLimit":{"type":"number"}},"required":["categoryName","amountLimit"]}}},
+			  {"type":"function","function":{"name":"delete_budget","description":"Delete a budget by id","parameters":{"type":"object","properties":{"id":{"type":"number"}},"required":["id"]}}},
+			  {"type":"function","function":{"name":"create_goal","description":"Create a savings goal","parameters":{"type":"object","properties":{"name":{"type":"string"},"targetAmount":{"type":"number"},"savedAmount":{"type":"number"},"targetDate":{"type":"string"}},"required":["name","targetAmount"]}}},
+			  {"type":"function","function":{"name":"delete_goal","description":"Delete a savings goal by id","parameters":{"type":"object","properties":{"id":{"type":"number"}},"required":["id"]}}},
+			  {"type":"function","function":{"name":"create_recurring","description":"Create a recurring expense","parameters":{"type":"object","properties":{"name":{"type":"string"},"amount":{"type":"number"},"frequency":{"type":"string","enum":["MONTHLY","WEEKLY"]},"categoryName":{"type":"string"},"dayOfMonth":{"type":"number"},"dayOfWeek":{"type":"number"}},"required":["name","amount","frequency"]}}},
+			  {"type":"function","function":{"name":"delete_recurring","description":"Delete a recurring expense by id","parameters":{"type":"object","properties":{"id":{"type":"number"}},"required":["id"]}}}
+			]
+			""";
+
 	private static final Pattern SQL_FENCE = Pattern.compile("(?is)```(?:sql)?\\s*([\\s\\S]*?)```");
 
 	private final RestClient openAiRestClient;
@@ -182,6 +196,40 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 		}
 		catch (Exception e) {
 			throw new IllegalStateException("Failed to parse OpenAI insight response", e);
+		}
+	}
+
+	@Override
+	public ChatToolCall classifyIntent(String message) {
+		try {
+			JsonNode tools = objectMapper.readTree(TOOL_DEFINITIONS);
+			ObjectNode body = objectMapper.createObjectNode();
+			body.put("model", openAiProperties.getModel());
+			body.set("tools", tools);
+			body.put("tool_choice", "auto");
+			ArrayNode messages = body.putArray("messages");
+			ObjectNode user = messages.addObject();
+			user.put("role", "user");
+			user.put("content", message);
+
+			String raw = openAiRestClient.post()
+					.uri("/v1/chat/completions")
+					.contentType(MediaType.APPLICATION_JSON)
+					.body(body.toString())
+					.retrieve()
+					.body(String.class);
+
+			JsonNode root = objectMapper.readTree(raw);
+			JsonNode toolCalls = root.path("choices").path(0).path("message").path("tool_calls");
+			if (toolCalls.isArray() && !toolCalls.isEmpty()) {
+				JsonNode fn = toolCalls.get(0).path("function");
+				return new ChatToolCall(fn.path("name").asText(), fn.path("arguments").asText());
+			}
+			String content = root.path("choices").path(0).path("message").path("content").asText("");
+			return new ChatToolCall("text", content);
+		}
+		catch (Exception e) {
+			throw new IllegalStateException("Failed to classify intent via OpenAI", e);
 		}
 	}
 

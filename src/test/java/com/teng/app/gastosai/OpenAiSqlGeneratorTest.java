@@ -1,5 +1,6 @@
 package com.teng.app.gastosai;
 
+import com.teng.app.gastosai.ai.ChatToolCall;
 import com.teng.app.gastosai.ai.OpenAiSqlGenerator;
 import com.teng.app.gastosai.config.OpenAiProperties;
 import org.junit.jupiter.api.Test;
@@ -253,5 +254,50 @@ class OpenAiSqlGeneratorTest {
         String result = generator.generateInsightSummary("{}", "recommendations", "plain");
 
         assertThat(result).contains("Reduce Food spending");
+    }
+
+    // ── classifyIntent — tool_call response ──────────────────────────────────
+
+    @Test
+    void classifyIntent_toolCallResponse_returnsToolCall() {
+        when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
+
+        String apiResponse = """
+                {"choices":[{"message":{"tool_calls":[{"function":{"name":"create_expense","arguments":"{\\"amount\\":500,\\"description\\":\\"Lunch\\"}"}}]}}]}
+                """;
+        when(openAiRestClient.post()
+                .uri(anyString())
+                .contentType(any())
+                .body(anyString())
+                .retrieve()
+                .body(String.class))
+                .thenReturn(apiResponse);
+
+        ChatToolCall result = generator.classifyIntent("Add lunch for 500");
+
+        assertThat(result.toolName()).isEqualTo("create_expense");
+        assertThat(result.paramsJson()).contains("amount");
+        assertThat(result.paramsJson()).contains("500");
+    }
+
+    @Test
+    void classifyIntent_textResponse_returnsTextToolCall() {
+        when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
+
+        String apiResponse = """
+                {"choices":[{"message":{"tool_calls":[],"content":"I cannot do that."}}]}
+                """;
+        when(openAiRestClient.post()
+                .uri(anyString())
+                .contentType(any())
+                .body(anyString())
+                .retrieve()
+                .body(String.class))
+                .thenReturn(apiResponse);
+
+        ChatToolCall result = generator.classifyIntent("Tell me a joke");
+
+        assertThat(result.toolName()).isEqualTo("text");
+        assertThat(result.paramsJson()).isEqualTo("I cannot do that.");
     }
 }

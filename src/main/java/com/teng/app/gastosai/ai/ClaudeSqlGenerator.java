@@ -75,6 +75,20 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 	private static final String RECOMMENDATIONS_PROMPT =
 			"You are GastosAI, a personal finance assistant for Filipino users. Given a JSON object with monthly expense data, return a JSON array of exactly 2–3 short, actionable spending recommendations as plain-text strings. Example: [\"Consider reducing Food spending which took 40% of your budget.\",\"Your Transport costs rose 20% vs last month.\"]. Use ₱ for currency. Return only the JSON array, no other text.";
 
+	private static final String TOOL_DEFINITIONS = """
+			[
+			  {"name":"create_expense","description":"Create a new expense","input_schema":{"type":"object","properties":{"amount":{"type":"number"},"category":{"type":"string"},"description":{"type":"string"},"date":{"type":"string","description":"ISO date"}},"required":["amount","description"]}},
+			  {"name":"update_expense","description":"Update an existing expense by id","input_schema":{"type":"object","properties":{"id":{"type":"number"},"amount":{"type":"number"},"category":{"type":"string"},"description":{"type":"string"},"date":{"type":"string"}},"required":["id","amount","description"]}},
+			  {"name":"delete_expense","description":"Delete an expense by id","input_schema":{"type":"object","properties":{"id":{"type":"number"}},"required":["id"]}},
+			  {"name":"create_budget","description":"Create a budget for a category and month","input_schema":{"type":"object","properties":{"categoryName":{"type":"string"},"month":{"type":"string","description":"YYYY-MM"},"amountLimit":{"type":"number"}},"required":["categoryName","amountLimit"]}},
+			  {"name":"delete_budget","description":"Delete a budget by id","input_schema":{"type":"object","properties":{"id":{"type":"number"}},"required":["id"]}},
+			  {"name":"create_goal","description":"Create a savings goal","input_schema":{"type":"object","properties":{"name":{"type":"string"},"targetAmount":{"type":"number"},"savedAmount":{"type":"number"},"targetDate":{"type":"string"}},"required":["name","targetAmount"]}},
+			  {"name":"delete_goal","description":"Delete a savings goal by id","input_schema":{"type":"object","properties":{"id":{"type":"number"}},"required":["id"]}},
+			  {"name":"create_recurring","description":"Create a recurring expense","input_schema":{"type":"object","properties":{"name":{"type":"string"},"amount":{"type":"number"},"frequency":{"type":"string","enum":["MONTHLY","WEEKLY"]},"categoryName":{"type":"string"},"dayOfMonth":{"type":"number"},"dayOfWeek":{"type":"number"}},"required":["name","amount","frequency"]}},
+			  {"name":"delete_recurring","description":"Delete a recurring expense by id","input_schema":{"type":"object","properties":{"id":{"type":"number"}},"required":["id"]}}
+			]
+			""";
+
 	private static final Pattern SQL_FENCE = Pattern.compile("(?is)```(?:sql)?\\s*([\\s\\S]*?)```");
 
 	private final RestClient claudeRestClient;
@@ -176,6 +190,44 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 		}
 		catch (Exception e) {
 			throw new IllegalStateException("Failed to parse Claude insight response", e);
+		}
+	}
+
+	@Override
+	public ChatToolCall classifyIntent(String message) {
+		try {
+			JsonNode tools = objectMapper.readTree(TOOL_DEFINITIONS);
+			ObjectNode body = objectMapper.createObjectNode();
+			body.put("model", claudeProperties.getModel());
+			body.put("max_tokens", 1024);
+			body.set("tools", tools);
+			ArrayNode messages = body.putArray("messages");
+			ObjectNode user = messages.addObject();
+			user.put("role", "user");
+			user.put("content", message);
+
+			String raw = claudeRestClient.post()
+					.uri("/messages")
+					.contentType(MediaType.APPLICATION_JSON)
+					.body(body.toString())
+					.retrieve()
+					.body(String.class);
+
+			JsonNode root = objectMapper.readTree(raw);
+			String stopReason = root.path("stop_reason").asText("");
+			if ("tool_use".equals(stopReason)) {
+				for (JsonNode block : root.path("content")) {
+					if ("tool_use".equals(block.path("type").asText())) {
+						String paramsJson = objectMapper.writeValueAsString(block.path("input"));
+						return new ChatToolCall(block.path("name").asText(), paramsJson);
+					}
+				}
+			}
+			String text = root.path("content").path(0).path("text").asText("");
+			return new ChatToolCall("text", text);
+		}
+		catch (Exception e) {
+			throw new IllegalStateException("Failed to classify intent via Claude", e);
 		}
 	}
 

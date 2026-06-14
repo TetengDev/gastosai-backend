@@ -7,5 +7,7 @@ public interface SqlGenerator {
 	String generateSummary(String question, String dataJson, String mode);
 
 	String generateInsightSummary(String contextJson, String insightType, String mode);
+
+	ChatToolCall classifyIntent(String message);
 }
 
