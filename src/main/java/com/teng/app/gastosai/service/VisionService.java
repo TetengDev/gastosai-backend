@@ -17,10 +17,16 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.Base64;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class VisionService {
+
+	private static final Set<String> ALLOWED_MEDIA_TYPES = Set.of(
+			"image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp",
+			"image/heic", "image/heif", "image/bmp", "image/tiff"
+	);
 
 	private static final String SYSTEM_PROMPT_TEMPLATE = """
 			You are GastosAI, an AI receipt parser for a Filipino expense tracker.
@@ -43,6 +49,11 @@ public class VisionService {
 	private final ObjectMapper objectMapper;
 
 	public ParsedExpenseResult analyze(String question, MultipartFile file, String mode) throws IOException {
+		String contentType = file.getContentType();
+		if (contentType == null || !ALLOWED_MEDIA_TYPES.contains(contentType.toLowerCase())) {
+			throw new IllegalArgumentException(
+					"Unsupported file type '" + contentType + "'. Upload a JPEG, PNG, GIF, WebP, or HEIC image.");
+		}
 		String prompt = (question != null && !question.isBlank())
 				? question
 				: "Extract expense information from this image.";
