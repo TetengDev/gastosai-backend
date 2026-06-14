@@ -13,6 +13,8 @@ public final class SqlGuard {
 	private static final Pattern FROM_EXPENSES = Pattern.compile(
 			"(?is)from\\s+(?:[\\w]+\\.)?[\"`]?expenses[\"`]?(\\s|,|$|\\))");
 
+	private static final Pattern SELECT_TOKEN = Pattern.compile("(?is)\\bselect\\b");
+
 	private SqlGuard() {
 	}
 
@@ -37,6 +39,21 @@ public final class SqlGuard {
 		if (!FROM_EXPENSES.matcher(s).find()) {
 			throw new IllegalArgumentException("SQL must query the expenses table");
 		}
+		// Reject subqueries/derived tables (a second SELECT). The fallback path scopes results to the
+		// user by inserting a WHERE/AND user_id filter into this SQL; that is only sound on a single
+		// flat SELECT. CTEs are already excluded by the leading-SELECT requirement above.
+		if (countSelects(s) > 1) {
+			throw new IllegalArgumentException("Nested SELECTs / subqueries are not allowed");
+		}
 		return s;
+	}
+
+	private static int countSelects(String sql) {
+		java.util.regex.Matcher matcher = SELECT_TOKEN.matcher(sql);
+		int count = 0;
+		while (matcher.find()) {
+			count++;
+		}
+		return count;
 	}
 }
