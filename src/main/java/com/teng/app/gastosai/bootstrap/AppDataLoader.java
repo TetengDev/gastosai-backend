@@ -4,15 +4,21 @@ import com.teng.app.gastosai.entity.Budget;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
 import com.teng.app.gastosai.entity.Frequency;
+import com.teng.app.gastosai.entity.PlanKey;
 import com.teng.app.gastosai.entity.RecurringExpense;
 import com.teng.app.gastosai.entity.SavingsGoal;
+import com.teng.app.gastosai.entity.SubscriptionPlan;
+import com.teng.app.gastosai.entity.SubscriptionStatus;
 import com.teng.app.gastosai.entity.User;
+import com.teng.app.gastosai.entity.UserSubscription;
 import com.teng.app.gastosai.repository.BudgetRepository;
 import com.teng.app.gastosai.repository.CategoryRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import com.teng.app.gastosai.repository.RecurringExpenseRepository;
 import com.teng.app.gastosai.repository.SavingsGoalRepository;
+import com.teng.app.gastosai.repository.SubscriptionPlanRepository;
 import com.teng.app.gastosai.repository.UserRepository;
+import com.teng.app.gastosai.repository.UserSubscriptionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,6 +31,7 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.HashMap;
 import java.util.List;
@@ -43,6 +50,8 @@ public class AppDataLoader implements ApplicationRunner {
 	private final BudgetRepository budgetRepository;
 	private final RecurringExpenseRepository recurringExpenseRepository;
 	private final SavingsGoalRepository savingsGoalRepository;
+	private final SubscriptionPlanRepository subscriptionPlanRepository;
+	private final UserSubscriptionRepository userSubscriptionRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final String demoName;
 	private final String demoEmail;
@@ -55,6 +64,8 @@ public class AppDataLoader implements ApplicationRunner {
 			BudgetRepository budgetRepository,
 			RecurringExpenseRepository recurringExpenseRepository,
 			SavingsGoalRepository savingsGoalRepository,
+			SubscriptionPlanRepository subscriptionPlanRepository,
+			UserSubscriptionRepository userSubscriptionRepository,
 			PasswordEncoder passwordEncoder,
 			@Value("${gastos.demo.name:Demo User}") String demoName,
 			@Value("${gastos.demo.email:demo@gastosai.dev}") String demoEmail,
@@ -65,6 +76,8 @@ public class AppDataLoader implements ApplicationRunner {
 		this.budgetRepository = budgetRepository;
 		this.recurringExpenseRepository = recurringExpenseRepository;
 		this.savingsGoalRepository = savingsGoalRepository;
+		this.subscriptionPlanRepository = subscriptionPlanRepository;
+		this.userSubscriptionRepository = userSubscriptionRepository;
 		this.passwordEncoder = passwordEncoder;
 		this.demoName = demoName;
 		this.demoEmail = demoEmail;
@@ -78,6 +91,30 @@ public class AppDataLoader implements ApplicationRunner {
 		seedBudgetsIfEmpty(demoUser);
 		seedRecurringIfEmpty(demoUser);
 		seedGoalsIfEmpty(demoUser);
+		seedSubscriptionIfMissing(demoUser);
+	}
+
+	private void seedSubscriptionIfMissing(User demoUser) {
+		if (userSubscriptionRepository.findFirstByUserOrderByCreatedAtDesc(demoUser).isPresent()) {
+			log.info("Skipping demo subscription seed: subscription already exists for demo user");
+			return;
+		}
+		SubscriptionPlan premium = subscriptionPlanRepository.findByPlanKey(PlanKey.PREMIUM).orElse(null);
+		if (premium == null) {
+			log.warn("Skipping demo subscription seed: PREMIUM plan not yet seeded");
+			return;
+		}
+		// Give the demo account an open-ended PREMIUM subscription so it stays fully featured even after
+		// monetization enforcement is enabled (currentPeriodEnd null = no expiry).
+		userSubscriptionRepository.save(UserSubscription.builder()
+				.user(demoUser)
+				.plan(premium)
+				.status(SubscriptionStatus.ACTIVE)
+				.startedAt(LocalDateTime.now())
+				.currentPeriodEnd(null)
+				.provider("seed")
+				.build());
+		log.info("Seeded PREMIUM subscription for demo user");
 	}
 
 	private User getOrCreateDemoUser() {

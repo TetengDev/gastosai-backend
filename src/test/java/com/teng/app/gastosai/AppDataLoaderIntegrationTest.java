@@ -3,9 +3,12 @@ package com.teng.app.gastosai;
 import com.teng.app.gastosai.repository.BudgetRepository;
 import com.teng.app.gastosai.repository.CategoryRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
+import com.teng.app.gastosai.entity.PlanKey;
+import com.teng.app.gastosai.entity.SubscriptionStatus;
 import com.teng.app.gastosai.repository.RecurringExpenseRepository;
 import com.teng.app.gastosai.repository.SavingsGoalRepository;
 import com.teng.app.gastosai.repository.UserRepository;
+import com.teng.app.gastosai.repository.UserSubscriptionRepository;
 
 import java.time.YearMonth;
 import org.junit.jupiter.api.Test;
@@ -42,6 +45,9 @@ class AppDataLoaderIntegrationTest {
     @Autowired
     SavingsGoalRepository savingsGoalRepository;
 
+    @Autowired
+    UserSubscriptionRepository userSubscriptionRepository;
+
     @Test
     void demoUserCreated() {
         assertThat(userRepository.findByEmail("demo@gastosai.dev")).isPresent();
@@ -74,6 +80,14 @@ class AppDataLoaderIntegrationTest {
     void goalsSeededForDemoUser() {
         var demoUser = userRepository.findByEmail("demo@gastosai.dev").orElseThrow();
         assertThat(savingsGoalRepository.findAllByUserOrderByCreatedAtDesc(demoUser)).isNotEmpty();
+    }
+
+    @Test
+    void demoUserHasActivePremiumSubscription() {
+        var demoUser = userRepository.findByEmail("demo@gastosai.dev").orElseThrow();
+        var subscription = userSubscriptionRepository.findFirstByUserOrderByCreatedAtDesc(demoUser).orElseThrow();
+        assertThat(subscription.getStatus()).isEqualTo(SubscriptionStatus.ACTIVE);
+        assertThat(subscription.getPlan().getPlanKey()).isEqualTo(PlanKey.PREMIUM);
     }
 
     @Test
