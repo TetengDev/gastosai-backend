@@ -218,13 +218,16 @@ class AlertApiIntegrationTest {
                 .andExpect(status().isCreated());
     }
 
+    // Mid-month, midday on purpose: the YEAR()/MONTH() aggregation runs on the stored timestamp.
+    // A day-boundary value could shift into an adjacent month if a JVM-zone <-> DB-zone conversion
+    // is ever (re)introduced, so day 15 at noon keeps the month stable under any timezone setup.
     private String currentDate() {
-        return LocalDateTime.now().withDayOfMonth(1)
+        return LocalDateTime.now().withDayOfMonth(15).withHour(12).withMinute(0).withSecond(0).withNano(0)
                 .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
     }
 
     private String prevDate() {
-        return LocalDateTime.now().minusMonths(1).withDayOfMonth(1)
+        return LocalDateTime.now().minusMonths(1).withDayOfMonth(15).withHour(12).withMinute(0).withSecond(0).withNano(0)
                 .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
     }
 }
