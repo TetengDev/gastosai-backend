@@ -94,6 +94,14 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 			]
 			""";
 
+	private static final String ANALYTICS_TOOL = """
+			[
+			  {"type":"function","function":{"name":"analytics_query","description":"Build a structured analytics query over the user's own expenses. Choose the metric, time window, optional category filter, sort order and result limit that best answer the question.","parameters":{"type":"object","properties":{"metric":{"type":"string","enum":["TOTAL","AVERAGE","COUNT","SUM_BY_CATEGORY","SUM_BY_DAY","SUM_BY_MONTH"],"description":"TOTAL/AVERAGE/COUNT are single numbers; SUM_BY_* return a breakdown."},"dateRange":{"type":"string","enum":["CURRENT_MONTH","LAST_MONTH","LAST_3_MONTHS","YEAR_TO_DATE","ALL"]},"category":{"type":"string","description":"Optional exact category name to filter by"},"sort":{"type":"string","enum":["ASC","DESC"]},"limit":{"type":"integer","description":"Max rows for breakdowns (1-100)"}},"required":["metric","dateRange"]}}}
+			]
+			""";
+
+	private static final String ANALYTICS_TOOL_NAME = "analytics_query";
+
 	private static final Pattern SQL_FENCE = Pattern.compile("(?is)```(?:sql)?\\s*([\\s\\S]*?)```");
 
 	private final RestClient openAiRestClient;
@@ -133,6 +141,46 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 		}
 		catch (Exception e) {
 			throw new IllegalStateException("Failed to parse OpenAI response", e);
+		}
+	}
+
+	@Override
+	public String classifyQueryIntentJson(String question) {
+		if (openAiProperties.getApiKey() == null || openAiProperties.getApiKey().isBlank()) {
+			return null;
+		}
+		try {
+			JsonNode tools = objectMapper.readTree(ANALYTICS_TOOL);
+			ObjectNode body = objectMapper.createObjectNode();
+			body.put("model", openAiProperties.getModel());
+			body.set("tools", tools);
+			ObjectNode toolChoice = body.putObject("tool_choice");
+			toolChoice.put("type", "function");
+			toolChoice.putObject("function").put("name", ANALYTICS_TOOL_NAME);
+			ArrayNode messages = body.putArray("messages");
+			ObjectNode user = messages.addObject();
+			user.put("role", "user");
+			user.put("content", question);
+
+			String raw = openAiRestClient.post()
+					.uri("/v1/chat/completions")
+					.contentType(MediaType.APPLICATION_JSON)
+					.body(body.toString())
+					.retrieve()
+					.body(String.class);
+
+			JsonNode root = objectMapper.readTree(raw);
+			JsonNode toolCalls = root.path("choices").path(0).path("message").path("tool_calls");
+			if (toolCalls.isArray() && !toolCalls.isEmpty()) {
+				JsonNode fn = toolCalls.get(0).path("function");
+				if (ANALYTICS_TOOL_NAME.equals(fn.path("name").asText())) {
+					return fn.path("arguments").asText();
+				}
+			}
+			return null;
+		}
+		catch (Exception e) {
+			return null;
 		}
 	}
 

@@ -93,6 +93,14 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 			]
 			""";
 
+	private static final String ANALYTICS_TOOL = """
+			[
+			  {"name":"analytics_query","description":"Build a structured analytics query over the user's own expenses. Choose the metric, time window, optional category filter, sort order and result limit that best answer the question.","input_schema":{"type":"object","properties":{"metric":{"type":"string","enum":["TOTAL","AVERAGE","COUNT","SUM_BY_CATEGORY","SUM_BY_DAY","SUM_BY_MONTH"],"description":"TOTAL/AVERAGE/COUNT are single numbers; SUM_BY_* return a breakdown."},"dateRange":{"type":"string","enum":["CURRENT_MONTH","LAST_MONTH","LAST_3_MONTHS","YEAR_TO_DATE","ALL"]},"category":{"type":"string","description":"Optional exact category name to filter by"},"sort":{"type":"string","enum":["ASC","DESC"]},"limit":{"type":"integer","description":"Max rows for breakdowns (1-100)"}},"required":["metric","dateRange"]}}
+			]
+			""";
+
+	private static final String ANALYTICS_TOOL_NAME = "analytics_query";
+
 	private static final Pattern SQL_FENCE = Pattern.compile("(?is)```(?:sql)?\\s*([\\s\\S]*?)```");
 
 	private final RestClient claudeRestClient;
@@ -131,6 +139,45 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 		}
 		catch (Exception e) {
 			throw new IllegalStateException("Failed to parse Claude response", e);
+		}
+	}
+
+	@Override
+	public String classifyQueryIntentJson(String question) {
+		if (claudeProperties.getApiKey() == null || claudeProperties.getApiKey().isBlank()) {
+			return null;
+		}
+		try {
+			JsonNode tools = objectMapper.readTree(ANALYTICS_TOOL);
+			ObjectNode body = objectMapper.createObjectNode();
+			body.put("model", claudeProperties.getModel());
+			body.put("max_tokens", 512);
+			body.set("tools", tools);
+			ObjectNode toolChoice = body.putObject("tool_choice");
+			toolChoice.put("type", "tool");
+			toolChoice.put("name", ANALYTICS_TOOL_NAME);
+			ArrayNode messages = body.putArray("messages");
+			ObjectNode user = messages.addObject();
+			user.put("role", "user");
+			user.put("content", question);
+
+			String raw = claudeRestClient.post()
+					.uri("/messages")
+					.contentType(MediaType.APPLICATION_JSON)
+					.body(body.toString())
+					.retrieve()
+					.body(String.class);
+
+			JsonNode root = objectMapper.readTree(raw);
+			for (JsonNode block : root.path("content")) {
+				if ("tool_use".equals(block.path("type").asText()) && ANALYTICS_TOOL_NAME.equals(block.path("name").asText())) {
+					return objectMapper.writeValueAsString(block.path("input"));
+				}
+			}
+			return null;
+		}
+		catch (Exception e) {
+			return null;
 		}
 	}
 

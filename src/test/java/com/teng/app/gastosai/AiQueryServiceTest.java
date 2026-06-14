@@ -1,6 +1,14 @@
 package com.teng.app.gastosai;
 
 import com.teng.app.gastosai.ai.SqlGenerator;
+import com.teng.app.gastosai.ai.query.AnalyticsQueryPlan;
+import com.teng.app.gastosai.ai.query.AnalyticsQueryPlanner;
+import com.teng.app.gastosai.ai.query.DateRange;
+import com.teng.app.gastosai.ai.query.Metric;
+import com.teng.app.gastosai.ai.query.QueryIntent;
+import com.teng.app.gastosai.ai.query.QueryIntentValidator;
+import com.teng.app.gastosai.ai.query.SafeAnalyticsExecutor;
+import com.teng.app.gastosai.ai.query.SortDirection;
 import com.teng.app.gastosai.dto.AiQueryResponse;
 import com.teng.app.gastosai.entity.Role;
 import com.teng.app.gastosai.entity.User;
@@ -15,10 +23,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -26,6 +38,9 @@ class AiQueryServiceTest {
 
     @Mock SqlGenerator sqlGenerator;
     @Mock JdbcTemplate jdbcTemplate;
+    @Mock QueryIntentValidator queryIntentValidator;
+    @Mock AnalyticsQueryPlanner analyticsQueryPlanner;
+    @Mock SafeAnalyticsExecutor safeAnalyticsExecutor;
     @InjectMocks AiQueryService aiQueryService;
 
     private User user(boolean admin) {
@@ -73,6 +88,38 @@ class AiQueryServiceTest {
         when(sqlGenerator.generateSummary(any(), any(), any())).thenReturn("ok");
 
         aiQueryService.runNaturalLanguageQuery("test", null, user(false));
+    }
+
+    @Test
+    void structuredPath_usedWhenIntentValid_andBypassesRawSql() {
+        QueryIntent intent = new QueryIntent(Metric.TOTAL, DateRange.CURRENT_MONTH, null, SortDirection.DESC, 10);
+        when(sqlGenerator.classifyQueryIntentJson(anyString()))
+                .thenReturn("{\"metric\":\"TOTAL\",\"dateRange\":\"CURRENT_MONTH\"}");
+        when(queryIntentValidator.parse(anyString())).thenReturn(Optional.of(intent));
+        when(analyticsQueryPlanner.build(any(), eq(42L)))
+                .thenReturn(new AnalyticsQueryPlan("SELECT 1", Map.of("userId", 42L)));
+        when(safeAnalyticsExecutor.run(any()))
+                .thenReturn(List.of(Map.of("total", new BigDecimal("123.45"))));
+        when(sqlGenerator.generateSummary(any(), any(), any())).thenReturn("ok");
+
+        AiQueryResponse r = aiQueryService.runNaturalLanguageQuery("total this month", "plain", user(false));
+
+        assertThat(r.answer()).isEqualTo("ok");
+        verify(sqlGenerator, never()).generateSql(anyString());
+    }
+
+    @Test
+    void invalidIntent_fallsBackToRawSqlPath() {
+        when(sqlGenerator.classifyQueryIntentJson(anyString())).thenReturn("{\"metric\":\"BOGUS\"}");
+        when(queryIntentValidator.parse(anyString())).thenReturn(Optional.empty());
+        when(sqlGenerator.generateSql(anyString())).thenReturn("SELECT SUM(amount) FROM expenses");
+        when(jdbcTemplate.queryForList(anyString())).thenReturn(List.of());
+        when(sqlGenerator.generateSummary(any(), any(), any())).thenReturn("fallback");
+
+        AiQueryResponse r = aiQueryService.runNaturalLanguageQuery("weird question", "plain", user(false));
+
+        assertThat(r.answer().toString()).contains("fallback");
+        verify(safeAnalyticsExecutor, never()).run(any());
     }
 
     @Test
