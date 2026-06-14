@@ -5,11 +5,13 @@ import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
 import com.teng.app.gastosai.entity.Frequency;
 import com.teng.app.gastosai.entity.RecurringExpense;
+import com.teng.app.gastosai.entity.SavingsGoal;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.BudgetRepository;
 import com.teng.app.gastosai.repository.CategoryRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import com.teng.app.gastosai.repository.RecurringExpenseRepository;
+import com.teng.app.gastosai.repository.SavingsGoalRepository;
 import com.teng.app.gastosai.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,6 +24,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +42,7 @@ public class AppDataLoader implements ApplicationRunner {
 	private final UserRepository userRepository;
 	private final BudgetRepository budgetRepository;
 	private final RecurringExpenseRepository recurringExpenseRepository;
+	private final SavingsGoalRepository savingsGoalRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final String demoName;
 	private final String demoEmail;
@@ -49,6 +54,7 @@ public class AppDataLoader implements ApplicationRunner {
 			UserRepository userRepository,
 			BudgetRepository budgetRepository,
 			RecurringExpenseRepository recurringExpenseRepository,
+			SavingsGoalRepository savingsGoalRepository,
 			PasswordEncoder passwordEncoder,
 			@Value("${gastos.demo.name:Demo User}") String demoName,
 			@Value("${gastos.demo.email:demo@gastosai.dev}") String demoEmail,
@@ -58,6 +64,7 @@ public class AppDataLoader implements ApplicationRunner {
 		this.userRepository = userRepository;
 		this.budgetRepository = budgetRepository;
 		this.recurringExpenseRepository = recurringExpenseRepository;
+		this.savingsGoalRepository = savingsGoalRepository;
 		this.passwordEncoder = passwordEncoder;
 		this.demoName = demoName;
 		this.demoEmail = demoEmail;
@@ -70,6 +77,7 @@ public class AppDataLoader implements ApplicationRunner {
 		seedExpensesIfEmpty(demoUser);
 		seedBudgetsIfEmpty(demoUser);
 		seedRecurringIfEmpty(demoUser);
+		seedGoalsIfEmpty(demoUser);
 	}
 
 	private User getOrCreateDemoUser() {
@@ -132,8 +140,9 @@ public class AppDataLoader implements ApplicationRunner {
 	}
 
 	private void seedBudgetsIfEmpty(User user) {
-		if (!budgetRepository.findAllByUserAndMonth(user, "2026-06").isEmpty()) {
-			log.info("Skipping budget seed: budgets already exist for demo user (2026-06)");
+		String currentMonth = YearMonth.now().toString();
+		if (!budgetRepository.findAllByUserAndMonth(user, currentMonth).isEmpty()) {
+			log.info("Skipping budget seed: budgets already exist for demo user ({})", currentMonth);
 			return;
 		}
 
@@ -148,17 +157,44 @@ public class AppDataLoader implements ApplicationRunner {
 
 		int count = 0;
 		for (BudgetSeed seed : seeds) {
-			categoryRepository.findByNameIgnoreCase(seed.categoryName()).ifPresent(cat -> {
+			if (categoryRepository.findByNameIgnoreCase(seed.categoryName()).isPresent()) {
+				Category cat = categoryRepository.findByNameIgnoreCase(seed.categoryName()).get();
 				budgetRepository.save(Budget.builder()
 						.user(user)
 						.category(cat)
-						.month("2026-06")
+						.month(currentMonth)
 						.amountLimit(new BigDecimal(seed.amount()))
 						.build());
-			});
-			count++;
+				count++;
+			}
 		}
-		log.info("Loaded {} sample budgets for demo user (2026-06)", count);
+		log.info("Loaded {} sample budgets for demo user ({})", count, currentMonth);
+	}
+
+	private void seedGoalsIfEmpty(User user) {
+		if (!savingsGoalRepository.findAllByUserOrderByCreatedAtDesc(user).isEmpty()) {
+			log.info("Skipping goal seed: goals already exist for demo user");
+			return;
+		}
+
+		record GoalSeed(String name, String target, String saved, LocalDate targetDate) {}
+		List<GoalSeed> seeds = List.of(
+				new GoalSeed("Emergency Fund",   "50000.00", "12500.00", LocalDate.of(2026, 12, 31)),
+				new GoalSeed("New Laptop",       "45000.00",  "9000.00", LocalDate.of(2026, 9,  30)),
+				new GoalSeed("Vacation — Cebu",  "20000.00",  "5000.00", LocalDate.of(2026, 8,  15))
+		);
+
+		for (GoalSeed seed : seeds) {
+			savingsGoalRepository.save(SavingsGoal.builder()
+					.user(user)
+					.name(seed.name())
+					.targetAmount(new BigDecimal(seed.target()))
+					.savedAmount(new BigDecimal(seed.saved()))
+					.targetDate(seed.targetDate())
+					.paused(false)
+					.build());
+		}
+		log.info("Loaded {} sample goals for demo user", seeds.size());
 	}
 
 	private void seedRecurringIfEmpty(User user) {
