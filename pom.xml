@@ -131,6 +131,13 @@
 			<artifactId>spring-security-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!-- Core-only circuit breaker (no Spring Boot starter) — guards external LLM provider calls.
+		     spring-boot4 starter exists (2.4.0) but core-only keeps the footprint minimal on 512 MB. -->
+		<dependency>
+			<groupId>io.github.resilience4j</groupId>
+			<artifactId>resilience4j-circuitbreaker</artifactId>
+			<version>2.4.0</version>
+		</dependency>
 	</dependencies>
 
 	<build>

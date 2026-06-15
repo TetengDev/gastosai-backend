@@ -5,6 +5,7 @@ import com.teng.app.gastosai.dto.AiQueryResponse;
 import com.teng.app.gastosai.dto.ChatRequest;
 import com.teng.app.gastosai.dto.ChatResponse;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
+import com.teng.app.gastosai.ai.LlmCircuitBreaker;
 import com.teng.app.gastosai.config.RequiresFeature;
 import com.teng.app.gastosai.entity.FeatureKey;
 import com.teng.app.gastosai.entity.User;
@@ -32,15 +33,20 @@ import java.io.IOException;
 @RequiredArgsConstructor
 public class AiController {
 
+	private static final String DEGRADED_MESSAGE = "The AI assistant is temporarily unavailable. Please try again shortly.";
+
 	private final AiQueryService aiQueryService;
 	private final VisionService visionService;
 	private final ChatActionService chatActionService;
+	private final LlmCircuitBreaker llmCircuitBreaker;
 
 	@PostMapping("/query")
 	@RequiresFeature(FeatureKey.AI_ANALYTICS)
 	public AiQueryResponse query(@Valid @RequestBody AiQueryRequest request,
 			@AuthenticationPrincipal User user) {
-		return aiQueryService.runNaturalLanguageQuery(request.question(), request.mode(), user);
+		return llmCircuitBreaker.execute(
+				() -> aiQueryService.runNaturalLanguageQuery(request.question(), request.mode(), user),
+				() -> new AiQueryResponse(DEGRADED_MESSAGE));
 	}
 
 	@PostMapping(value = "/vision", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -59,6 +65,8 @@ public class AiController {
 	@RequiresFeature(FeatureKey.NL_CHATBOT)
 	public ResponseEntity<ChatResponse> chat(@Valid @RequestBody ChatRequest req,
 			@AuthenticationPrincipal User user) {
-		return ResponseEntity.ok(chatActionService.dispatch(req.message(), req.mode(), user));
+		return ResponseEntity.ok(llmCircuitBreaker.execute(
+				() -> chatActionService.dispatch(req.message(), req.mode(), user),
+				() -> new ChatResponse("text", DEGRADED_MESSAGE, null)));
 	}
 }
