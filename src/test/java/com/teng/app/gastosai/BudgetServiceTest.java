@@ -59,7 +59,7 @@ class BudgetServiceTest {
 		BudgetRequest req = new BudgetRequest(10L, "2026-06", new BigDecimal("5000.00"), null, null);
 
 		when(categoryRepository.findById(10L)).thenReturn(Optional.of(cat));
-		when(budgetRepository.existsByUserAndCategoryAndMonth(user, cat, "2026-06")).thenReturn(false);
+		when(budgetRepository.findByUserAndCategoryAndMonth(user, cat, "2026-06")).thenReturn(Optional.empty());
 		when(budgetRepository.save(any())).thenAnswer(inv -> {
 			Budget b = inv.getArgument(0);
 			return Budget.builder()
@@ -88,12 +88,33 @@ class BudgetServiceTest {
 		Category cat = testCategory();
 		BudgetRequest req = new BudgetRequest(10L, "2026-06", new BigDecimal("5000.00"), null, null);
 
+		Budget existing = Budget.builder().id(7L).user(user).category(cat).month("2026-06")
+				.amountLimit(new BigDecimal("1000.00")).amountLimitInBaseCurrency(new BigDecimal("1000.00")).build();
 		when(categoryRepository.findById(10L)).thenReturn(Optional.of(cat));
-		when(budgetRepository.existsByUserAndCategoryAndMonth(user, cat, "2026-06")).thenReturn(true);
+		when(budgetRepository.findByUserAndCategoryAndMonth(user, cat, "2026-06")).thenReturn(Optional.of(existing));
 
 		assertThatThrownBy(() -> budgetService.create(req, user))
 				.isInstanceOf(ResponseStatusException.class)
 				.hasMessageContaining("Budget already exists");
+	}
+
+	@Test
+	void create_duplicateWithForce_overwritesExisting() {
+		User user = testUser();
+		Category cat = testCategory();
+		BudgetRequest req = new BudgetRequest(10L, "2026-06", new BigDecimal("8000.00"), null, null);
+
+		Budget existing = Budget.builder().id(7L).user(user).category(cat).month("2026-06")
+				.amountLimit(new BigDecimal("1000.00")).amountLimitInBaseCurrency(new BigDecimal("1000.00")).build();
+		when(categoryRepository.findById(10L)).thenReturn(Optional.of(cat));
+		when(budgetRepository.findByUserAndCategoryAndMonth(user, cat, "2026-06")).thenReturn(Optional.of(existing));
+		when(budgetRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+		BudgetResponse result = budgetService.create(req, user, true);
+
+		assertThat(result.id()).isEqualTo(7L);
+		assertThat(result.amountLimit()).isEqualByComparingTo("8000.00");
+		assertThat(result.amountLimitInBaseCurrency()).isEqualByComparingTo("8000.00");
 	}
 
 	@Test

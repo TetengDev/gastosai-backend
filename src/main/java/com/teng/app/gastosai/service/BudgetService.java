@@ -21,8 +21,10 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -35,26 +37,32 @@ public class BudgetService {
 
 	@Transactional
 	public BudgetResponse create(BudgetRequest req, User user) {
+		return create(req, user, false);
+	}
+
+	@Transactional
+	public BudgetResponse create(BudgetRequest req, User user, boolean force) {
 		Category category = categoryRepository.findById(req.categoryId())
 				.orElseThrow(() -> new ResourceNotFoundException("Category not found: " + req.categoryId()));
 
-		if (budgetRepository.existsByUserAndCategoryAndMonth(user, category, req.month())) {
+		Optional<Budget> existing = budgetRepository.findByUserAndCategoryAndMonth(user, category, req.month());
+		if (existing.isPresent() && !force) {
 			throw new ResponseStatusException(HttpStatus.CONFLICT, "Budget already exists for this category and month");
 		}
 
 		String currency = req.currency() != null ? req.currency() : "PHP";
 		BigDecimal rate = req.exchangeRate() != null ? req.exchangeRate() : BigDecimal.ONE;
-		Budget saved = budgetRepository.save(Budget.builder()
-				.user(user)
-				.category(category)
-				.month(req.month())
-				.amountLimit(req.amountLimit())
-				.currency(currency)
-				.exchangeRate(rate)
-				.amountLimitInBaseCurrency(req.amountLimit().multiply(rate))
-				.build());
 
-		return toResponse(saved);
+		Budget budget = existing.orElseGet(Budget::new);
+		budget.setUser(user);
+		budget.setCategory(category);
+		budget.setMonth(req.month());
+		budget.setAmountLimit(req.amountLimit());
+		budget.setCurrency(currency);
+		budget.setExchangeRate(rate);
+		budget.setAmountLimitInBaseCurrency(req.amountLimit().multiply(rate));
+
+		return toResponse(budgetRepository.save(budget));
 	}
 
 	@Transactional(readOnly = true)
@@ -92,9 +100,9 @@ public class BudgetService {
 
 	@Transactional(readOnly = true)
 	public BudgetSummaryResponse getSummary(String month, User user) {
-		String[] parts = month.split("-");
-		int year = Integer.parseInt(parts[0]);
-		int monthInt = Integer.parseInt(parts[1]);
+		YearMonth yearMonth = parseMonth(month);
+		int year = yearMonth.getYear();
+		int monthInt = yearMonth.getMonthValue();
 
 		List<Budget> budgets = budgetRepository.findAllByUserAndMonth(user, month);
 
@@ -151,6 +159,14 @@ public class BudgetService {
 		BigDecimal dailyAllowance = computeDailyAllowance(month, year, monthInt, safeToSpend);
 
 		return new BudgetSummaryResponse(month, items, totalBudgeted, totalSpent, safeToSpend, dailyAllowance);
+	}
+
+	private static YearMonth parseMonth(String month) {
+		try {
+			return YearMonth.parse(month);
+		} catch (DateTimeParseException ex) {
+			throw new IllegalArgumentException("Invalid month, expected format YYYY-MM: " + month);
+		}
 	}
 
 	private BigDecimal computeDailyAllowance(String month, int year, int monthInt, BigDecimal safeToSpend) {

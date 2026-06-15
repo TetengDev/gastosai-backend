@@ -175,6 +175,120 @@ class BudgetApiIntegrationTest {
 	}
 
 	@Test
+	void getBudgetSummary_invalidCalendarMonth_returns400() throws Exception {
+		mockMvc.perform(get("/budgets/summary")
+						.header("Authorization", authHeader)
+						.param("month", "2026-13"))
+				.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	void getBudgetSummary_budgetedReflectsAmountLimit() throws Exception {
+		mockMvc.perform(post("/budgets")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"categoryId": %d, "month": "2031-03", "amountLimit": 7500.00}
+								""".formatted(categoryId)))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(get("/budgets/summary")
+						.header("Authorization", authHeader)
+						.param("month", "2031-03"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.totalBudgeted").value(7500.00))
+				.andExpect(jsonPath("$.items[0].budgeted").value(7500.00));
+	}
+
+	@Test
+	void createBudget_invalidCalendarMonth_returns400() throws Exception {
+		mockMvc.perform(post("/budgets")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"categoryId": %d, "month": "2026-13", "amountLimit": 1000.00}
+								""".formatted(categoryId)))
+				.andExpect(status().isBadRequest());
+
+		mockMvc.perform(post("/budgets")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"categoryId": %d, "month": "2026-00", "amountLimit": 1000.00}
+								""".formatted(categoryId)))
+				.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	void createBudget_nonPositiveExchangeRate_returns400() throws Exception {
+		mockMvc.perform(post("/budgets")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"categoryId": %d, "month": "2026-06", "amountLimit": 100.00, "currency": "USD", "exchangeRate": 0}
+								""".formatted(categoryId)))
+				.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	void getBudgets_missingMonthParam_returns400() throws Exception {
+		mockMvc.perform(get("/budgets")
+						.header("Authorization", authHeader))
+				.andExpect(status().isBadRequest());
+
+		mockMvc.perform(get("/budgets/summary")
+						.header("Authorization", authHeader))
+				.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	void createBudget_duplicate_returns409() throws Exception {
+		mockMvc.perform(post("/budgets")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"categoryId": %d, "month": "2032-01", "amountLimit": 1000.00}
+								""".formatted(categoryId)))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(post("/budgets")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"categoryId": %d, "month": "2032-01", "amountLimit": 2000.00}
+								""".formatted(categoryId)))
+				.andExpect(status().isConflict());
+	}
+
+	@Test
+	void createBudget_duplicateWithForce_overwrites() throws Exception {
+		mockMvc.perform(post("/budgets")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"categoryId": %d, "month": "2032-02", "amountLimit": 1000.00}
+								""".formatted(categoryId)))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(post("/budgets")
+						.param("force", "true")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"categoryId": %d, "month": "2032-02", "amountLimit": 2000.00}
+								""".formatted(categoryId)))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.amountLimit").value(2000.00));
+
+		mockMvc.perform(get("/budgets")
+						.header("Authorization", authHeader)
+						.param("month", "2032-02"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(1))
+				.andExpect(jsonPath("$[0].amountLimit").value(2000.00));
+	}
+
+	@Test
 	void getBudget_otherUser_returns404() throws Exception {
 		MvcResult created = mockMvc.perform(post("/budgets")
 						.header("Authorization", authHeader)

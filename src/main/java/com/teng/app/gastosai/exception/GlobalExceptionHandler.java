@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
@@ -56,6 +57,14 @@ public class GlobalExceptionHandler {
 	public ResponseEntity<ProblemDetail> dataAccess(DataAccessException ex) {
 		log.warn("Data access error: {}", ex.getMessage());
 		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Query execution failed");
+		pd.setTitle("Bad Request");
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd);
+	}
+
+	@ExceptionHandler(MissingServletRequestParameterException.class)
+	public ResponseEntity<ProblemDetail> missingParam(MissingServletRequestParameterException ex) {
+		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST,
+				"Required parameter '" + ex.getParameterName() + "' is missing");
 		pd.setTitle("Bad Request");
 		return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd);
 	}
