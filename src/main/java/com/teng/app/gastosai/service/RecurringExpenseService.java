@@ -10,8 +10,10 @@ import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.RecurringExpenseRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -29,8 +31,18 @@ public class RecurringExpenseService {
 	private final RecurringExpenseRepository recurringExpenseRepository;
 	private final CategoryService categoryService;
 
+	/** No duplicate check (chat path — explicit user intent). */
 	@Transactional
 	public RecurringExpenseResponse create(RecurringExpenseRequest req, User user) {
+		return create(req, user, true);
+	}
+
+	@Transactional
+	public RecurringExpenseResponse create(RecurringExpenseRequest req, User user, boolean force) {
+		if (!force && recurringExpenseRepository.existsByUserAndNameIgnoreCaseAndFrequency(user, req.name(), req.frequency())) {
+			throw new ResponseStatusException(HttpStatus.CONFLICT,
+					"A " + req.frequency().name().toLowerCase() + " recurring expense named \"" + req.name() + "\" already exists.");
+		}
 		String categoryName = (req.categoryName() != null && !req.categoryName().isBlank())
 				? req.categoryName()
 				: "Uncategorized";

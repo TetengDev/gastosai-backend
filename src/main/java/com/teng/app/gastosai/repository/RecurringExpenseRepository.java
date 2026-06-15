@@ -1,5 +1,6 @@
 package com.teng.app.gastosai.repository;
 
+import com.teng.app.gastosai.entity.Frequency;
 import com.teng.app.gastosai.entity.RecurringExpense;
 import com.teng.app.gastosai.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -16,4 +17,6 @@ public interface RecurringExpenseRepository extends JpaRepository<RecurringExpen
 	Optional<RecurringExpense> findByIdAndUser(Long id, User user);
 
 	boolean existsByIdAndUser(Long id, User user);
+
+	boolean existsByUserAndNameIgnoreCaseAndFrequency(User user, String name, Frequency frequency);
 }
