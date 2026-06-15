@@ -45,7 +45,7 @@ class AiQueryServiceTest {
 
     private User user(boolean admin) {
         return User.builder()
-                .id(admin ? null : 42L)
+                .id(admin ? 7L : 42L)
                 .role(admin ? Role.ADMIN : Role.USER)
                 .email("u@b.com").name("U").password("x").build();
     }
@@ -61,7 +61,20 @@ class AiQueryServiceTest {
     }
 
     @Test
-    void query_admin_noUserFilter() {
+    void query_admin_isAlsoUserScoped() {
+        when(sqlGenerator.generateSql(anyString())).thenReturn("SELECT * FROM expenses");
+        org.mockito.ArgumentCaptor<String> sqlCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        when(jdbcTemplate.queryForList(sqlCaptor.capture())).thenReturn(List.of(Map.of("total", BigDecimal.TEN)));
+        when(sqlGenerator.generateSummary(anyString(), anyString(), anyString())).thenReturn("ok");
+
+        aiQueryService.runNaturalLanguageQuery("test", "plain", user(true));
+
+        // Admins are scoped to their own id — no unscoped raw AI SQL.
+        assertThat(sqlCaptor.getValue()).contains("user_id = 7");
+    }
+
+    @Test
+    void query_admin_executesViaFallback() {
         when(sqlGenerator.generateSql(anyString())).thenReturn("SELECT * FROM expenses");
         when(jdbcTemplate.queryForList(anyString())).thenReturn(List.of(Map.of("total", BigDecimal.TEN)));
         when(sqlGenerator.generateSummary(anyString(), anyString(), anyString())).thenReturn("ok");
