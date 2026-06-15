@@ -33,8 +33,9 @@ public class RecurringExpenseController {
 	@PostMapping
 	@ResponseStatus(HttpStatus.CREATED)
 	public RecurringExpenseResponse create(@Valid @RequestBody RecurringExpenseRequest request,
+			@RequestParam(name = "force", defaultValue = "false") boolean force,
 			@AuthenticationPrincipal User user) {
-		return recurringExpenseService.create(request, user);
+		return recurringExpenseService.create(request, user, force);
 	}
 
 	@GetMapping

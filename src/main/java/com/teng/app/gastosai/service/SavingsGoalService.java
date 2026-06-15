@@ -8,8 +8,10 @@ import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.SavingsGoalRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -25,11 +27,21 @@ public class SavingsGoalService {
 
 	private final SavingsGoalRepository savingsGoalRepository;
 
+	/** No duplicate check (chat path — explicit user intent). */
 	@Transactional
 	public GoalResponse create(GoalRequest request, User user) {
+		return create(request, user, true);
+	}
+
+	@Transactional
+	public GoalResponse create(GoalRequest request, User user, boolean force) {
+		String name = request.name().strip();
+		if (!force && savingsGoalRepository.existsByUserAndNameIgnoreCase(user, name)) {
+			throw new ResponseStatusException(HttpStatus.CONFLICT, "A goal named \"" + name + "\" already exists.");
+		}
 		SavingsGoal goal = savingsGoalRepository.save(SavingsGoal.builder()
 				.user(user)
-				.name(request.name().strip())
+				.name(name)
 				.targetAmount(request.targetAmount())
 				.savedAmount(request.savedAmount())
 				.targetDate(request.targetDate())

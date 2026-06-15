@@ -4,11 +4,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.stream.Collectors;
 
@@ -30,6 +32,17 @@ public class GlobalExceptionHandler {
 		pd.setTitle("Upgrade Required");
 		pd.setProperty("feature", ex.getFeature().name());
 		return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED).body(pd);
+	}
+
+	@ExceptionHandler(ResponseStatusException.class)
+	public ResponseEntity<ProblemDetail> responseStatus(ResponseStatusException ex) {
+		// Handle here so the response is written directly by the advice. Otherwise the exception
+		// forwards to /error, which is authenticated, and surfaces to the client as a 401 (logout)
+		// instead of the intended status (e.g. 409 on a duplicate budget).
+		HttpStatusCode status = ex.getStatusCode();
+		String detail = ex.getReason() != null ? ex.getReason() : ex.getMessage();
+		ProblemDetail pd = ProblemDetail.forStatusAndDetail(status, detail);
+		return ResponseEntity.status(status).body(pd);
 	}
 
 	@ExceptionHandler({ IllegalArgumentException.class, IllegalStateException.class })
