@@ -175,6 +175,32 @@ class BudgetApiIntegrationTest {
 	}
 
 	@Test
+	void getBudgetSummary_invalidCalendarMonth_returns400() throws Exception {
+		mockMvc.perform(get("/budgets/summary")
+						.header("Authorization", authHeader)
+						.param("month", "2026-13"))
+				.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	void getBudgetSummary_budgetedReflectsAmountLimit() throws Exception {
+		mockMvc.perform(post("/budgets")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"categoryId": %d, "month": "2031-03", "amountLimit": 7500.00}
+								""".formatted(categoryId)))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(get("/budgets/summary")
+						.header("Authorization", authHeader)
+						.param("month", "2031-03"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.totalBudgeted").value(7500.00))
+				.andExpect(jsonPath("$.items[0].budgeted").value(7500.00));
+	}
+
+	@Test
 	void getBudget_otherUser_returns404() throws Exception {
 		MvcResult created = mockMvc.perform(post("/budgets")
 						.header("Authorization", authHeader)

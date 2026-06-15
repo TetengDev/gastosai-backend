@@ -71,6 +71,18 @@ class AppDataLoaderIntegrationTest {
     }
 
     @Test
+    void seededBudgetsHaveBaseCurrencyAmountSet() {
+        var demoUser = userRepository.findByEmail("demo@gastosai.dev").orElseThrow();
+        var budgets = budgetRepository.findAllByUserAndMonth(demoUser, YearMonth.now().toString());
+        assertThat(budgets).isNotEmpty();
+        assertThat(budgets).allSatisfy(b -> {
+            assertThat(b.getAmountLimitInBaseCurrency()).isNotNull();
+            assertThat(b.getAmountLimitInBaseCurrency()).isEqualByComparingTo(b.getAmountLimit());
+            assertThat(b.getAmountLimitInBaseCurrency().signum()).isPositive();
+        });
+    }
+
+    @Test
     void recurringExpensesSeededForDemoUser() {
         var demoUser = userRepository.findByEmail("demo@gastosai.dev").orElseThrow();
         assertThat(recurringExpenseRepository.findAllByUser(demoUser)).isNotEmpty();

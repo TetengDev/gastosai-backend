@@ -21,6 +21,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -92,9 +93,9 @@ public class BudgetService {
 
 	@Transactional(readOnly = true)
 	public BudgetSummaryResponse getSummary(String month, User user) {
-		String[] parts = month.split("-");
-		int year = Integer.parseInt(parts[0]);
-		int monthInt = Integer.parseInt(parts[1]);
+		YearMonth yearMonth = parseMonth(month);
+		int year = yearMonth.getYear();
+		int monthInt = yearMonth.getMonthValue();
 
 		List<Budget> budgets = budgetRepository.findAllByUserAndMonth(user, month);
 
@@ -151,6 +152,14 @@ public class BudgetService {
 		BigDecimal dailyAllowance = computeDailyAllowance(month, year, monthInt, safeToSpend);
 
 		return new BudgetSummaryResponse(month, items, totalBudgeted, totalSpent, safeToSpend, dailyAllowance);
+	}
+
+	private static YearMonth parseMonth(String month) {
+		try {
+			return YearMonth.parse(month);
+		} catch (DateTimeParseException ex) {
+			throw new IllegalArgumentException("Invalid month, expected format YYYY-MM: " + month);
+		}
 	}
 
 	private BigDecimal computeDailyAllowance(String month, int year, int monthInt, BigDecimal safeToSpend) {

@@ -201,6 +201,7 @@ public class AppDataLoader implements ApplicationRunner {
 						.category(cat)
 						.month(currentMonth)
 						.amountLimit(new BigDecimal(seed.amount()))
+						.amountLimitInBaseCurrency(new BigDecimal(seed.amount()))
 						.build());
 				count++;
 			}
