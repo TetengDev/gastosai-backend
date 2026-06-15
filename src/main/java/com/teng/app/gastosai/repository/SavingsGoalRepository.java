@@ -10,4 +10,5 @@ import java.util.Optional;
 public interface SavingsGoalRepository extends JpaRepository<SavingsGoal, Long> {
 	List<SavingsGoal> findAllByUserOrderByCreatedAtDesc(User user);
 	Optional<SavingsGoal> findByIdAndUser(Long id, User user);
+	boolean existsByUserAndNameIgnoreCase(User user, String name);
 }
