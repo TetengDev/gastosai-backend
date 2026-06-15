@@ -61,7 +61,7 @@ public class AiQueryService {
 	 * Admins keep the legacy unscoped path so cross-user analytics still works for them.
 	 */
 	private List<Map<String, Object>> runStructuredQuery(String question, User user) {
-		if (user.isAdmin() || user.getId() == null) {
+		if (user.getId() == null) {
 			return null;
 		}
 		String intentJson = sqlGenerator.classifyQueryIntentJson(question);
@@ -83,11 +83,17 @@ public class AiQueryService {
 		}
 	}
 
-	/** Fallback path: AI-authored SQL validated by {@link SqlGuard} and user-scoped before execution. */
+	/** Fallback path: AI-authored SQL validated by {@link SqlGuard} and always user-scoped before execution. */
 	private List<Map<String, Object>> runGeneratedSql(String question, User user) {
+		if (user.getId() == null) {
+			return null;
+		}
 		String rawSql = sqlGenerator.generateSql(question);
 		String sql = SqlGuard.validateAndNormalize(rawSql);
-		String scopedSql = user.isAdmin() ? sql : appendUserFilter(sql, user.getId());
+		// Always scope to the requesting user — including admins. Running unscoped AI-authored SQL for
+		// admins would expose every user's financial data; cross-user analytics, if ever needed, must be
+		// a separate, deliberately-audited endpoint rather than this NL path.
+		String scopedSql = appendUserFilter(sql, user.getId());
 		// SQL may embed user identifiers / value literals — keep it at DEBUG, not INFO.
 		log.debug("AI-generated SQL (user-scoped): {}", scopedSql);
 		try {
