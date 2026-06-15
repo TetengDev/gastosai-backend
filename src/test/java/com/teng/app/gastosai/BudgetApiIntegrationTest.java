@@ -242,6 +242,53 @@ class BudgetApiIntegrationTest {
 	}
 
 	@Test
+	void createBudget_duplicate_returns409() throws Exception {
+		mockMvc.perform(post("/budgets")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"categoryId": %d, "month": "2032-01", "amountLimit": 1000.00}
+								""".formatted(categoryId)))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(post("/budgets")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"categoryId": %d, "month": "2032-01", "amountLimit": 2000.00}
+								""".formatted(categoryId)))
+				.andExpect(status().isConflict());
+	}
+
+	@Test
+	void createBudget_duplicateWithForce_overwrites() throws Exception {
+		mockMvc.perform(post("/budgets")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"categoryId": %d, "month": "2032-02", "amountLimit": 1000.00}
+								""".formatted(categoryId)))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(post("/budgets")
+						.param("force", "true")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"categoryId": %d, "month": "2032-02", "amountLimit": 2000.00}
+								""".formatted(categoryId)))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.amountLimit").value(2000.00));
+
+		mockMvc.perform(get("/budgets")
+						.header("Authorization", authHeader)
+						.param("month", "2032-02"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(1))
+				.andExpect(jsonPath("$[0].amountLimit").value(2000.00));
+	}
+
+	@Test
 	void getBudget_otherUser_returns404() throws Exception {
 		MvcResult created = mockMvc.perform(post("/budgets")
 						.header("Authorization", authHeader)

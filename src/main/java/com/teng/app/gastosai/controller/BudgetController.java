@@ -32,8 +32,9 @@ public class BudgetController {
 	@PostMapping
 	@ResponseStatus(HttpStatus.CREATED)
 	public BudgetResponse create(@Valid @RequestBody BudgetRequest request,
+			@RequestParam(defaultValue = "false") boolean force,
 			@AuthenticationPrincipal User user) {
-		return budgetService.create(request, user);
+		return budgetService.create(request, user, force);
 	}
 
 	@GetMapping
