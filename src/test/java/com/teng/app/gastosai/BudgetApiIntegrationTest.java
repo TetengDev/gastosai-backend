@@ -201,6 +201,47 @@ class BudgetApiIntegrationTest {
 	}
 
 	@Test
+	void createBudget_invalidCalendarMonth_returns400() throws Exception {
+		mockMvc.perform(post("/budgets")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"categoryId": %d, "month": "2026-13", "amountLimit": 1000.00}
+								""".formatted(categoryId)))
+				.andExpect(status().isBadRequest());
+
+		mockMvc.perform(post("/budgets")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"categoryId": %d, "month": "2026-00", "amountLimit": 1000.00}
+								""".formatted(categoryId)))
+				.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	void createBudget_nonPositiveExchangeRate_returns400() throws Exception {
+		mockMvc.perform(post("/budgets")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"categoryId": %d, "month": "2026-06", "amountLimit": 100.00, "currency": "USD", "exchangeRate": 0}
+								""".formatted(categoryId)))
+				.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	void getBudgets_missingMonthParam_returns400() throws Exception {
+		mockMvc.perform(get("/budgets")
+						.header("Authorization", authHeader))
+				.andExpect(status().isBadRequest());
+
+		mockMvc.perform(get("/budgets/summary")
+						.header("Authorization", authHeader))
+				.andExpect(status().isBadRequest());
+	}
+
+	@Test
 	void getBudget_otherUser_returns404() throws Exception {
 		MvcResult created = mockMvc.perform(post("/budgets")
 						.header("Authorization", authHeader)
