@@ -1,5 +1,6 @@
 package com.teng.app.gastosai.service;
 
+import com.teng.app.gastosai.bootstrap.CategoryDataLoader;
 import com.teng.app.gastosai.dto.CategoryRequest;
 import com.teng.app.gastosai.dto.CategoryResponse;
 import com.teng.app.gastosai.entity.Category;
@@ -70,6 +71,9 @@ public class CategoryService {
 	public void delete(Long id) {
 		Category toDelete = categoryRepository.findById(id)
 				.orElseThrow(() -> new ResourceNotFoundException("Category not found: " + id));
+		if (isDefault(toDelete.getName())) {
+			throw new IllegalArgumentException("Default categories cannot be deleted");
+		}
 
 		List<Expense> affected = expenseRepository.findByCategory_Id(toDelete.getId());
 		if (!affected.isEmpty()) {
@@ -84,7 +88,7 @@ public class CategoryService {
 	@Transactional
 	public void deleteAllExceptDefault() {
 		List<Category> toDelete = categoryRepository.findAll().stream()
-				.filter(c -> !c.getName().equalsIgnoreCase(DEFAULT_CATEGORY))
+				.filter(c -> !isDefault(c.getName()))
 				.toList();
 		if (toDelete.isEmpty()) return;
 
@@ -97,6 +101,10 @@ public class CategoryService {
 			}
 		}
 		categoryRepository.deleteAll(toDelete);
+	}
+
+	private boolean isDefault(String name) {
+		return CategoryDataLoader.PREDEFINED_CATEGORIES.stream().anyMatch(n -> n.equalsIgnoreCase(name));
 	}
 
 	@Transactional
