@@ -14,6 +14,7 @@ import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.csv.CSVFormat;
+import org.springframework.cache.annotation.CacheEvict;
 import org.apache.commons.csv.CSVPrinter;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -42,6 +43,8 @@ public class ExpenseService {
 	private final ExpenseRepository expenseRepository;
 	private final CategoryService categoryService;
 
+	// Insights are advisory + writes are infrequent, so evict all insight entries on any change (TTL backstops it).
+	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
 	@Transactional
 	public ExpenseResponse create(ExpenseRequest request, User user) {
 		String categoryName = (request.category() == null || request.category().isBlank())
@@ -86,6 +89,7 @@ public class ExpenseService {
 				.orElseThrow(() -> new ResourceNotFoundException("Expense not found: " + id));
 	}
 
+	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
 	@Transactional
 	public ExpenseResponse update(Long id, ExpenseRequest request, User user) {
 		Expense expense = (user.isAdmin()
@@ -115,6 +119,7 @@ public class ExpenseService {
 		return toResponse(expenseRepository.save(expense));
 	}
 
+	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
 	@Transactional
 	public void delete(Long id, User user) {
 		if (user.isAdmin()) {
@@ -127,6 +132,7 @@ public class ExpenseService {
 		expenseRepository.deleteById(id);
 	}
 
+	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
 	@Transactional
 	public void deleteAll(User user) {
 		if (!user.isAdmin()) {

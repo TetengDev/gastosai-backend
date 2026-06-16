@@ -10,6 +10,7 @@ import com.teng.app.gastosai.dto.RecommendationsInsightResponse;
 import com.teng.app.gastosai.dto.TopCategoryInsightResponse;
 import com.teng.app.gastosai.entity.User;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,6 +28,7 @@ public class AiInsightService {
     private final SqlGenerator sqlGenerator;
     private final ObjectMapper objectMapper;
 
+    @Cacheable(cacheNames = "insightTopCategory", key = "#user.id + '-' + #month")
     @Transactional(readOnly = true)
     public TopCategoryInsightResponse getTopCategory(User user, String month) {
         List<CategoryReportItem> categories = expenseService.categoryReportForMonth(user, month);
@@ -47,6 +49,7 @@ public class AiInsightService {
                 top.total().setScale(2, RoundingMode.HALF_UP), percent);
     }
 
+    @Cacheable(cacheNames = "insightMonthSummary", key = "#user.id + '-' + #month")
     @Transactional(readOnly = true)
     public MonthSummaryInsightResponse getMonthSummary(User user, String month) throws Exception {
         String contextJson = buildContext(user, month);
@@ -54,6 +57,7 @@ public class AiInsightService {
         return new MonthSummaryInsightResponse(month, summary);
     }
 
+    @Cacheable(cacheNames = "insightRecommendations", key = "#user.id + '-' + #month")
     @Transactional(readOnly = true)
     public RecommendationsInsightResponse getRecommendations(User user, String month) throws Exception {
         String contextJson = buildContext(user, month);
