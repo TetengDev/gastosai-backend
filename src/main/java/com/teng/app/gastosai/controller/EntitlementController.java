@@ -19,6 +19,6 @@ public class EntitlementController {
     @GetMapping("/entitlements")
     public EntitlementResponse entitlements(@AuthenticationPrincipal User user) {
         EntitlementService.Entitlements entitlements = entitlementService.describe(user);
-        return new EntitlementResponse(entitlements.plan(), entitlements.status(), entitlements.features());
+        return new EntitlementResponse(entitlements.plan(), entitlements.status(), entitlements.features(), entitlements.admin());
     }
 }
