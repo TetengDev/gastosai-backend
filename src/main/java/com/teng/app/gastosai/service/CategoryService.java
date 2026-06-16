@@ -1,6 +1,5 @@
 package com.teng.app.gastosai.service;
 
-import com.teng.app.gastosai.bootstrap.CategoryDataLoader;
 import com.teng.app.gastosai.dto.CategoryRequest;
 import com.teng.app.gastosai.dto.CategoryResponse;
 import com.teng.app.gastosai.entity.Category;
@@ -39,6 +38,12 @@ public class CategoryService {
 	@Transactional(readOnly = true)
 	public List<CategoryResponse> findAll() {
 		return categoryRepository.findAll().stream()
+				.sorted((a, b) -> {
+					boolean aDef = isDefault(a.getName());
+					boolean bDef = isDefault(b.getName());
+					if (aDef != bDef) return aDef ? -1 : 1;
+					return a.getName().compareToIgnoreCase(b.getName());
+				})
 				.map(this::toResponse)
 				.toList();
 	}
@@ -104,7 +109,7 @@ public class CategoryService {
 	}
 
 	private boolean isDefault(String name) {
-		return CategoryDataLoader.PREDEFINED_CATEGORIES.stream().anyMatch(n -> n.equalsIgnoreCase(name));
+		return DEFAULT_CATEGORY.equalsIgnoreCase(name);
 	}
 
 	@Transactional
