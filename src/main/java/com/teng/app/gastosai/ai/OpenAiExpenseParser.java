@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.teng.app.gastosai.config.AiKeyContext;
 import com.teng.app.gastosai.config.OpenAiProperties;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
 import lombok.RequiredArgsConstructor;
@@ -27,7 +28,11 @@ public class OpenAiExpenseParser implements ExpenseParser {
 
     @Override
     public ParsedExpenseResult parse(String text) {
-        if (openAiProperties.getApiKey() == null || openAiProperties.getApiKey().isBlank()) {
+        String key = AiKeyContext.openai();
+        if (key == null || key.isBlank()) {
+            key = openAiProperties.getApiKey();
+        }
+        if (key == null || key.isBlank()) {
             throw new IllegalStateException("OPENAI_API_KEY is not configured");
         }
 

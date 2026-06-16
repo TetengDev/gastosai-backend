@@ -24,7 +24,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -39,7 +38,6 @@ import java.util.Map;
 
 @Component
 @Order(1)
-@ConditionalOnProperty(name = "gastos.seed-sample-data", havingValue = "true")
 public class AppDataLoader implements ApplicationRunner {
 
 	private static final Logger log = LoggerFactory.getLogger(AppDataLoader.class);
@@ -56,6 +54,8 @@ public class AppDataLoader implements ApplicationRunner {
 	private final String demoName;
 	private final String demoEmail;
 	private final String demoPassword;
+	private final boolean seedSampleData;
+	private final String adminEmail;
 
 	public AppDataLoader(
 			ExpenseRepository expenseRepository,
@@ -69,7 +69,9 @@ public class AppDataLoader implements ApplicationRunner {
 			PasswordEncoder passwordEncoder,
 			@Value("${gastos.demo.name:Demo User}") String demoName,
 			@Value("${gastos.demo.email:demo@gastosai.dev}") String demoEmail,
-			@Value("${gastos.demo.password:demo123}") String demoPassword) {
+			@Value("${gastos.demo.password:demo123}") String demoPassword,
+			@Value("${gastos.seed-sample-data:false}") boolean seedSampleData,
+			@Value("${gastos.admin.email:}") String adminEmail) {
 		this.expenseRepository = expenseRepository;
 		this.categoryRepository = categoryRepository;
 		this.userRepository = userRepository;
@@ -82,16 +84,27 @@ public class AppDataLoader implements ApplicationRunner {
 		this.demoName = demoName;
 		this.demoEmail = demoEmail;
 		this.demoPassword = demoPassword;
+		this.seedSampleData = seedSampleData;
+		this.adminEmail = adminEmail;
 	}
 
 	@Override
 	public void run(ApplicationArguments args) {
-		User demoUser = getOrCreateDemoUser();
-		seedExpensesIfEmpty(demoUser);
-		seedBudgetsIfEmpty(demoUser);
-		seedRecurringIfEmpty(demoUser);
-		seedGoalsIfEmpty(demoUser);
-		seedSubscriptionIfMissing(demoUser);
+		if (seedSampleData) {
+			seedAll(getOrCreateDemoUser());
+		}
+		// Admin accounts always get sample data (regardless of seed flag) so testing has data.
+		if (adminEmail != null && !adminEmail.isBlank()) {
+			userRepository.findByEmail(adminEmail).ifPresent(this::seedAll);
+		}
+	}
+
+	private void seedAll(User user) {
+		seedExpensesIfEmpty(user);
+		seedBudgetsIfEmpty(user);
+		seedRecurringIfEmpty(user);
+		seedGoalsIfEmpty(user);
+		seedSubscriptionIfMissing(user);
 	}
 
 	private void seedSubscriptionIfMissing(User demoUser) {

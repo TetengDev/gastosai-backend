@@ -107,7 +107,7 @@ class CategoryServiceTest {
 
     @Test
     void delete_deletesDirectly_whenCategoryHasNoExpenses() {
-        Category toDelete = Category.builder().id(3L).name("Extras").build();
+        Category toDelete = Category.builder().id(3L).name("Snacks").build();
         when(categoryRepository.findById(3L)).thenReturn(Optional.of(toDelete));
         when(expenseRepository.findByCategory_Id(3L)).thenReturn(List.of());
 
@@ -115,5 +115,14 @@ class CategoryServiceTest {
 
         verify(expenseRepository, never()).saveAll(any());
         verify(categoryRepository).deleteById(3L);
+    }
+
+    @Test
+    void delete_defaultCategory_throws() {
+        Category def = Category.builder().id(4L).name("Uncategorized").build();
+        when(categoryRepository.findById(4L)).thenReturn(Optional.of(def));
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> categoryService.delete(4L));
+        verify(categoryRepository, never()).deleteById(any());
     }
 }

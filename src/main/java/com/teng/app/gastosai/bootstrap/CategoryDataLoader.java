@@ -19,7 +19,7 @@ public class CategoryDataLoader implements ApplicationRunner {
 
 	private static final Logger log = LoggerFactory.getLogger(CategoryDataLoader.class);
 
-	static final List<String> PREDEFINED_CATEGORIES = List.of(
+	private static final List<String> PREDEFINED_CATEGORIES = List.of(
 			"Cleaning Essentials",
 			"Date",
 			"Extras",
