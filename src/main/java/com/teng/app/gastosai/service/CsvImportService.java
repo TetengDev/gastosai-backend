@@ -7,13 +7,17 @@ import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVPrinter;
 import org.apache.commons.csv.CSVRecord;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.io.StringWriter;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
@@ -41,13 +45,21 @@ public class CsvImportService {
 
 	private final ExpenseRepository expenseRepository;
 	private final CategoryService categoryService;
+	private final PlatformTransactionManager transactionManager;
+
+	private record PendingRow(BigDecimal amount, String categoryName, String description, LocalDateTime date) {
+	}
 
 	public ImportResult importCsv(MultipartFile file, User user) throws IOException {
-		int imported = 0;
-		int skipped = 0;
-		List<String> errors = new ArrayList<>();
-		int rowNum = 1;
+		return importCsv(file, user, false);
+	}
 
+	/**
+	 * Lenient (default): valid rows import, invalid amounts skip, non-numeric rows error — best-effort.
+	 * Strict: any skip or error rejects the whole file (nothing persisted), with a per-row reason list;
+	 * valid files persist all rows in a single transaction.
+	 */
+	public ImportResult importCsv(MultipartFile file, User user, boolean strict) throws IOException {
 		CSVFormat format = CSVFormat.DEFAULT.builder()
 				.setHeader()
 				.setSkipHeaderRecord(true)
@@ -56,42 +68,82 @@ public class CsvImportService {
 				.setIgnoreEmptyLines(true)
 				.build();
 
+		List<PendingRow> pending = new ArrayList<>();
+		List<String> errors = new ArrayList<>();
+		int skipped = 0;
+		int rowNum = 1;
+
 		try (Reader reader = new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8)) {
 			for (CSVRecord record : format.parse(reader)) {
 				rowNum++;
-				try {
-					String amountRaw = col(record, "amount");
-					if (amountRaw == null) {
-						skipped++;
-						continue;
-					}
-					BigDecimal amount = new BigDecimal(amountRaw.replaceAll("[^\\d.-]", ""));
-					if (amount.compareTo(BigDecimal.ZERO) <= 0) {
-						skipped++;
-						continue;
-					}
-
-					String categoryName = firstNonBlank(col(record, "category"), DEFAULT_CATEGORY);
-					Category category = categoryService.getOrCreateByName(categoryName);
-
-					String description = firstNonBlank(col(record, "description"), col(record, "note"), "");
-					LocalDateTime date = parseDate(firstNonBlank(col(record, "date"), col(record, "datetime")));
-
-					expenseRepository.save(Expense.builder()
-							.amount(amount)
-							.user(user)
-							.category(category)
-							.date(date)
-							.description(description)
-							.build());
-					imported++;
-				} catch (Exception e) {
-					errors.add("Row " + rowNum + ": " + e.getMessage());
+				String amountRaw = col(record, "amount");
+				if (amountRaw == null) {
+					if (strict) errors.add("Row " + rowNum + ": missing amount");
+					else skipped++;
+					continue;
 				}
+				BigDecimal amount;
+				try {
+					amount = new BigDecimal(amountRaw.replaceAll("[^\\d.-]", ""));
+				} catch (NumberFormatException e) {
+					errors.add("Row " + rowNum + ": invalid amount '" + amountRaw + "'");
+					continue;
+				}
+				if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+					if (strict) errors.add("Row " + rowNum + ": amount must be greater than 0");
+					else skipped++;
+					continue;
+				}
+				pending.add(new PendingRow(
+						amount,
+						firstNonBlank(col(record, "category"), DEFAULT_CATEGORY),
+						firstNonBlank(col(record, "description"), col(record, "note"), ""),
+						parseDate(firstNonBlank(col(record, "date"), col(record, "datetime")))));
 			}
 		}
 
+		// Strict: reject the whole file if anything was wrong — persist nothing.
+		if (strict && !errors.isEmpty()) {
+			return new ImportResult(0, 0, errors);
+		}
+
+		if (strict) {
+			final List<PendingRow> rows = pending;
+			new TransactionTemplate(transactionManager).executeWithoutResult(status -> rows.forEach(r -> persist(r, user)));
+			return new ImportResult(pending.size(), 0, errors);
+		}
+
+		int imported = 0;
+		for (PendingRow row : pending) {
+			try {
+				persist(row, user);
+				imported++;
+			} catch (Exception e) {
+				errors.add("Save failed: " + e.getMessage());
+			}
+		}
 		return new ImportResult(imported, skipped, errors);
+	}
+
+	public byte[] buildTemplate() throws IOException {
+		StringWriter sw = new StringWriter();
+		try (CSVPrinter printer = new CSVPrinter(sw, CSVFormat.DEFAULT.builder()
+				.setHeader("date", "amount", "category", "description").build())) {
+			printer.printRecord("2026-06-15", "250.00", "Food", "Lunch");
+			printer.printRecord("2026-06-16", "1200.50", "Transportation", "Grab to office");
+		}
+		return sw.toString().getBytes(StandardCharsets.UTF_8);
+	}
+
+	private void persist(PendingRow row, User user) {
+		Category category = categoryService.getOrCreateByName(row.categoryName());
+		expenseRepository.save(Expense.builder()
+				.amount(row.amount())
+				.user(user)
+				.category(category)
+				.date(row.date())
+				.description(row.description())
+				.build());
 	}
 
 	private static String col(CSVRecord record, String name) {
