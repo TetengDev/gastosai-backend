@@ -123,7 +123,7 @@ src/main/java/com/teng/app/gastosai/
 - **AI flow:** `AiController → AiQueryService → SqlGenerator → SqlGuard → JDBC → response`
 - **SqlGuard** is the security boundary: blocks all non-SELECT statements, requires `FROM expenses`, rejects multi-statement input, blocks system catalog access.
 - **Currency:** Philippine peso (₱), stored as `BigDecimal(19,4)`.
-- **DDL:** `create-drop` in dev (schema rebuilt on each start). Switch to `validate` + Flyway for production.
+- **DDL:** `validate` + **Flyway** migrations (`db/migration/`) in all environments — schema is versioned and data persists across restarts.
 
 ---
 

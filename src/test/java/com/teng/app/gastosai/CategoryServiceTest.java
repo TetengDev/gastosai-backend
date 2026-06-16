@@ -119,7 +119,7 @@ class CategoryServiceTest {
 
     @Test
     void delete_defaultCategory_throws() {
-        Category def = Category.builder().id(4L).name("Transportation").build();
+        Category def = Category.builder().id(4L).name("Uncategorized").build();
         when(categoryRepository.findById(4L)).thenReturn(Optional.of(def));
 
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> categoryService.delete(4L));
