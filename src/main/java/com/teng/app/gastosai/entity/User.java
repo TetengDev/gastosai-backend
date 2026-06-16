@@ -58,6 +58,12 @@ public class User implements UserDetails {
 	@Column(nullable = false, updatable = false)
 	private LocalDateTime createdAt;
 
+	@Column(name = "openai_api_key_enc")
+	private String openaiApiKeyEnc;
+
+	@Column(name = "claude_api_key_enc")
+	private String claudeApiKeyEnc;
+
 	@PrePersist
 	void prePersist() {
 		createdAt = LocalDateTime.now();
