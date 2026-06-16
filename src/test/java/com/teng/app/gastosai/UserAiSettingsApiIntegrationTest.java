@@ -52,6 +52,22 @@ class UserAiSettingsApiIntegrationTest {
 	}
 
 	@Test
+	void noKey_aiNotAvailable() throws Exception {
+		mockMvc.perform(get("/user/ai-settings").header("Authorization", authHeader))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.openaiKeySet").value(false))
+				.andExpect(jsonPath("$.aiAvailable").value(false));
+	}
+
+	@Test
+	void aiEndpoint_withoutKey_returns402() throws Exception {
+		mockMvc.perform(get("/ai/insights/top-category")
+						.header("Authorization", authHeader)
+						.param("month", "2026-06"))
+				.andExpect(status().isPaymentRequired());
+	}
+
+	@Test
 	void setKey_thenGet_reportsSetWithoutLeakingValue() throws Exception {
 		mockMvc.perform(put("/user/ai-settings")
 						.header("Authorization", authHeader)
@@ -59,7 +75,8 @@ class UserAiSettingsApiIntegrationTest {
 						.content("{\"openaiApiKey\": \"sk-secret-123\"}"))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.openaiKeySet").value(true))
-				.andExpect(jsonPath("$.claudeKeySet").value(false));
+				.andExpect(jsonPath("$.claudeKeySet").value(false))
+				.andExpect(jsonPath("$.aiAvailable").value(true));
 
 		mockMvc.perform(get("/user/ai-settings").header("Authorization", authHeader))
 				.andExpect(status().isOk())
