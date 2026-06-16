@@ -34,7 +34,10 @@ public class AIClientConfig
 				.baseUrl("https://api.openai.com")
 				.defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
 				.requestInterceptor((request, body, execution) -> {
-					String key = properties.getApiKey();
+					String key = AiKeyContext.openai();
+					if (key == null || key.isBlank()) {
+						key = properties.getApiKey();
+					}
 					if (key != null && !key.isBlank()) {
 						request.getHeaders().setBearerAuth(key);
 					}
@@ -50,7 +53,10 @@ public class AIClientConfig
 				.defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
 				.defaultHeader("anthropic-version", "2023-06-01")
 				.requestInterceptor((request, body, execution) -> {
-					String key = properties.getApiKey();
+					String key = AiKeyContext.claude();
+					if (key == null || key.isBlank()) {
+						key = properties.getApiKey();
+					}
 					if (key != null && !key.isBlank()) {
 						request.getHeaders().set("x-api-key", key);
 					}
