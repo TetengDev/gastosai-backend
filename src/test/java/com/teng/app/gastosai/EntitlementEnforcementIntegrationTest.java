@@ -21,7 +21,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup;
 
 @SpringBootTest
-@TestPropertySource(properties = "gastos.monetization.enforce=true")
+@TestPropertySource(properties = {"gastos.monetization.enforce=true", "gastos.ai.allow-shared-key=true"})
 class EntitlementEnforcementIntegrationTest {
 
     @Autowired WebApplicationContext webApplicationContext;

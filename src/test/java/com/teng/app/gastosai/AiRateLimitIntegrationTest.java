@@ -19,7 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup;
 
 @SpringBootTest
-@TestPropertySource(properties = "gastos.ratelimit.ai-per-minute=2")
+@TestPropertySource(properties = {"gastos.ratelimit.ai-per-minute=2", "gastos.ai.allow-shared-key=true"})
 class AiRateLimitIntegrationTest {
 
     @Autowired WebApplicationContext webApplicationContext;

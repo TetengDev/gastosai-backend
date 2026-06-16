@@ -1,11 +1,13 @@
 package com.teng.app.gastosai.service;
 
 import com.teng.app.gastosai.config.AesGcmEncryptor;
+import com.teng.app.gastosai.config.AiProviderProperties;
 import com.teng.app.gastosai.dto.AiSettingsRequest;
 import com.teng.app.gastosai.dto.AiSettingsResponse;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +19,10 @@ public class UserAiSettingsService {
 
 	private final UserRepository userRepository;
 	private final AesGcmEncryptor encryptor;
+	private final AiProviderProperties providerProperties;
+
+	@Value("${gastos.ai.allow-shared-key:false}")
+	private boolean allowSharedKey;
 
 	@Transactional(readOnly = true)
 	public AiSettingsResponse get(String email) {
@@ -52,8 +58,9 @@ public class UserAiSettingsService {
 	}
 
 	private AiSettingsResponse toResponse(User user) {
-		return new AiSettingsResponse(
-				user.getOpenaiApiKeyEnc() != null && !user.getOpenaiApiKeyEnc().isBlank(),
-				user.getClaudeApiKeyEnc() != null && !user.getClaudeApiKeyEnc().isBlank());
+		boolean openaiSet = user.getOpenaiApiKeyEnc() != null && !user.getOpenaiApiKeyEnc().isBlank();
+		boolean claudeSet = user.getClaudeApiKeyEnc() != null && !user.getClaudeApiKeyEnc().isBlank();
+		boolean activeProviderSet = "claude".equalsIgnoreCase(providerProperties.getProvider()) ? claudeSet : openaiSet;
+		return new AiSettingsResponse(openaiSet, claudeSet, activeProviderSet || allowSharedKey);
 	}
 }
