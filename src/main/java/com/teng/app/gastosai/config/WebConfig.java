@@ -16,6 +16,7 @@ public class WebConfig implements WebMvcConfigurer {
 
 	private final FeatureAccessInterceptor featureAccessInterceptor;
 	private final AiRateLimitInterceptor aiRateLimitInterceptor;
+	private final AiKeyContextInterceptor aiKeyContextInterceptor;
 
 	@Override
 	public void addCorsMappings(CorsRegistry registry) {
@@ -28,6 +29,7 @@ public class WebConfig implements WebMvcConfigurer {
 
 	@Override
 	public void addInterceptors(InterceptorRegistry registry) {
+		registry.addInterceptor(aiKeyContextInterceptor).addPathPatterns("/ai/**");
 		registry.addInterceptor(aiRateLimitInterceptor).addPathPatterns("/ai/**");
 		registry.addInterceptor(featureAccessInterceptor);
 	}

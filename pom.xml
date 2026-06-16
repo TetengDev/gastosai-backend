@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>com.teng.app</groupId>
 	<artifactId>gastosai</artifactId>
-	<version>0.30.0</version>
+	<version>0.31.0</version>
 	<name/>
 	<description/>
 	<url/>
@@ -131,7 +131,7 @@
 			<artifactId>spring-security-test</artifactId>
 			<scope>test</scope>
 		</dependency>
-		<!-- Core-only circuit breaker (no Spring Boot starter) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â guards external LLM provider calls.
+		<!-- Core-only circuit breaker (no Spring Boot starter) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â guards external LLM provider calls.
 		     spring-boot4 starter exists (2.4.0) but core-only keeps the footprint minimal on 512 MB. -->
 		<dependency>
 			<groupId>io.github.resilience4j</groupId>
