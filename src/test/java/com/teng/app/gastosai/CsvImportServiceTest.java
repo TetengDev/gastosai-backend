@@ -12,6 +12,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -26,6 +27,7 @@ class CsvImportServiceTest {
 
     @Mock ExpenseRepository expenseRepository;
     @Mock CategoryService categoryService;
+    @Mock PlatformTransactionManager transactionManager;
 
     @InjectMocks CsvImportService csvImportService;
 
@@ -198,5 +200,44 @@ class CsvImportServiceTest {
         assertThat(result.imported()).isEqualTo(0);
         assertThat(result.skipped()).isEqualTo(0);
         assertThat(result.errors()).isEmpty();
+    }
+
+    // --- strict mode ---
+
+    @Test
+    void strict_allValid_importsAllInOneTransaction() throws IOException {
+        String content = "date,amount,category\n"
+                + "2026-06-01,500.00,Food\n"
+                + "2026-06-02,200.00,Transport\n";
+
+        when(categoryService.getOrCreateByName(anyString())).thenAnswer(inv -> category(inv.getArgument(0)));
+
+        ImportResult result = csvImportService.importCsv(csv(content), user(), true);
+
+        assertThat(result.imported()).isEqualTo(2);
+        assertThat(result.errors()).isEmpty();
+        verify(expenseRepository, times(2)).save(any());
+    }
+
+    @Test
+    void strict_anyBadRow_rejectsWholeFile_persistsNothing() throws IOException {
+        String content = "date,amount,category\n"
+                + "2026-06-01,500.00,Food\n"      // valid
+                + "2026-06-02,0,Food\n"            // would-skip -> error in strict
+                + "2026-06-03,bad,Food\n";          // error
+
+        ImportResult result = csvImportService.importCsv(csv(content), user(), true);
+
+        assertThat(result.imported()).isEqualTo(0);
+        assertThat(result.skipped()).isEqualTo(0);
+        assertThat(result.errors()).hasSize(2);
+        verify(expenseRepository, never()).save(any());
+    }
+
+    @Test
+    void buildTemplate_returnsCsvWithHeader() throws IOException {
+        String csv = new String(csvImportService.buildTemplate(), StandardCharsets.UTF_8);
+        assertThat(csv).contains("date,amount,category,description");
+        assertThat(csv).contains("Food");
     }
 }

@@ -101,12 +101,22 @@ public class ExpenseController {
 
 	@PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 	public ImportResult importCsv(@RequestParam("file") MultipartFile file,
+			@RequestParam(defaultValue = "false") boolean strict,
 			@AuthenticationPrincipal User user) {
 		try {
-			return csvImportService.importCsv(file, user);
+			return csvImportService.importCsv(file, user, strict);
 		} catch (IOException e) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Failed to read CSV: " + e.getMessage());
 		}
+	}
+
+	@GetMapping("/import/template")
+	public ResponseEntity<byte[]> importTemplate() throws IOException {
+		byte[] csv = csvImportService.buildTemplate();
+		return ResponseEntity.ok()
+				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"gastosai-import-template.csv\"")
+				.contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
+				.body(csv);
 	}
 
 	@PostMapping("/parse")
