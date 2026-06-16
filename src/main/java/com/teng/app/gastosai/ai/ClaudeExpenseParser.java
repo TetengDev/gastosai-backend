@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.teng.app.gastosai.config.AiKeyContext;
 import com.teng.app.gastosai.config.ClaudeProperties;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
 import lombok.RequiredArgsConstructor;
@@ -30,7 +31,11 @@ public class ClaudeExpenseParser implements ExpenseParser {
 
     @Override
     public ParsedExpenseResult parse(String text) {
-        if (claudeProperties.getApiKey() == null || claudeProperties.getApiKey().isBlank()) {
+        String key = AiKeyContext.claude();
+        if (key == null || key.isBlank()) {
+            key = claudeProperties.getApiKey();
+        }
+        if (key == null || key.isBlank()) {
             throw new IllegalStateException("CLAUDE_API_KEY is not configured");
         }
 
