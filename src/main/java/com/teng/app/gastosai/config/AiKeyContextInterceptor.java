@@ -40,6 +40,11 @@ public class AiKeyContextInterceptor implements HandlerInterceptor {
 			return true;
 		}
 
+		// Admin "View As: AI off" — simulate the no-key state even if the admin has a key.
+		if (Boolean.FALSE.equals(ViewAsContext.aiEnabled())) {
+			return reject(response);
+		}
+
 		String openaiKey = decryptSafe(user.getOpenaiApiKeyEnc());
 		String claudeKey = decryptSafe(user.getClaudeApiKeyEnc());
 		AiKeyContext.set(openaiKey, claudeKey);
@@ -49,6 +54,10 @@ public class AiKeyContextInterceptor implements HandlerInterceptor {
 		}
 
 		AiKeyContext.clear();
+		return reject(response);
+	}
+
+	private boolean reject(HttpServletResponse response) throws IOException {
 		response.setStatus(HttpStatus.PAYMENT_REQUIRED.value());
 		response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 		response.getWriter().write(

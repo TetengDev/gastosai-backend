@@ -1,6 +1,7 @@
 package com.teng.app.gastosai.service;
 
 import com.teng.app.gastosai.config.MonetizationProperties;
+import com.teng.app.gastosai.config.ViewAsContext;
 import com.teng.app.gastosai.entity.FeatureKey;
 import com.teng.app.gastosai.entity.PlanFeature;
 import com.teng.app.gastosai.entity.PlanKey;
@@ -38,6 +39,13 @@ public class EntitlementService {
 
     @Transactional(readOnly = true)
     public boolean canAccessFeature(User user, FeatureKey feature) {
+        PlanKey simulated = ViewAsContext.plan();
+        if (simulated != null) {
+            return featuresFor(simulated).contains(feature);
+        }
+        if (user.isAdmin()) {
+            return true;
+        }
         if (!monetizationProperties.isEnforce()) {
             return true;
         }
@@ -52,6 +60,14 @@ public class EntitlementService {
 
     @Transactional(readOnly = true)
     public Entitlements describe(User user) {
+        boolean admin = user.isAdmin();
+        PlanKey simulated = ViewAsContext.plan();
+        if (simulated != null) {
+            return new Entitlements(simulated, SubscriptionStatus.ACTIVE, featuresFor(simulated), admin);
+        }
+        if (admin) {
+            return new Entitlements(PlanKey.PREMIUM, SubscriptionStatus.ACTIVE, EnumSet.allOf(FeatureKey.class), true);
+        }
         SubscriptionPlan plan = resolvePlan(user);
         SubscriptionStatus status = userSubscriptionRepository.findFirstByUserOrderByCreatedAtDesc(user)
                 .map(UserSubscription::getStatus)
@@ -61,7 +77,15 @@ public class EntitlementService {
                         .map(PlanFeature::getFeatureKey)
                         .collect(Collectors.toCollection(() -> EnumSet.noneOf(FeatureKey.class)))
                 : EnumSet.allOf(FeatureKey.class);
-        return new Entitlements(plan.getPlanKey(), status, features);
+        return new Entitlements(plan.getPlanKey(), status, features, false);
+    }
+
+    private Set<FeatureKey> featuresFor(PlanKey planKey) {
+        SubscriptionPlan plan = planRepository.findByPlanKey(planKey)
+                .orElseThrow(() -> new IllegalStateException(planKey + " plan is not seeded"));
+        return planFeatureRepository.findAllByPlan(plan).stream()
+                .map(PlanFeature::getFeatureKey)
+                .collect(Collectors.toCollection(() -> EnumSet.noneOf(FeatureKey.class)));
     }
 
     private SubscriptionPlan resolvePlan(User user) {
@@ -81,7 +105,7 @@ public class EntitlementService {
         return periodEnd == null || periodEnd.isAfter(LocalDateTime.now());
     }
 
-    /** Snapshot of a user's plan, subscription status, and the feature set their plan grants. */
-    public record Entitlements(PlanKey plan, SubscriptionStatus status, Set<FeatureKey> features) {
+    /** Snapshot of a user's plan, subscription status, granted features, and admin flag. */
+    public record Entitlements(PlanKey plan, SubscriptionStatus status, Set<FeatureKey> features, boolean admin) {
     }
 }
