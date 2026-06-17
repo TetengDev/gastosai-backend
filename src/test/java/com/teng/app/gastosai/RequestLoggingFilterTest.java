@@ -48,8 +48,9 @@ class RequestLoggingFilterTest {
 		filter.doFilter(req, res, chain);
 
 		assertThat(idDuringChain.get()).isNotBlank();
-		assertThat(MDC.get("requestId")).isNull();
-		assertThat(MDC.get("durationMs")).isNull();
+		for (String key : new String[] {"requestId", "method", "path", "status", "durationMs", "userId"}) {
+			assertThat(MDC.get(key)).as("MDC key %s cleared", key).isNull();
+		}
 	}
 
 	@Test
