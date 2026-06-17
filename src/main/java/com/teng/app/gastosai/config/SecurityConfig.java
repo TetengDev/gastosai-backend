@@ -30,6 +30,7 @@ import org.springframework.http.HttpStatus;
 public class SecurityConfig {
 
 	private final JwtAuthFilter jwtAuthFilter;
+	private final RequestLoggingFilter requestLoggingFilter;
 	private final UserRepository userRepository;
 
 	@Bean
@@ -48,7 +49,8 @@ public class SecurityConfig {
 				.exceptionHandling(e -> e
 						.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
 				.authenticationProvider(authenticationProvider())
-				.addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+				.addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+				.addFilterBefore(requestLoggingFilter, JwtAuthFilter.class);
 		return http.build();
 	}
 
