@@ -18,9 +18,17 @@ public enum ChatTool {
     UPDATE_BUDGET("update_budget"),
     DELETE_BUDGET("delete_budget"),
     CREATE_GOAL("create_goal"),
+    UPDATE_GOAL("update_goal"),
     DELETE_GOAL("delete_goal"),
     CREATE_RECURRING("create_recurring"),
+    UPDATE_RECURRING("update_recurring"),
     DELETE_RECURRING("delete_recurring"),
+    CREATE_CATEGORY("create_category"),
+    RENAME_CATEGORY("rename_category"),
+    DELETE_CATEGORY("delete_category"),
+    LIST_CATEGORIES("list_categories"),
+    UPDATE_PROFILE("update_profile"),
+    GET_SUBSCRIPTION("get_subscription"),
     /** No actionable tool — the assistant replied with plain text. */
     TEXT("text");
 
