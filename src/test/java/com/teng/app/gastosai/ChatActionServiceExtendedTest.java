@@ -50,6 +50,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -450,5 +453,27 @@ class ChatActionServiceExtendedTest {
         ChatResponse resp = chatActionService.dispatch("Add lunch ₱500", "execute", user());
 
         assertThat(resp.type()).isEqualTo("action");
+    }
+
+    @Test
+    void createExpense_forceMode_skipsDedupAndCreates() {
+        String paramsJson = """
+                {"amount":500,"description":"Lunch","category":"Food"}
+                """;
+        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("create_expense", paramsJson));
+        Expense duplicate = Expense.builder()
+                .id(99L)
+                .description("Lunch")
+                .amount(new BigDecimal("500"))
+                .date(LocalDateTime.now().minusDays(1))
+                .build();
+        lenient().when(expenseRepository.findByUserAndDateAfterOrderByDateDesc(any(), any())).thenReturn(List.of(duplicate));
+        when(expenseService.create(any(), any())).thenReturn(null);
+
+        ChatResponse resp = chatActionService.dispatch("Add lunch ₱500", "force", user());
+
+        assertThat(resp.type()).isEqualTo("action");
+        assertThat(resp.message()).containsIgnoringCase("created");
+        verify(expenseRepository, never()).findByUserAndDateAfterOrderByDateDesc(any(), any());
     }
 }

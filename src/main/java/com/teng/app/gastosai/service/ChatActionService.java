@@ -26,6 +26,7 @@ import com.teng.app.gastosai.repository.ExpenseRepository;
 import com.teng.app.gastosai.repository.RecurringExpenseRepository;
 import com.teng.app.gastosai.repository.SavingsGoalRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,11 +42,19 @@ import java.util.List;
 import java.util.Map;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class ChatActionService {
 
 	/** Caller opts in to executing a create action immediately instead of returning a confirmation preview. */
 	private static final String MODE_EXECUTE = "execute";
+
+	/** Like {@link #MODE_EXECUTE} but also bypasses the duplicate-expense check (user already chose "add anyway"). */
+	private static final String MODE_FORCE = "force";
+
+	private static boolean isRunMode(String mode) {
+		return MODE_EXECUTE.equals(mode) || MODE_FORCE.equals(mode);
+	}
 
 	private final SqlGenerator sqlGenerator;
 	private final ExpenseService expenseService;
@@ -72,7 +81,7 @@ public class ChatActionService {
 
 			JsonNode params = objectMapper.readTree(call.paramsJson());
 
-			if (tool.isCreate() && !MODE_EXECUTE.equals(mode)) {
+			if (tool.isCreate() && !isRunMode(mode)) {
 				Map<String, Object> previewData = new LinkedHashMap<>();
 				previewData.put("toolName", tool.key());
 				previewData.put("params", objectMapper.convertValue(params, Map.class));
@@ -80,7 +89,7 @@ public class ChatActionService {
 			}
 
 			return switch (tool) {
-				case CREATE_EXPENSE -> handleCreateExpense(params, user);
+				case CREATE_EXPENSE -> handleCreateExpense(params, user, MODE_FORCE.equals(mode));
 				case UPDATE_EXPENSE -> handleUpdateExpense(params, user);
 				case DELETE_EXPENSE -> handleDeleteExpense(params, user);
 				case CREATE_BUDGET -> handleCreateBudget(params, user);
@@ -105,7 +114,8 @@ public class ChatActionService {
 			return new ChatResponse("text", "I couldn't find that item.", null);
 		}
 		catch (Exception e) {
-			return new ChatResponse("text", "Something went wrong: " + e.getMessage(), null);
+			log.warn("chat_action_failed", e);
+			return new ChatResponse("text", "Something went wrong while handling that. Please rephrase and try again.", null);
 		}
 	}
 
@@ -131,7 +141,7 @@ public class ChatActionService {
 				.findFirst();
 	}
 
-	private ChatResponse handleCreateExpense(JsonNode params, User user) {
+	private ChatResponse handleCreateExpense(JsonNode params, User user, boolean confirmed) {
 		BigDecimal amount = params.get("amount").decimalValue();
 		String category = params.path("category").asText("Uncategorized");
 		String description = params.get("description").asText();
@@ -140,7 +150,7 @@ public class ChatActionService {
 				? LocalDate.parse(dateStr).atStartOfDay()
 				: null;
 
-		java.util.Optional<Expense> dupe = findRecentDuplicate(user, amount, description);
+		java.util.Optional<Expense> dupe = confirmed ? java.util.Optional.empty() : findRecentDuplicate(user, amount, description);
 		if (dupe.isPresent()) {
 			Expense e = dupe.get();
 			String dupeDate = e.getDate() != null ? e.getDate().toLocalDate().toString() : "recently";
