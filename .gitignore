@@ -40,6 +40,7 @@ logs/
 .env
 .env.*
 !.env.example
+!.env.prod.example
 application-local.properties
 application-local.yml
 application-secret.properties

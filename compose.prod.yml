@@ -1,0 +1,46 @@
+# Production stack for the Oracle Cloud Always Free VM (Ampere A1 / ARM64).
+# `docker build` on the VM produces a native arm64 image from backend/Dockerfile
+# (the base images are multi-arch — no Dockerfile change needed).
+#
+# Caddy fronts the JVM and provisions automatic HTTPS (Let's Encrypt) so the
+# Vercel (HTTPS) frontend can call the API without mixed-content errors.
+#
+# On the VM, from this directory:
+#   docker compose -f compose.prod.yml --env-file .env.prod up -d --build
+#
+# Requires .env.prod (copy from .env.prod.example) and DNS for $DOMAIN pointing
+# at the VM's public IP, with ports 80 + 443 open in the OCI security list.
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+    expose:
+      - "8080"            # internal only — Caddy terminates TLS and proxies in
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 180s  # JVM cold boot is slow on the very first start
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
