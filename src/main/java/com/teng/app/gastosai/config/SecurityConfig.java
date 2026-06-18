@@ -44,6 +44,9 @@ public class SecurityConfig {
 						.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 						.requestMatchers("/actuator/info", "/features", "/error",
 								"/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
+						.requestMatchers(HttpMethod.POST, "/submissions").permitAll()
+						.requestMatchers(HttpMethod.GET, "/submissions").hasRole("ADMIN")
+						.requestMatchers("/submissions/**").hasRole("ADMIN")
 						.anyRequest().authenticated()
 				)
 				.exceptionHandling(e -> e
