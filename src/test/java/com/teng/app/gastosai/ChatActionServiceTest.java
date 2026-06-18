@@ -131,6 +131,6 @@ class ChatActionServiceTest {
 
         assertThat(response.type()).isEqualTo("text");
         assertThat(response.message()).contains("Something went wrong");
-        assertThat(response.message()).contains("network error");
+        assertThat(response.message()).doesNotContain("network error");
     }
 }

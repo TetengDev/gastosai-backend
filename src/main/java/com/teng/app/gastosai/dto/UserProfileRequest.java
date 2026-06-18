@@ -8,6 +8,8 @@ public record UserProfileRequest(
 		@NotBlank @Size(max = 100) String name,
 		@Size(max = 50) String nickname,
 		@NotBlank @Email @Size(max = 200) String email,
-		@Size(max = 20) String avatarColor
+		@Size(max = 20) String avatarColor,
+		@Size(max = 50) String defaultCategory,
+		@Size(max = 40) String avatar
 ) {
 }

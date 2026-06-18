@@ -54,9 +54,10 @@ class UserProfileServiceTest {
         when(userRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
         UserProfileResponse r = userProfileService.updateProfile("a@b.com",
-                new UserProfileRequest("Bob", "bobby", "a@b.com", "red"));
+                new UserProfileRequest("Bob", "bobby", "a@b.com", "red", "Meal Plan", "Cat"));
 
         assertThat(r.name()).isEqualTo("Bob");
+        assertThat(r.defaultCategory()).isEqualTo("Meal Plan");
     }
 
     @Test
@@ -67,7 +68,7 @@ class UserProfileServiceTest {
         when(userRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
         UserProfileResponse r = userProfileService.updateProfile("a@b.com",
-                new UserProfileRequest("Alice", null, "new@b.com", null));
+                new UserProfileRequest("Alice", null, "new@b.com", null, null, null));
 
         assertThat(r.email()).isEqualTo("new@b.com");
     }
@@ -79,7 +80,7 @@ class UserProfileServiceTest {
         when(userRepository.existsByEmail("taken@b.com")).thenReturn(true);
 
         assertThatThrownBy(() -> userProfileService.updateProfile("a@b.com",
-                new UserProfileRequest("Alice", null, "taken@b.com", null)))
+                new UserProfileRequest("Alice", null, "taken@b.com", null, null, null)))
                 .isInstanceOf(ResponseStatusException.class);
     }
 }

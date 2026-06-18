@@ -34,6 +34,6 @@ public class UserProfileController {
 	) {
 		UserProfileResponse profile = userProfileService.updateProfile(authentication.getName(), request);
 		String token = jwtUtil.generate(profile.email());
-		return new UpdateProfileResponse(profile.email(), profile.name(), profile.nickname(), profile.avatarColor(), token);
+		return new UpdateProfileResponse(profile.email(), profile.name(), profile.nickname(), profile.avatarColor(), profile.defaultCategory(), profile.avatar(), token);
 	}
 }

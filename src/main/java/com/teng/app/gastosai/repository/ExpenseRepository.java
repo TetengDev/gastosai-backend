@@ -94,6 +94,8 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
 
 	List<Expense> findByUserAndDateBetweenOrderByAmountDesc(User user, LocalDateTime from, LocalDateTime to, Pageable pageable);
 
+	List<Expense> findByUserAndDateAfterOrderByDateDesc(User user, LocalDateTime after);
+
 	@Query("""
 			SELECT COALESCE(c.name, 'Uncategorized'), COALESCE(SUM(e.amountInBaseCurrency), 0)
 			FROM Expense e

@@ -55,6 +55,12 @@ public class User implements UserDetails {
 	@Column(length = 20)
 	private String avatarColor;
 
+	@Column(name = "default_category_name", length = 50)
+	private String defaultCategoryName;
+
+	@Column(length = 40)
+	private String avatar;
+
 	@Column(nullable = false, updatable = false)
 	private LocalDateTime createdAt;
 
