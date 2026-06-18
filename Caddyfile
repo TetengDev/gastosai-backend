@@ -1,0 +1,8 @@
+# Caddy reverse proxy — automatic HTTPS for the gastosai API.
+# $DOMAIN is injected from .env.prod (e.g. gastosai.duckdns.org). Caddy obtains
+# and renews a Let's Encrypt certificate automatically; ports 80 + 443 must be
+# reachable from the internet for the ACME challenge.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy api:8080
+}
