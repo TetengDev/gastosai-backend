@@ -9,6 +9,7 @@ public record AiUsageResponse(
         long remaining,
         long visionUsed,
         int visionLimit,
+        boolean managed,
         LocalDateTime resetsAt
 ) {
 }

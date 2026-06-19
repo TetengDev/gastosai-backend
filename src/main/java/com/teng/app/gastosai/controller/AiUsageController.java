@@ -1,12 +1,9 @@
 package com.teng.app.gastosai.controller;
 
-import com.teng.app.gastosai.ai.AiFeature;
-import com.teng.app.gastosai.config.AiManagedProperties;
 import com.teng.app.gastosai.dto.AiUsageResponse;
-import com.teng.app.gastosai.entity.AiUsageStatus;
 import com.teng.app.gastosai.entity.PlanKey;
 import com.teng.app.gastosai.entity.User;
-import com.teng.app.gastosai.repository.AiUsageRepository;
+import com.teng.app.gastosai.service.AiQuotaService;
 import com.teng.app.gastosai.service.EntitlementService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -22,44 +19,22 @@ import java.time.YearMonth;
 @RequiredArgsConstructor
 public class AiUsageController {
 
-    private final AiUsageRepository aiUsageRepository;
-    private final AiManagedProperties managedProps;
+    private final AiQuotaService aiQuotaService;
     private final EntitlementService entitlementService;
 
     @GetMapping("/usage")
     public AiUsageResponse usage(@AuthenticationPrincipal User user) {
-        EntitlementService.Entitlements entitlements = entitlementService.describe(user);
-        PlanKey plan = entitlements.plan();
+        PlanKey plan = entitlementService.describe(user).plan();
+        LocalDateTime resetsAt = YearMonth.now().plusMonths(1).atDay(1).atStartOfDay();
 
-        YearMonth current = YearMonth.now();
-        LocalDateTime monthStart = current.atDay(1).atStartOfDay();
-        LocalDateTime resetsAt = current.plusMonths(1).atDay(1).atStartOfDay();
-
-        long used = aiUsageRepository.countByUserIdAndStatusAndCreatedAtAfter(
-                user.getId(), AiUsageStatus.SUCCESS, monthStart);
-        long visionUsed = aiUsageRepository.countByUserIdAndFeatureAndStatusAndCreatedAtAfter(
-                user.getId(), AiFeature.RECEIPT_ANALYSIS, AiUsageStatus.SUCCESS, monthStart);
-
-        int limit = monthlyCapFor(plan);
-        int visionLimit = visionCapFor(plan);
+        long used = aiQuotaService.usedThisMonth(user.getId());
+        long visionUsed = aiQuotaService.visionUsedThisMonth(user.getId());
+        int limit = aiQuotaService.monthlyCap(plan);
+        int visionLimit = aiQuotaService.visionCap(plan);
         long remaining = Math.max(0, limit - used);
 
-        return new AiUsageResponse(plan.name(), used, limit, remaining, visionUsed, visionLimit, resetsAt);
-    }
-
-    private int monthlyCapFor(PlanKey plan) {
-        return switch (plan) {
-            case PREMIUM -> managedProps.getQuotaPremium();
-            case TRIAL -> managedProps.getQuotaTrial();
-            default -> managedProps.getQuotaFree();
-        };
-    }
-
-    private int visionCapFor(PlanKey plan) {
-        return switch (plan) {
-            case PREMIUM -> managedProps.getVisionPremium();
-            case TRIAL -> managedProps.getVisionTrial();
-            default -> managedProps.getVisionFree();
-        };
+        return new AiUsageResponse(
+                plan.name(), used, limit, remaining, visionUsed, visionLimit,
+                aiQuotaService.managedActive(), resetsAt);
     }
 }

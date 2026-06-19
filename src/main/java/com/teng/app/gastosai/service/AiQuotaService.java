@@ -13,10 +13,18 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.util.EnumSet;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class AiQuotaService {
+
+    /** Features that consume the monthly cap (chat + vision); insights are excluded. */
+    private static final Set<AiFeature> QUOTA_BEARING = EnumSet.allOf(AiFeature.class).stream()
+            .filter(AiFeature::countsTowardQuota)
+            .collect(Collectors.toCollection(() -> EnumSet.noneOf(AiFeature.class)));
 
     private final AiManagedProperties managedProps;
     private final AiUsageRepository aiUsageRepository;
@@ -34,24 +42,35 @@ public class AiQuotaService {
         PlanKey plan = entitlements.plan();
         LocalDateTime monthStart = startOfCurrentMonth();
 
-        long used = aiUsageRepository.countByUserIdAndStatusAndCreatedAtAfter(
-                user.getId(), AiUsageStatus.SUCCESS, monthStart);
-        int cap = monthlyCapFor(plan);
-        if (used >= cap) {
+        long used = usedThisMonth(user.getId());
+        if (used >= monthlyCap(plan)) {
             throw new AiQuotaExceededException();
         }
 
-        if (feature.isVision()) {
-            long visionUsed = aiUsageRepository.countByUserIdAndFeatureAndStatusAndCreatedAtAfter(
-                    user.getId(), feature, AiUsageStatus.SUCCESS, monthStart);
-            int visionCap = visionCapFor(plan);
-            if (visionUsed >= visionCap) {
-                throw new AiQuotaExceededException();
-            }
+        if (feature.isVision() && visionUsedThisMonth(user.getId()) >= visionCap(plan)) {
+            throw new AiQuotaExceededException();
         }
     }
 
-    private int monthlyCapFor(PlanKey plan) {
+    /** True when managed (shared-key) AI is active, i.e. quotas are enforced. */
+    public boolean managedActive() {
+        return managedProps.isAllowSharedKey() && managedProps.isFeaturesEnabled();
+    }
+
+    /** Quota-bearing successful AI requests (chat + vision; excludes insights) this calendar month. */
+    @Transactional(readOnly = true)
+    public long usedThisMonth(Long userId) {
+        return aiUsageRepository.countByUserIdAndStatusAndFeatureInAndCreatedAtAfter(
+                userId, AiUsageStatus.SUCCESS, QUOTA_BEARING, startOfCurrentMonth());
+    }
+
+    @Transactional(readOnly = true)
+    public long visionUsedThisMonth(Long userId) {
+        return aiUsageRepository.countByUserIdAndFeatureAndStatusAndCreatedAtAfter(
+                userId, AiFeature.RECEIPT_ANALYSIS, AiUsageStatus.SUCCESS, startOfCurrentMonth());
+    }
+
+    public int monthlyCap(PlanKey plan) {
         return switch (plan) {
             case PREMIUM -> managedProps.getQuotaPremium();
             case TRIAL -> managedProps.getQuotaTrial();
@@ -59,7 +78,7 @@ public class AiQuotaService {
         };
     }
 
-    private int visionCapFor(PlanKey plan) {
+    public int visionCap(PlanKey plan) {
         return switch (plan) {
             case PREMIUM -> managedProps.getVisionPremium();
             case TRIAL -> managedProps.getVisionTrial();
