@@ -54,6 +54,7 @@ public class VisionService {
 	private final AiQuotaService aiQuotaService;
 	private final AiUsageService aiUsageService;
 	private final AiManagedProperties aiManagedProperties;
+	private final AiRedactionService aiRedactionService;
 
 	public ParsedExpenseResult analyze(String question, MultipartFile file, String mode) throws IOException {
 		return analyze(question, file, mode, null);
@@ -73,6 +74,8 @@ public class VisionService {
 		String prompt = (question != null && !question.isBlank())
 				? question
 				: "Extract expense information from this image.";
+		// Mask any PII (card/email/phone) the user typed into the instruction before it reaches the LLM.
+		prompt = aiRedactionService.redact(prompt);
 		int max = aiManagedProperties.getMaxPromptChars();
 		if (prompt.length() > max) {
 			prompt = prompt.substring(0, max);

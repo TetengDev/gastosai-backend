@@ -9,8 +9,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpRequestFactory;
-import org.springframework.http.client.ClientHttpRequestFactorySettings;
-import org.springframework.http.client.ClientHttpRequestFactoryBuilder;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
@@ -35,10 +34,10 @@ public class AIClientConfig
 
 	private ClientHttpRequestFactory llmRequestFactory(AiManagedProperties managedProps) {
 		Duration timeout = Duration.ofSeconds(Math.max(1, managedProps.getRequestTimeoutSeconds()));
-		ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings.defaults()
-				.withConnectTimeout(timeout)
-				.withReadTimeout(timeout);
-		return ClientHttpRequestFactoryBuilder.detect().build(settings);
+		SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+		factory.setConnectTimeout(timeout);
+		factory.setReadTimeout(timeout);
+		return factory;
 	}
 
 	@Bean

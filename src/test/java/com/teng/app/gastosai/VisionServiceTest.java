@@ -7,6 +7,7 @@ import com.teng.app.gastosai.config.ClaudeProperties;
 import com.teng.app.gastosai.config.OpenAiProperties;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
 import com.teng.app.gastosai.service.AiQuotaService;
+import com.teng.app.gastosai.service.AiRedactionService;
 import com.teng.app.gastosai.service.AiUsageService;
 import com.teng.app.gastosai.service.VisionService;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,7 +57,7 @@ class VisionServiceTest {
         visionService = new VisionService(
                 claudeRestClient, openAiRestClient,
                 providerProps, claudeProps, openAiProps, objectMapper,
-                aiQuotaService, aiUsageService, managedProps);
+                aiQuotaService, aiUsageService, managedProps, new AiRedactionService());
     }
 
     private void mockOpenAiChain(String responseJson) {
