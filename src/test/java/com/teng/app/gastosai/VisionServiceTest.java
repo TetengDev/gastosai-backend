@@ -1,10 +1,14 @@
 package com.teng.app.gastosai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.teng.app.gastosai.config.AiManagedProperties;
 import com.teng.app.gastosai.config.AiProviderProperties;
 import com.teng.app.gastosai.config.ClaudeProperties;
 import com.teng.app.gastosai.config.OpenAiProperties;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
+import com.teng.app.gastosai.service.AiQuotaService;
+import com.teng.app.gastosai.service.AiRedactionService;
+import com.teng.app.gastosai.service.AiUsageService;
 import com.teng.app.gastosai.service.VisionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,10 +32,13 @@ class VisionServiceTest {
     @Mock RestClient.RequestBodyUriSpec uriSpec;
     @Mock RestClient.RequestBodySpec bodySpec;
     @Mock RestClient.ResponseSpec responseSpec;
+    @Mock AiQuotaService aiQuotaService;
+    @Mock AiUsageService aiUsageService;
 
     AiProviderProperties providerProps;
     ClaudeProperties claudeProps;
     OpenAiProperties openAiProps;
+    AiManagedProperties managedProps;
     ObjectMapper objectMapper;
 
     VisionService visionService;
@@ -43,12 +50,14 @@ class VisionServiceTest {
 
         claudeProps = new ClaudeProperties();
         openAiProps = new OpenAiProperties();
+        managedProps = new AiManagedProperties();
         objectMapper = new ObjectMapper();
         objectMapper.findAndRegisterModules();
 
         visionService = new VisionService(
                 claudeRestClient, openAiRestClient,
-                providerProps, claudeProps, openAiProps, objectMapper);
+                providerProps, claudeProps, openAiProps, objectMapper,
+                aiQuotaService, aiUsageService, managedProps, new AiRedactionService());
     }
 
     private void mockOpenAiChain(String responseJson) {

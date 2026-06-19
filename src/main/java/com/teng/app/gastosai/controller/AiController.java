@@ -53,9 +53,10 @@ public class AiController {
 	public ParsedExpenseResult vision(
 			@RequestParam("file") MultipartFile file,
 			@RequestParam(value = "question", required = false) String question,
-			@RequestParam(value = "mode", required = false, defaultValue = "plain") String mode) {
+			@RequestParam(value = "mode", required = false, defaultValue = "plain") String mode,
+			@AuthenticationPrincipal User user) {
 		try {
-			return visionService.analyze(question, file, mode);
+			return visionService.analyze(question, file, mode, user);
 		} catch (IOException e) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Failed to read file: " + e.getMessage());
 		}

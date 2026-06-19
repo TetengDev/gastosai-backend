@@ -32,8 +32,9 @@ public class WebConfig implements WebMvcConfigurer {
 	public void addInterceptors(InterceptorRegistry registry) {
 		registry.addInterceptor(viewAsInterceptor);
 		// /expenses/parse also calls the LLM, so it needs the per-user key (BYO) like /ai/**.
-		registry.addInterceptor(aiKeyContextInterceptor).addPathPatterns("/ai/**", "/expenses/parse");
-		registry.addInterceptor(aiRateLimitInterceptor).addPathPatterns("/ai/**", "/expenses/parse");
+		// /ai/usage is informational only (no LLM call), so it is exempt from the key and rate-limit gates.
+		registry.addInterceptor(aiKeyContextInterceptor).addPathPatterns("/ai/**", "/expenses/parse").excludePathPatterns("/ai/usage");
+		registry.addInterceptor(aiRateLimitInterceptor).addPathPatterns("/ai/**", "/expenses/parse").excludePathPatterns("/ai/usage");
 		registry.addInterceptor(featureAccessInterceptor);
 	}
 }

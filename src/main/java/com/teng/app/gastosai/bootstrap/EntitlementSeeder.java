@@ -38,17 +38,28 @@ public class EntitlementSeeder implements CommandLineRunner {
     @Transactional
     public void run(String... args) {
         SubscriptionPlan free = ensurePlan(PlanKey.FREE, "Free", 0);
-        SubscriptionPlan premium = ensurePlan(PlanKey.PREMIUM, "Premium", 19900);
+        SubscriptionPlan premium = ensurePlan(PlanKey.PREMIUM, "Premium", 14900); // TODO annual price ₱1290
         ensureFeatures(free, FREE_FEATURES);
         ensureFeatures(premium, EnumSet.allOf(FeatureKey.class));
     }
 
     private SubscriptionPlan ensurePlan(PlanKey key, String name, int priceCents) {
-        return planRepository.findByPlanKey(key).orElseGet(() -> {
-            log.info("Seeding subscription plan {}", key);
-            return planRepository.save(SubscriptionPlan.builder()
-                    .planKey(key).name(name).priceCents(priceCents).currency("PHP").active(true).build());
-        });
+        return planRepository.findByPlanKey(key)
+                .map(existing -> {
+                    // Reconcile the seeded price/name so changes here roll out to already-seeded DBs.
+                    if (existing.getPriceCents() != priceCents || !name.equals(existing.getName())) {
+                        log.info("Updating subscription plan {} price {} -> {}", key, existing.getPriceCents(), priceCents);
+                        existing.setName(name);
+                        existing.setPriceCents(priceCents);
+                        return planRepository.save(existing);
+                    }
+                    return existing;
+                })
+                .orElseGet(() -> {
+                    log.info("Seeding subscription plan {}", key);
+                    return planRepository.save(SubscriptionPlan.builder()
+                            .planKey(key).name(name).priceCents(priceCents).currency("PHP").active(true).build());
+                });
     }
 
     private void ensureFeatures(SubscriptionPlan plan, Set<FeatureKey> features) {
