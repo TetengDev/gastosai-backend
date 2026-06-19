@@ -2,6 +2,7 @@ package com.teng.app.gastosai.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.teng.app.gastosai.ai.AiFeature;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.ai.SqlGuard;
 import com.teng.app.gastosai.ai.query.AnalyticsQueryPlan;
@@ -9,7 +10,12 @@ import com.teng.app.gastosai.ai.query.AnalyticsQueryPlanner;
 import com.teng.app.gastosai.ai.query.QueryIntent;
 import com.teng.app.gastosai.ai.query.QueryIntentValidator;
 import com.teng.app.gastosai.ai.query.SafeAnalyticsExecutor;
+import com.teng.app.gastosai.config.AiManagedProperties;
+import com.teng.app.gastosai.config.AiProviderProperties;
+import com.teng.app.gastosai.config.ClaudeProperties;
+import com.teng.app.gastosai.config.OpenAiProperties;
 import com.teng.app.gastosai.dto.AiQueryResponse;
+import com.teng.app.gastosai.entity.AiUsageStatus;
 import com.teng.app.gastosai.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -39,19 +45,40 @@ public class AiQueryService {
 	private final QueryIntentValidator queryIntentValidator;
 	private final AnalyticsQueryPlanner analyticsQueryPlanner;
 	private final SafeAnalyticsExecutor safeAnalyticsExecutor;
+	private final AiQuotaService aiQuotaService;
+	private final AiUsageService aiUsageService;
+	private final AiRedactionService aiRedactionService;
+	private final AiManagedProperties aiManagedProperties;
+	private final AiProviderProperties aiProviderProperties;
+	private final OpenAiProperties openAiProperties;
+	private final ClaudeProperties claudeProperties;
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	public AiQueryResponse runNaturalLanguageQuery(String question, String mode, User user) {
+		aiQuotaService.assertWithinQuota(user, AiFeature.CHAT_CONTEXT_RESOLUTION);
+
+		String safeQuestion = truncate(aiRedactionService.redact(question));
 		String resolvedMode = (mode != null && !mode.isBlank()) ? mode : DEFAULT_MODE;
 
-		List<Map<String, Object>> rows = runStructuredQuery(question, user);
-		if (rows == null) {
-			rows = runGeneratedSql(question, user);
+		try {
+			List<Map<String, Object>> rows = runStructuredQuery(safeQuestion, user);
+			if (rows == null) {
+				rows = runGeneratedSql(safeQuestion, user);
+			}
+			AiQueryResponse response = rows == null
+					? new AiQueryResponse(EXECUTION_FAILURE_MESSAGE)
+					: summarize(safeQuestion, rows, resolvedMode);
+			// best-effort: provider usage not surfaced here yet (TODO wire tokens)
+			aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
+					resolveModel(), AiFeature.CHAT_CONTEXT_RESOLUTION,
+					null, null, AiUsageStatus.SUCCESS, null);
+			return response;
+		} catch (Exception e) {
+			aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
+					resolveModel(), AiFeature.CHAT_CONTEXT_RESOLUTION,
+					null, null, AiUsageStatus.FAILED, e.getClass().getSimpleName());
+			throw e;
 		}
-		if (rows == null) {
-			return new AiQueryResponse(EXECUTION_FAILURE_MESSAGE);
-		}
-		return summarize(question, rows, resolvedMode);
 	}
 
 	/**
@@ -120,6 +147,20 @@ public class AiQueryService {
 			log.warn("Summary generation failed, returning raw data: {}", e.getMessage());
 			return new AiQueryResponse(normalizedData);
 		}
+	}
+
+	private String resolveModel() {
+		return "claude".equalsIgnoreCase(aiProviderProperties.getProvider())
+				? claudeProperties.getModel()
+				: openAiProperties.getModel();
+	}
+
+	private String truncate(String text) {
+		if (text == null) {
+			return null;
+		}
+		int max = aiManagedProperties.getMaxPromptChars();
+		return text.length() > max ? text.substring(0, max) : text;
 	}
 
 	private static String appendUserFilter(String sql, Long userId) {

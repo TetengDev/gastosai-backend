@@ -38,7 +38,7 @@ public class EntitlementSeeder implements CommandLineRunner {
     @Transactional
     public void run(String... args) {
         SubscriptionPlan free = ensurePlan(PlanKey.FREE, "Free", 0);
-        SubscriptionPlan premium = ensurePlan(PlanKey.PREMIUM, "Premium", 19900);
+        SubscriptionPlan premium = ensurePlan(PlanKey.PREMIUM, "Premium", 14900); // TODO annual price ₱1290
         ensureFeatures(free, FREE_FEATURES);
         ensureFeatures(premium, EnumSet.allOf(FeatureKey.class));
     }

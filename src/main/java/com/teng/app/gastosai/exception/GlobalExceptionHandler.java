@@ -35,6 +35,13 @@ public class GlobalExceptionHandler {
 		return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED).body(pd);
 	}
 
+	@ExceptionHandler(AiQuotaExceededException.class)
+	public ResponseEntity<ProblemDetail> quotaExceeded(AiQuotaExceededException ex) {
+		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage());
+		pd.setTitle("AI Quota Exceeded");
+		return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(pd);
+	}
+
 	@ExceptionHandler(ResponseStatusException.class)
 	public ResponseEntity<ProblemDetail> responseStatus(ResponseStatusException ex) {
 		// Handle here so the response is written directly by the advice. Otherwise the exception

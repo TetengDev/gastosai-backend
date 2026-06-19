@@ -5,10 +5,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.teng.app.gastosai.ai.AiFeature;
+import com.teng.app.gastosai.config.AiManagedProperties;
 import com.teng.app.gastosai.config.AiProviderProperties;
 import com.teng.app.gastosai.config.ClaudeProperties;
 import com.teng.app.gastosai.config.OpenAiProperties;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
+import com.teng.app.gastosai.entity.AiUsageStatus;
+import com.teng.app.gastosai.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -47,23 +51,62 @@ public class VisionService {
 	private final ClaudeProperties claudeProperties;
 	private final OpenAiProperties openAiProperties;
 	private final ObjectMapper objectMapper;
+	private final AiQuotaService aiQuotaService;
+	private final AiUsageService aiUsageService;
+	private final AiManagedProperties aiManagedProperties;
 
 	public ParsedExpenseResult analyze(String question, MultipartFile file, String mode) throws IOException {
+		return analyze(question, file, mode, null);
+	}
+
+	public ParsedExpenseResult analyze(String question, MultipartFile file, String mode, User user) throws IOException {
 		String contentType = file.getContentType();
 		if (contentType == null || !ALLOWED_MEDIA_TYPES.contains(contentType.toLowerCase())) {
 			throw new IllegalArgumentException(
 					"Unsupported file type '" + contentType + "'. Upload a JPEG, PNG, GIF, WebP, or HEIC image.");
 		}
+
+		if (user != null) {
+			aiQuotaService.assertWithinQuota(user, AiFeature.RECEIPT_ANALYSIS);
+		}
+
 		String prompt = (question != null && !question.isBlank())
 				? question
 				: "Extract expense information from this image.";
+		int max = aiManagedProperties.getMaxPromptChars();
+		if (prompt.length() > max) {
+			prompt = prompt.substring(0, max);
+		}
+
 		String base64 = Base64.getEncoder().encodeToString(file.getBytes());
 		String mediaType = file.getContentType() != null ? file.getContentType() : "image/jpeg";
 		String systemPrompt = String.format(SYSTEM_PROMPT_TEMPLATE, mode != null ? mode : "plain");
 
+		try {
+			ParsedExpenseResult result = "claude".equalsIgnoreCase(providerProps.getProvider())
+					? callClaude(prompt, base64, mediaType, systemPrompt)
+					: callOpenAi(prompt, base64, mediaType, systemPrompt);
+			if (user != null) {
+				// best-effort: provider usage not surfaced here yet (TODO wire tokens)
+				aiUsageService.record(user.getId(), providerProps.getProvider(),
+						resolveModel(), AiFeature.RECEIPT_ANALYSIS,
+						null, null, AiUsageStatus.SUCCESS, null);
+			}
+			return result;
+		} catch (Exception e) {
+			if (user != null) {
+				aiUsageService.record(user.getId(), providerProps.getProvider(),
+						resolveModel(), AiFeature.RECEIPT_ANALYSIS,
+						null, null, AiUsageStatus.FAILED, e.getClass().getSimpleName());
+			}
+			throw e;
+		}
+	}
+
+	private String resolveModel() {
 		return "claude".equalsIgnoreCase(providerProps.getProvider())
-				? callClaude(prompt, base64, mediaType, systemPrompt)
-				: callOpenAi(prompt, base64, mediaType, systemPrompt);
+				? claudeProperties.getModel()
+				: openAiProperties.getModel();
 	}
 
 	private ParsedExpenseResult callClaude(String prompt, String base64, String mediaType, String systemPrompt) {

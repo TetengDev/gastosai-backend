@@ -3,6 +3,10 @@ package com.teng.app.gastosai;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teng.app.gastosai.ai.ChatToolCall;
 import com.teng.app.gastosai.ai.SqlGenerator;
+import com.teng.app.gastosai.config.AiManagedProperties;
+import com.teng.app.gastosai.config.AiProviderProperties;
+import com.teng.app.gastosai.config.ClaudeProperties;
+import com.teng.app.gastosai.config.OpenAiProperties;
 import com.teng.app.gastosai.dto.ChatResponse;
 import com.teng.app.gastosai.dto.ExpenseResponse;
 import com.teng.app.gastosai.entity.Role;
@@ -12,12 +16,18 @@ import com.teng.app.gastosai.repository.BudgetRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import com.teng.app.gastosai.repository.RecurringExpenseRepository;
 import com.teng.app.gastosai.repository.SavingsGoalRepository;
+import com.teng.app.gastosai.service.AiQuotaService;
+import com.teng.app.gastosai.service.AiRedactionService;
+import com.teng.app.gastosai.service.AiUsageService;
 import com.teng.app.gastosai.service.BudgetService;
 import com.teng.app.gastosai.service.CategoryService;
 import com.teng.app.gastosai.service.ChatActionService;
+import com.teng.app.gastosai.service.EntitlementService;
 import com.teng.app.gastosai.service.ExpenseService;
 import com.teng.app.gastosai.service.RecurringExpenseService;
 import com.teng.app.gastosai.service.SavingsGoalService;
+import com.teng.app.gastosai.service.UserProfileService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -43,13 +53,31 @@ class ChatActionServiceTest {
     @Mock SavingsGoalService savingsGoalService;
     @Mock RecurringExpenseService recurringExpenseService;
     @Mock CategoryService categoryService;
+    @Mock UserProfileService userProfileService;
+    @Mock EntitlementService entitlementService;
     @Mock ExpenseRepository expenseRepository;
     @Mock RecurringExpenseRepository recurringExpenseRepository;
     @Mock BudgetRepository budgetRepository;
     @Mock SavingsGoalRepository savingsGoalRepository;
     @Spy ObjectMapper objectMapper;
+    @Mock AiQuotaService aiQuotaService;
+    @Mock AiUsageService aiUsageService;
+    @Mock AiRedactionService aiRedactionService;
+    @Mock AiManagedProperties aiManagedProperties;
+    @Mock AiProviderProperties aiProviderProperties;
+    @Mock OpenAiProperties openAiProperties;
+    @Mock ClaudeProperties claudeProperties;
 
     @InjectMocks ChatActionService chatActionService;
+
+    @BeforeEach
+    void setUp() {
+        org.mockito.Mockito.lenient().when(aiRedactionService.redact(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(i -> i.getArgument(0));
+        org.mockito.Mockito.lenient().when(aiManagedProperties.getMaxPromptChars()).thenReturn(8000);
+        org.mockito.Mockito.lenient().when(aiProviderProperties.getProvider()).thenReturn("openai");
+        org.mockito.Mockito.lenient().when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
+    }
 
     private User user() {
         return User.builder()

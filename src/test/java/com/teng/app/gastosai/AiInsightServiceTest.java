@@ -2,6 +2,9 @@ package com.teng.app.gastosai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teng.app.gastosai.ai.SqlGenerator;
+import com.teng.app.gastosai.config.AiProviderProperties;
+import com.teng.app.gastosai.config.ClaudeProperties;
+import com.teng.app.gastosai.config.OpenAiProperties;
 import com.teng.app.gastosai.dto.CategoryReportItem;
 import com.teng.app.gastosai.dto.MonthlyComparisonResponse;
 import com.teng.app.gastosai.dto.TopCategoryInsightResponse;
@@ -9,7 +12,9 @@ import com.teng.app.gastosai.dto.MonthSummaryInsightResponse;
 import com.teng.app.gastosai.dto.RecommendationsInsightResponse;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.service.AiInsightService;
+import com.teng.app.gastosai.service.AiUsageService;
 import com.teng.app.gastosai.service.ExpenseService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -38,8 +43,26 @@ class AiInsightServiceTest {
     @Spy
     ObjectMapper objectMapper = new ObjectMapper();
 
+    @Mock
+    AiUsageService aiUsageService;
+
+    @Mock
+    AiProviderProperties aiProviderProperties;
+
+    @Mock
+    OpenAiProperties openAiProperties;
+
+    @Mock
+    ClaudeProperties claudeProperties;
+
     @InjectMocks
     AiInsightService aiInsightService;
+
+    @BeforeEach
+    void setUp() {
+        org.mockito.Mockito.lenient().when(aiProviderProperties.getProvider()).thenReturn("openai");
+        org.mockito.Mockito.lenient().when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
+    }
 
     private User user() {
         return User.builder().name("Test").email("t@t.com").password("x").build();
