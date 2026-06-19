@@ -9,10 +9,18 @@ import com.teng.app.gastosai.ai.query.QueryIntent;
 import com.teng.app.gastosai.ai.query.QueryIntentValidator;
 import com.teng.app.gastosai.ai.query.SafeAnalyticsExecutor;
 import com.teng.app.gastosai.ai.query.SortDirection;
+import com.teng.app.gastosai.config.AiManagedProperties;
+import com.teng.app.gastosai.config.AiProviderProperties;
+import com.teng.app.gastosai.config.ClaudeProperties;
+import com.teng.app.gastosai.config.OpenAiProperties;
 import com.teng.app.gastosai.dto.AiQueryResponse;
 import com.teng.app.gastosai.entity.Role;
 import com.teng.app.gastosai.entity.User;
+import com.teng.app.gastosai.service.AiQuotaService;
+import com.teng.app.gastosai.service.AiRedactionService;
 import com.teng.app.gastosai.service.AiQueryService;
+import com.teng.app.gastosai.service.AiUsageService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -41,7 +49,23 @@ class AiQueryServiceTest {
     @Mock QueryIntentValidator queryIntentValidator;
     @Mock AnalyticsQueryPlanner analyticsQueryPlanner;
     @Mock SafeAnalyticsExecutor safeAnalyticsExecutor;
+    @Mock AiQuotaService aiQuotaService;
+    @Mock AiUsageService aiUsageService;
+    @Mock AiRedactionService aiRedactionService;
+    @Mock AiManagedProperties aiManagedProperties;
+    @Mock AiProviderProperties aiProviderProperties;
+    @Mock OpenAiProperties openAiProperties;
+    @Mock ClaudeProperties claudeProperties;
     @InjectMocks AiQueryService aiQueryService;
+
+    @BeforeEach
+    void setUp() {
+        org.mockito.Mockito.lenient().when(aiRedactionService.redact(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(i -> i.getArgument(0));
+        org.mockito.Mockito.lenient().when(aiManagedProperties.getMaxPromptChars()).thenReturn(8000);
+        org.mockito.Mockito.lenient().when(aiProviderProperties.getProvider()).thenReturn("openai");
+        org.mockito.Mockito.lenient().when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
+    }
 
     private User user(boolean admin) {
         return User.builder()

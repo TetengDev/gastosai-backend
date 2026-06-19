@@ -3,11 +3,16 @@ package com.teng.app.gastosai.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.teng.app.gastosai.ai.AiFeature;
 import com.teng.app.gastosai.ai.SqlGenerator;
+import com.teng.app.gastosai.config.AiProviderProperties;
+import com.teng.app.gastosai.config.ClaudeProperties;
+import com.teng.app.gastosai.config.OpenAiProperties;
 import com.teng.app.gastosai.dto.CategoryReportItem;
 import com.teng.app.gastosai.dto.MonthSummaryInsightResponse;
 import com.teng.app.gastosai.dto.RecommendationsInsightResponse;
 import com.teng.app.gastosai.dto.TopCategoryInsightResponse;
+import com.teng.app.gastosai.entity.AiUsageStatus;
 import com.teng.app.gastosai.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.Cacheable;
@@ -27,6 +32,10 @@ public class AiInsightService {
     private final ExpenseService expenseService;
     private final SqlGenerator sqlGenerator;
     private final ObjectMapper objectMapper;
+    private final AiUsageService aiUsageService;
+    private final AiProviderProperties aiProviderProperties;
+    private final OpenAiProperties openAiProperties;
+    private final ClaudeProperties claudeProperties;
 
     @Cacheable(cacheNames = "insightTopCategory", key = "#user.id + '-' + #month")
     @Transactional(readOnly = true)
@@ -53,22 +62,50 @@ public class AiInsightService {
     @Transactional(readOnly = true)
     public MonthSummaryInsightResponse getMonthSummary(User user, String month) throws Exception {
         String contextJson = buildContext(user, month);
-        String summary = sqlGenerator.generateInsightSummary(contextJson, "month-summary", "plain");
-        return new MonthSummaryInsightResponse(month, summary);
+        try {
+            String summary = sqlGenerator.generateInsightSummary(contextJson, "month-summary", "plain");
+            // best-effort: provider usage not surfaced here yet (TODO wire tokens)
+            aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
+                    resolveModel(), AiFeature.MONTHLY_SUMMARY,
+                    null, null, AiUsageStatus.SUCCESS, null);
+            return new MonthSummaryInsightResponse(month, summary);
+        } catch (Exception e) {
+            aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
+                    resolveModel(), AiFeature.MONTHLY_SUMMARY,
+                    null, null, AiUsageStatus.FAILED, e.getClass().getSimpleName());
+            throw e;
+        }
     }
 
     @Cacheable(cacheNames = "insightRecommendations", key = "#user.id + '-' + #month")
     @Transactional(readOnly = true)
     public RecommendationsInsightResponse getRecommendations(User user, String month) throws Exception {
         String contextJson = buildContext(user, month);
-        String raw = sqlGenerator.generateInsightSummary(contextJson, "recommendations", "plain");
-        List<String> recs;
         try {
-            recs = objectMapper.readValue(raw, new TypeReference<List<String>>() {});
-        } catch (JsonProcessingException e) {
-            recs = List.of(raw);
+            String raw = sqlGenerator.generateInsightSummary(contextJson, "recommendations", "plain");
+            List<String> recs;
+            try {
+                recs = objectMapper.readValue(raw, new TypeReference<List<String>>() {});
+            } catch (JsonProcessingException e) {
+                recs = List.of(raw);
+            }
+            // best-effort: provider usage not surfaced here yet (TODO wire tokens)
+            aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
+                    resolveModel(), AiFeature.BUDGET_ADVICE,
+                    null, null, AiUsageStatus.SUCCESS, null);
+            return new RecommendationsInsightResponse(month, recs);
+        } catch (Exception e) {
+            aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
+                    resolveModel(), AiFeature.BUDGET_ADVICE,
+                    null, null, AiUsageStatus.FAILED, e.getClass().getSimpleName());
+            throw e;
         }
-        return new RecommendationsInsightResponse(month, recs);
+    }
+
+    private String resolveModel() {
+        return "claude".equalsIgnoreCase(aiProviderProperties.getProvider())
+                ? claudeProperties.getModel()
+                : openAiProperties.getModel();
     }
 
     private String buildContext(User user, String month) throws Exception {

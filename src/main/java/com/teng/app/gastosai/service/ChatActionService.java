@@ -2,9 +2,15 @@ package com.teng.app.gastosai.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.teng.app.gastosai.ai.AiFeature;
 import com.teng.app.gastosai.ai.ChatTool;
 import com.teng.app.gastosai.ai.ChatToolCall;
 import com.teng.app.gastosai.ai.SqlGenerator;
+import com.teng.app.gastosai.config.AiManagedProperties;
+import com.teng.app.gastosai.config.AiProviderProperties;
+import com.teng.app.gastosai.config.ClaudeProperties;
+import com.teng.app.gastosai.config.OpenAiProperties;
+import com.teng.app.gastosai.entity.AiUsageStatus;
 import com.teng.app.gastosai.dto.BudgetRequest;
 import com.teng.app.gastosai.dto.CategoryRequest;
 import com.teng.app.gastosai.dto.CategoryResponse;
@@ -69,13 +75,31 @@ public class ChatActionService {
 	private final BudgetRepository budgetRepository;
 	private final SavingsGoalRepository savingsGoalRepository;
 	private final ObjectMapper objectMapper;
+	private final AiQuotaService aiQuotaService;
+	private final AiUsageService aiUsageService;
+	private final AiRedactionService aiRedactionService;
+	private final AiManagedProperties aiManagedProperties;
+	private final AiProviderProperties aiProviderProperties;
+	private final OpenAiProperties openAiProperties;
+	private final ClaudeProperties claudeProperties;
 
 	public ChatResponse dispatch(String message, String mode, User user) {
+		aiQuotaService.assertWithinQuota(user, AiFeature.CHAT_CRUD_ASSISTANT);
+		int max = aiManagedProperties.getMaxPromptChars();
+		String safeMessage = aiRedactionService.redact(message);
+		if (safeMessage != null && safeMessage.length() > max) {
+			safeMessage = safeMessage.substring(0, max);
+		}
+		final String finalMessage = safeMessage;
 		try {
-			ChatToolCall call = sqlGenerator.classifyIntent(message);
+			ChatToolCall call = sqlGenerator.classifyIntent(finalMessage);
 			ChatTool tool = ChatTool.fromKey(call.toolName());
 
 			if (tool == ChatTool.TEXT) {
+				// best-effort: provider usage not surfaced here yet (TODO wire tokens)
+				aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
+						resolveModel(), AiFeature.CHAT_CRUD_ASSISTANT,
+						null, null, AiUsageStatus.SUCCESS, null);
 				return new ChatResponse("text", call.paramsJson(), null);
 			}
 
@@ -85,10 +109,13 @@ public class ChatActionService {
 				Map<String, Object> previewData = new LinkedHashMap<>();
 				previewData.put("toolName", tool.key());
 				previewData.put("params", objectMapper.convertValue(params, Map.class));
+				aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
+						resolveModel(), AiFeature.CHAT_CRUD_ASSISTANT,
+						null, null, AiUsageStatus.SUCCESS, null);
 				return new ChatResponse("preview", buildPreviewMessage(tool, params), previewData);
 			}
 
-			return switch (tool) {
+			ChatResponse response = switch (tool) {
 				case CREATE_EXPENSE -> handleCreateExpense(params, user, MODE_FORCE.equals(mode));
 				case UPDATE_EXPENSE -> handleUpdateExpense(params, user);
 				case DELETE_EXPENSE -> handleDeleteExpense(params, user);
@@ -109,14 +136,30 @@ public class ChatActionService {
 				case GET_SUBSCRIPTION -> handleGetSubscription(user);
 				default -> new ChatResponse("text", call.paramsJson(), null);
 			};
+			aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
+					resolveModel(), AiFeature.CHAT_CRUD_ASSISTANT,
+					null, null, AiUsageStatus.SUCCESS, null);
+			return response;
 		}
 		catch (ResourceNotFoundException e) {
+			aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
+					resolveModel(), AiFeature.CHAT_CRUD_ASSISTANT,
+					null, null, AiUsageStatus.FAILED, "ResourceNotFoundException");
 			return new ChatResponse("text", "I couldn't find that item.", null);
 		}
 		catch (Exception e) {
 			log.warn("chat_action_failed", e);
+			aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
+					resolveModel(), AiFeature.CHAT_CRUD_ASSISTANT,
+					null, null, AiUsageStatus.FAILED, e.getClass().getSimpleName());
 			return new ChatResponse("text", "Something went wrong while handling that. Please rephrase and try again.", null);
 		}
+	}
+
+	private String resolveModel() {
+		return "claude".equalsIgnoreCase(aiProviderProperties.getProvider())
+				? claudeProperties.getModel()
+				: openAiProperties.getModel();
 	}
 
 	private String buildPreviewMessage(ChatTool tool, JsonNode params) {
