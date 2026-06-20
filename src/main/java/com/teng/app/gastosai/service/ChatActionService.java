@@ -971,6 +971,16 @@ public class ChatActionService {
 		String fromStr = params.path("from").asText(null);
 		String toStr = params.path("to").asText(null);
 		String categoryFilter = params.path("category").asText(null);
+
+		// Refuse an unscoped bulk delete (no ids and no filters) — never stage a "delete everything".
+		boolean noFilters = (fromStr == null || fromStr.isBlank())
+				&& (toStr == null || toStr.isBlank())
+				&& (categoryFilter == null || categoryFilter.isBlank());
+		if (noFilters) {
+			return new ChatResponse("text",
+					"Tell me which expenses to delete — by date range, category, or specific items.", null);
+		}
+
 		LocalDate from = (fromStr != null && !fromStr.isBlank()) ? LocalDate.parse(fromStr) : null;
 		LocalDate to = (toStr != null && !toStr.isBlank()) ? LocalDate.parse(toStr) : null;
 

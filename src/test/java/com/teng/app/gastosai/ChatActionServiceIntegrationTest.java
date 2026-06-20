@@ -254,4 +254,46 @@ class ChatActionServiceIntegrationTest {
                 .andExpect(jsonPath("$.type").value("action"))
                 .andExpect(jsonPath("$.result.deleted").value(1));
     }
+
+    @Test
+    void deleteExpenses_anotherUsersIds_deletesNothing() throws Exception {
+        Category food = categoryRepository.findByNameIgnoreCase("Food")
+                .orElseGet(() -> categoryRepository.save(Category.builder().name("Food").build()));
+        Expense othersExpense = expenseRepository.save(Expense.builder()
+                .user(user2)
+                .amount(new BigDecimal("100"))
+                .category(food)
+                .date(LocalDateTime.now())
+                .description("User2 expense")
+                .amountInBaseCurrency(new BigDecimal("100"))
+                .build());
+
+        when(sqlGenerator.classifyIntent(anyString()))
+                .thenReturn(new ChatToolCall("delete_expenses", "{\"ids\":[" + othersExpense.getId() + "]}"));
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"delete expenses\",\"mode\":\"execute\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("action"))
+                .andExpect(jsonPath("$.result.deleted").value(0));
+
+        // user2's expense is untouched
+        org.junit.jupiter.api.Assertions.assertTrue(expenseRepository.findById(othersExpense.getId()).isPresent());
+    }
+
+    @Test
+    void deleteExpenses_noIdsNoFilters_asksToNarrow() throws Exception {
+        when(sqlGenerator.classifyIntent(anyString()))
+                .thenReturn(new ChatToolCall("delete_expenses", "{}"));
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"delete my expenses\",\"mode\":\"execute\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("text"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("which expenses")));
+    }
 }
