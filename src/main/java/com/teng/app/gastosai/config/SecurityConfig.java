@@ -40,7 +40,7 @@ public class SecurityConfig {
 				.cors(Customizer.withDefaults())
 				.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.authorizeHttpRequests(auth -> auth
-						.requestMatchers(HttpMethod.POST, "/auth/register", "/auth/login").permitAll()
+						.requestMatchers(HttpMethod.POST, "/auth/register", "/auth/login", "/auth/magic-link", "/auth/magic-link/verify").permitAll()
 						.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 						.requestMatchers("/actuator/info", "/features", "/error",
 								"/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
