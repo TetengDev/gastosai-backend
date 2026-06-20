@@ -19,6 +19,7 @@ import com.teng.app.gastosai.repository.SavingsGoalRepository;
 import com.teng.app.gastosai.service.AiQuotaService;
 import com.teng.app.gastosai.service.AiRedactionService;
 import com.teng.app.gastosai.service.AiUsageService;
+import com.teng.app.gastosai.service.AlertService;
 import com.teng.app.gastosai.service.BudgetService;
 import com.teng.app.gastosai.service.CategoryService;
 import com.teng.app.gastosai.service.ChatActionService;
@@ -55,6 +56,7 @@ class ChatActionServiceTest {
     @Mock CategoryService categoryService;
     @Mock UserProfileService userProfileService;
     @Mock EntitlementService entitlementService;
+    @Mock AlertService alertService;
     @Mock ExpenseRepository expenseRepository;
     @Mock RecurringExpenseRepository recurringExpenseRepository;
     @Mock BudgetRepository budgetRepository;

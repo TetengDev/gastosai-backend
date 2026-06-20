@@ -10,15 +10,21 @@ import com.teng.app.gastosai.config.AiManagedProperties;
 import com.teng.app.gastosai.config.AiProviderProperties;
 import com.teng.app.gastosai.config.ClaudeProperties;
 import com.teng.app.gastosai.config.OpenAiProperties;
-import com.teng.app.gastosai.entity.AiUsageStatus;
+import com.teng.app.gastosai.dto.AlertResponse;
 import com.teng.app.gastosai.dto.BudgetRequest;
+import com.teng.app.gastosai.dto.BudgetSummaryResponse;
 import com.teng.app.gastosai.dto.CategoryRequest;
+import com.teng.app.gastosai.dto.CategoryReportItem;
 import com.teng.app.gastosai.dto.CategoryResponse;
 import com.teng.app.gastosai.dto.ChatResponse;
 import com.teng.app.gastosai.dto.ExpenseRequest;
 import com.teng.app.gastosai.dto.GoalRequest;
+import com.teng.app.gastosai.dto.GoalResponse;
 import com.teng.app.gastosai.dto.RecurringExpenseRequest;
+import com.teng.app.gastosai.dto.RecurringExpenseResponse;
+import com.teng.app.gastosai.dto.UpcomingBillResponse;
 import com.teng.app.gastosai.dto.UserProfileRequest;
+import com.teng.app.gastosai.entity.AiUsageStatus;
 import com.teng.app.gastosai.entity.Budget;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
@@ -70,6 +76,7 @@ public class ChatActionService {
 	private final CategoryService categoryService;
 	private final UserProfileService userProfileService;
 	private final EntitlementService entitlementService;
+	private final AlertService alertService;
 	private final ExpenseRepository expenseRepository;
 	private final RecurringExpenseRepository recurringExpenseRepository;
 	private final BudgetRepository budgetRepository;
@@ -105,7 +112,7 @@ public class ChatActionService {
 
 			JsonNode params = objectMapper.readTree(call.paramsJson());
 
-			if (tool.isCreate() && !isRunMode(mode)) {
+			if ((tool.isCreate() || tool.isDestructive()) && !isRunMode(mode)) {
 				Map<String, Object> previewData = new LinkedHashMap<>();
 				previewData.put("toolName", tool.key());
 				previewData.put("params", objectMapper.convertValue(params, Map.class));
@@ -134,6 +141,20 @@ public class ChatActionService {
 				case LIST_CATEGORIES -> handleListCategories();
 				case UPDATE_PROFILE -> handleUpdateProfile(params, user);
 				case GET_SUBSCRIPTION -> handleGetSubscription(user);
+				case LIST_GOALS -> handleListGoals(user);
+				case LIST_BUDGETS -> handleListBudgets(params, user);
+				case LIST_RECURRING -> handleListRecurring(params, user);
+				case LIST_ALERTS -> handleListAlerts(params, user);
+				case SEARCH_EXPENSES -> handleSearchExpenses(params, user);
+				case GET_CATEGORY_TOTALS -> handleGetCategoryTotals(params, user);
+				case GET_MONTHLY_REPORT -> handleGetMonthlyReport(params, user);
+				case MARK_ALERT_READ -> handleMarkAlertRead(params, user);
+				case DISMISS_ALERT -> handleDismissAlert(params, user);
+				case DELETE_ALERT -> handleDeleteAlert(params, user);
+				case SET_DEFAULT_CATEGORY -> handleSetDefaultCategory(params, user);
+				case SET_CATEGORY_ICON -> handleSetCategoryIcon(params);
+				case DELETE_EXPENSES -> handleDeleteExpenses(params, user);
+				case RECATEGORIZE_EXPENSES -> handleRecategorizeExpenses(params, user);
 				default -> new ChatResponse("text", call.paramsJson(), null);
 			};
 			aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
@@ -169,6 +190,22 @@ public class ChatActionService {
 			case CREATE_RECURRING -> "Create recurring \"" + params.path("name").asText() + "\" — ₱" + params.path("amount").asText("0") + "/" + params.path("frequency").asText("monthly").toLowerCase() + "?";
 			case CREATE_EXPENSE -> "Create expense ₱" + params.path("amount").asText("0") + " for " + params.path("description").asText() + "?";
 			case CREATE_CATEGORY -> "Create category \"" + params.path("name").asText() + "\"?";
+			case DELETE_EXPENSES -> {
+				JsonNode ids = params.path("ids");
+				if (ids.isArray() && !ids.isEmpty()) {
+					yield "Delete " + ids.size() + " expense(s) by ID? This cannot be undone.";
+				}
+				String cat = params.path("category").asText(null);
+				String from = params.path("from").asText(null);
+				String to = params.path("to").asText(null);
+				String desc = (cat != null ? "category=" + cat : "") + (from != null ? " from=" + from : "") + (to != null ? " to=" + to : "");
+				yield "Delete all expenses matching [" + desc.strip() + "]? This cannot be undone.";
+			}
+			case RECATEGORIZE_EXPENSES -> {
+				String from2 = params.path("fromCategory").asText("?");
+				String to2 = params.path("toCategory").asText("?");
+				yield "Move all expenses from \"" + from2 + "\" to \"" + to2 + "\"? This cannot be undone.";
+			}
 			default -> "Confirm action?";
 		};
 	}
@@ -670,5 +707,340 @@ public class ChatActionService {
 			default -> "Free";
 		};
 		return new ChatResponse("action", "You are on the " + planLabel + " plan (" + entitlements.status().name().toLowerCase() + ").", data);
+	}
+
+	@Transactional(readOnly = true)
+	ChatResponse handleListGoals(User user) {
+		List<GoalResponse> goals = savingsGoalService.findAll(user);
+		List<Map<String, Object>> items = goals.stream().map(g -> {
+			Map<String, Object> item = new LinkedHashMap<>();
+			item.put("id", g.id());
+			item.put("name", g.name());
+			item.put("targetAmount", g.targetAmount());
+			item.put("savedAmount", g.savedAmount());
+			item.put("progressPercent", g.progressPercent());
+			item.put("status", g.status().name());
+			if (g.targetDate() != null) {
+				item.put("targetDate", g.targetDate().toString());
+			}
+			return item;
+		}).toList();
+		return new ChatResponse("action", "You have " + items.size() + " savings goal(s).", items);
+	}
+
+	@Transactional(readOnly = true)
+	ChatResponse handleListBudgets(JsonNode params, User user) {
+		String month = params.path("month").asText(YearMonth.now().toString());
+		BudgetSummaryResponse summary = budgetService.getSummary(month, user);
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("month", summary.month());
+		result.put("totalBudgeted", summary.totalBudgeted());
+		result.put("totalSpent", summary.totalSpent());
+		result.put("safeToSpend", summary.safeToSpend());
+		List<Map<String, Object>> items = summary.items().stream().map(i -> {
+			Map<String, Object> item = new LinkedHashMap<>();
+			item.put("categoryName", i.categoryName());
+			item.put("budgeted", i.budgeted());
+			item.put("spent", i.spent());
+			item.put("remaining", i.remaining());
+			item.put("percentUsed", i.percentUsed());
+			item.put("status", i.status());
+			return item;
+		}).toList();
+		result.put("items", items);
+		return new ChatResponse("action", "Budget summary for " + month + ": ₱" + summary.totalSpent().toPlainString() + " spent of ₱" + summary.totalBudgeted().toPlainString() + " budgeted.", result);
+	}
+
+	@Transactional(readOnly = true)
+	ChatResponse handleListRecurring(JsonNode params, User user) {
+		String month = params.path("month").asText(YearMonth.now().toString());
+		List<RecurringExpenseResponse> recurring = recurringExpenseService.findAll(user);
+		List<UpcomingBillResponse> upcoming = recurringExpenseService.getUpcoming(month, user);
+
+		List<Map<String, Object>> recurringItems = recurring.stream().map(r -> {
+			Map<String, Object> item = new LinkedHashMap<>();
+			item.put("id", r.id());
+			item.put("name", r.name());
+			item.put("amount", r.amount());
+			item.put("categoryName", r.categoryName());
+			item.put("frequency", r.frequency().name());
+			item.put("active", r.active());
+			return item;
+		}).toList();
+
+		List<Map<String, Object>> upcomingItems = upcoming.stream().map(u -> {
+			Map<String, Object> item = new LinkedHashMap<>();
+			item.put("name", u.name());
+			item.put("amount", u.amount());
+			item.put("dueDate", u.dueDate());
+			return item;
+		}).toList();
+
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("items", recurringItems);
+		result.put("upcoming", upcomingItems);
+		return new ChatResponse("action", "You have " + recurring.size() + " recurring expense(s), " + upcomingItems.size() + " upcoming.", result);
+	}
+
+	@Transactional
+	ChatResponse handleListAlerts(JsonNode params, User user) {
+		String month = params.path("month").asText(YearMonth.now().toString());
+		List<AlertResponse> alerts = alertService.getOrGenerate(user, month);
+		List<Map<String, Object>> items = alerts.stream().map(a -> {
+			Map<String, Object> item = new LinkedHashMap<>();
+			item.put("id", a.id());
+			item.put("type", a.type().name());
+			item.put("severity", a.severity().name());
+			item.put("message", a.message());
+			item.put("read", a.read());
+			return item;
+		}).toList();
+		return new ChatResponse("action", "You have " + items.size() + " active alert(s) for " + month + ".", items);
+	}
+
+	@Transactional(readOnly = true)
+	ChatResponse handleSearchExpenses(JsonNode params, User user) {
+		String fromStr = params.path("from").asText(null);
+		String toStr = params.path("to").asText(null);
+		LocalDate from = (fromStr != null && !fromStr.isBlank()) ? LocalDate.parse(fromStr) : null;
+		LocalDate to = (toStr != null && !toStr.isBlank()) ? LocalDate.parse(toStr) : null;
+
+		List<Expense> raw;
+		if (from != null && to != null) {
+			raw = expenseRepository.findAllByUserAndDateGreaterThanEqualAndDateLessThanOrderByDateDesc(
+					user, from.atStartOfDay(), to.plusDays(1).atStartOfDay());
+		} else if (from != null) {
+			raw = expenseRepository.findAllByUserAndDateGreaterThanEqualOrderByDateDesc(user, from.atStartOfDay());
+		} else if (to != null) {
+			raw = expenseRepository.findAllByUserAndDateLessThanOrderByDateDesc(user, to.plusDays(1).atStartOfDay());
+		} else {
+			raw = expenseRepository.findAllByUserOrderByDateDesc(user);
+		}
+
+		String categoryFilter = params.path("category").asText(null);
+		String vendorFilter = params.path("vendor").asText(null);
+		BigDecimal minAmount = params.path("minAmount").isMissingNode() ? null : params.path("minAmount").decimalValue();
+		BigDecimal maxAmount = params.path("maxAmount").isMissingNode() ? null : params.path("maxAmount").decimalValue();
+
+		List<Expense> filtered = raw.stream()
+				.filter(e -> categoryFilter == null || (e.getCategory() != null && e.getCategory().getName().equalsIgnoreCase(categoryFilter)))
+				.filter(e -> vendorFilter == null || e.getDescription().toLowerCase().contains(vendorFilter.toLowerCase()))
+				.filter(e -> minAmount == null || e.getAmount().compareTo(minAmount) >= 0)
+				.filter(e -> maxAmount == null || e.getAmount().compareTo(maxAmount) <= 0)
+				.limit(50)
+				.toList();
+
+		List<Map<String, Object>> items = filtered.stream().map(e -> {
+			Map<String, Object> item = new LinkedHashMap<>();
+			item.put("id", e.getId());
+			item.put("amount", e.getAmount().setScale(2, RoundingMode.HALF_UP));
+			item.put("category", e.getCategory() != null ? e.getCategory().getName() : "Uncategorized");
+			item.put("date", e.getDate() != null ? e.getDate().toLocalDate().toString() : "");
+			item.put("description", e.getDescription());
+			return item;
+		}).toList();
+
+		return new ChatResponse("action", "Found " + items.size() + " expense(s).", items);
+	}
+
+	@Transactional(readOnly = true)
+	ChatResponse handleGetCategoryTotals(JsonNode params, User user) {
+		String month = params.path("month").asText(null);
+		List<CategoryReportItem> totals = (month != null && !month.isBlank())
+				? expenseService.categoryReportForMonth(user, month)
+				: expenseService.categoryReport(user);
+		List<Map<String, Object>> items = totals.stream().map(t -> {
+			Map<String, Object> item = new LinkedHashMap<>();
+			item.put("category", t.category());
+			item.put("total", t.total().setScale(2, RoundingMode.HALF_UP));
+			return item;
+		}).toList();
+		String label = (month != null && !month.isBlank()) ? "for " + month : "(all-time)";
+		return new ChatResponse("action", "Category totals " + label + ".", items);
+	}
+
+	@Transactional(readOnly = true)
+	ChatResponse handleGetMonthlyReport(JsonNode params, User user) {
+		String month = params.path("month").asText(YearMonth.now().toString());
+		YearMonth ym = YearMonth.parse(month);
+		List<CategoryReportItem> breakdown = expenseService.categoryReportForMonth(user, month);
+		List<Expense> topExpenses = expenseRepository.findByUserAndDateBetweenOrderByAmountDesc(
+				user,
+				ym.atDay(1).atStartOfDay(),
+				ym.atEndOfMonth().atTime(23, 59, 59),
+				org.springframework.data.domain.PageRequest.of(0, 5));
+
+		BigDecimal totalSpent = breakdown.stream()
+				.map(CategoryReportItem::total)
+				.reduce(BigDecimal.ZERO, BigDecimal::add)
+				.setScale(2, RoundingMode.HALF_UP);
+
+		List<Map<String, Object>> categoryBreakdown = breakdown.stream().map(c -> {
+			Map<String, Object> item = new LinkedHashMap<>();
+			item.put("category", c.category());
+			item.put("total", c.total().setScale(2, RoundingMode.HALF_UP));
+			return item;
+		}).toList();
+
+		List<Map<String, Object>> top = topExpenses.stream().map(e -> {
+			Map<String, Object> item = new LinkedHashMap<>();
+			item.put("id", e.getId());
+			item.put("amount", e.getAmount().setScale(2, RoundingMode.HALF_UP));
+			item.put("category", e.getCategory() != null ? e.getCategory().getName() : "Uncategorized");
+			item.put("date", e.getDate() != null ? e.getDate().toLocalDate().toString() : "");
+			item.put("description", e.getDescription());
+			return item;
+		}).toList();
+
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("month", month);
+		result.put("totalSpent", totalSpent);
+		result.put("categoryBreakdown", categoryBreakdown);
+		result.put("topExpenses", top);
+		return new ChatResponse("action", "Monthly report for " + month + ": total ₱" + totalSpent.toPlainString() + ".", result);
+	}
+
+	@Transactional
+	ChatResponse handleMarkAlertRead(JsonNode params, User user) {
+		long id = params.get("id").asLong();
+		alertService.markRead(id, user);
+		return new ChatResponse("action", "Alert #" + id + " marked as read.", null);
+	}
+
+	@Transactional
+	ChatResponse handleDismissAlert(JsonNode params, User user) {
+		long id = params.get("id").asLong();
+		alertService.dismiss(id, user);
+		return new ChatResponse("action", "Alert #" + id + " dismissed.", null);
+	}
+
+	@Transactional
+	ChatResponse handleDeleteAlert(JsonNode params, User user) {
+		long id = params.get("id").asLong();
+		alertService.delete(id, user);
+		return new ChatResponse("action", "Alert #" + id + " deleted.", null);
+	}
+
+	@Transactional
+	ChatResponse handleSetDefaultCategory(JsonNode params, User user) {
+		String categoryName = params.get("categoryName").asText();
+		Category cat = categoryService.getOrCreateByName(categoryName);
+		String resolvedName = cat.getName();
+		UserProfileRequest req = new UserProfileRequest(
+				user.getName(),
+				user.getNickname(),
+				user.getEmail(),
+				user.getAvatarColor(),
+				resolvedName,
+				user.getAvatar());
+		userProfileService.updateProfile(user.getEmail(), req);
+		return new ChatResponse("action", "Default category set to \"" + resolvedName + "\".", null);
+	}
+
+	@Transactional
+	ChatResponse handleSetCategoryIcon(JsonNode params) {
+		String categoryName = params.get("categoryName").asText();
+		String icon = params.get("icon").asText();
+		List<CategoryResponse> all = categoryService.findAll();
+		CategoryResponse match = all.stream()
+				.filter(c -> c.name().equalsIgnoreCase(categoryName))
+				.findFirst()
+				.orElseThrow(() -> new ResourceNotFoundException("Category not found: " + categoryName));
+		CategoryResponse result = categoryService.update(match.id(), new CategoryRequest(match.name(), icon));
+		return new ChatResponse("action", "Icon for \"" + match.name() + "\" updated.", result);
+	}
+
+	@Transactional
+	ChatResponse handleDeleteExpenses(JsonNode params, User user) {
+		JsonNode idsNode = params.path("ids");
+		if (idsNode.isArray() && !idsNode.isEmpty()) {
+			int deleted = 0;
+			for (JsonNode idNode : idsNode) {
+				long id = idNode.asLong();
+				try {
+					expenseService.delete(id, user);
+					deleted++;
+				} catch (ResourceNotFoundException ignored) {
+				}
+			}
+			Map<String, Object> result = new LinkedHashMap<>();
+			result.put("deleted", deleted);
+			return new ChatResponse("action", "Deleted " + deleted + " expense(s).", result);
+		}
+
+		String fromStr = params.path("from").asText(null);
+		String toStr = params.path("to").asText(null);
+		String categoryFilter = params.path("category").asText(null);
+		LocalDate from = (fromStr != null && !fromStr.isBlank()) ? LocalDate.parse(fromStr) : null;
+		LocalDate to = (toStr != null && !toStr.isBlank()) ? LocalDate.parse(toStr) : null;
+
+		List<Expense> candidates;
+		if (from != null && to != null) {
+			candidates = expenseRepository.findAllByUserAndDateGreaterThanEqualAndDateLessThanOrderByDateDesc(
+					user, from.atStartOfDay(), to.plusDays(1).atStartOfDay());
+		} else if (from != null) {
+			candidates = expenseRepository.findAllByUserAndDateGreaterThanEqualOrderByDateDesc(user, from.atStartOfDay());
+		} else if (to != null) {
+			candidates = expenseRepository.findAllByUserAndDateLessThanOrderByDateDesc(user, to.plusDays(1).atStartOfDay());
+		} else {
+			candidates = expenseRepository.findAllByUserOrderByDateDesc(user);
+		}
+
+		if (categoryFilter != null && !categoryFilter.isBlank()) {
+			String cf = categoryFilter;
+			candidates = candidates.stream()
+					.filter(e -> e.getCategory() != null && e.getCategory().getName().equalsIgnoreCase(cf))
+					.toList();
+		}
+
+		int deleted = 0;
+		List<Long> ids = candidates.stream().map(Expense::getId).toList();
+		for (Long id : ids) {
+			try {
+				expenseService.delete(id, user);
+				deleted++;
+			} catch (ResourceNotFoundException ignored) {
+			}
+		}
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("deleted", deleted);
+		return new ChatResponse("action", "Deleted " + deleted + " expense(s).", result);
+	}
+
+	@Transactional
+	ChatResponse handleRecategorizeExpenses(JsonNode params, User user) {
+		String fromCategory = params.get("fromCategory").asText();
+		String toCategory = params.get("toCategory").asText();
+		String fromStr = params.path("from").asText(null);
+		String toStr = params.path("to").asText(null);
+		LocalDate from = (fromStr != null && !fromStr.isBlank()) ? LocalDate.parse(fromStr) : null;
+		LocalDate to = (toStr != null && !toStr.isBlank()) ? LocalDate.parse(toStr) : null;
+
+		List<Expense> candidates;
+		if (from != null && to != null) {
+			candidates = expenseRepository.findAllByUserAndDateGreaterThanEqualAndDateLessThanOrderByDateDesc(
+					user, from.atStartOfDay(), to.plusDays(1).atStartOfDay());
+		} else if (from != null) {
+			candidates = expenseRepository.findAllByUserAndDateGreaterThanEqualOrderByDateDesc(user, from.atStartOfDay());
+		} else if (to != null) {
+			candidates = expenseRepository.findAllByUserAndDateLessThanOrderByDateDesc(user, to.plusDays(1).atStartOfDay());
+		} else {
+			candidates = expenseRepository.findAllByUserOrderByDateDesc(user);
+		}
+
+		String fc = fromCategory;
+		List<Expense> matching = candidates.stream()
+				.filter(e -> e.getCategory() != null && e.getCategory().getName().equalsIgnoreCase(fc))
+				.toList();
+
+		Category targetCat = categoryService.getOrCreateByName(toCategory);
+		for (Expense e : matching) {
+			e.setCategory(targetCat);
+		}
+		expenseRepository.saveAll(matching);
+
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("updated", matching.size());
+		return new ChatResponse("action", "Moved " + matching.size() + " expense(s) from \"" + fromCategory + "\" to \"" + toCategory + "\".", result);
 	}
 }

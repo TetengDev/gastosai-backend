@@ -10,6 +10,7 @@ import com.teng.app.gastosai.config.OpenAiProperties;
 import com.teng.app.gastosai.service.AiQuotaService;
 import com.teng.app.gastosai.service.AiRedactionService;
 import com.teng.app.gastosai.service.AiUsageService;
+import com.teng.app.gastosai.service.AlertService;
 import com.teng.app.gastosai.dto.CategoryResponse;
 import com.teng.app.gastosai.dto.ChatResponse;
 import com.teng.app.gastosai.dto.GoalResponse;
@@ -74,6 +75,7 @@ class ChatActionServiceExtendedTest {
     @Mock CategoryService categoryService;
     @Mock UserProfileService userProfileService;
     @Mock EntitlementService entitlementService;
+    @Mock AlertService alertService;
     @Mock ExpenseRepository expenseRepository;
     @Mock RecurringExpenseRepository recurringExpenseRepository;
     @Mock BudgetRepository budgetRepository;

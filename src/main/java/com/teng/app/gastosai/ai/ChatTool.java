@@ -29,6 +29,20 @@ public enum ChatTool {
     LIST_CATEGORIES("list_categories"),
     UPDATE_PROFILE("update_profile"),
     GET_SUBSCRIPTION("get_subscription"),
+    LIST_GOALS("list_goals"),
+    LIST_BUDGETS("list_budgets"),
+    LIST_RECURRING("list_recurring"),
+    LIST_ALERTS("list_alerts"),
+    SEARCH_EXPENSES("search_expenses"),
+    GET_CATEGORY_TOTALS("get_category_totals"),
+    GET_MONTHLY_REPORT("get_monthly_report"),
+    MARK_ALERT_READ("mark_alert_read"),
+    DISMISS_ALERT("dismiss_alert"),
+    DELETE_ALERT("delete_alert"),
+    SET_DEFAULT_CATEGORY("set_default_category"),
+    SET_CATEGORY_ICON("set_category_icon"),
+    DELETE_EXPENSES("delete_expenses"),
+    RECATEGORIZE_EXPENSES("recategorize_expenses"),
     /** No actionable tool — the assistant replied with plain text. */
     TEXT("text");
 
@@ -47,6 +61,10 @@ public enum ChatTool {
 
     public boolean isCreate() {
         return name().startsWith("CREATE_");
+    }
+
+    public boolean isDestructive() {
+        return this == DELETE_EXPENSES || this == RECATEGORIZE_EXPENSES;
     }
 
     /** Resolves an LLM-returned tool name, falling back to {@link #TEXT} for anything unknown. */
