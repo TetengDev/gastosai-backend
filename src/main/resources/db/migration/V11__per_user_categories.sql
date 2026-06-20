@@ -2,6 +2,12 @@
 
 ALTER TABLE categories ADD COLUMN user_id BIGINT REFERENCES users(id) ON DELETE CASCADE;
 
+-- Drop the global unique-on-name constraint BEFORE cloning categories per user,
+-- otherwise the per-user clones (same name, different user) collide on it.
+DROP INDEX IF EXISTS uk_categories_name;
+ALTER TABLE categories DROP CONSTRAINT IF EXISTS categories_name_key;
+ALTER TABLE categories DROP CONSTRAINT IF EXISTS uk_categories_name;
+
 DO $$
 DECLARE
     rec RECORD;
@@ -47,10 +53,6 @@ END $$;
 DELETE FROM categories WHERE user_id IS NULL;
 
 ALTER TABLE categories ALTER COLUMN user_id SET NOT NULL;
-
-DROP INDEX IF EXISTS uk_categories_name;
-ALTER TABLE categories DROP CONSTRAINT IF EXISTS categories_name_key;
-ALTER TABLE categories DROP CONSTRAINT IF EXISTS uk_categories_name;
 
 ALTER TABLE categories ADD CONSTRAINT uq_categories_user_name UNIQUE (user_id, name);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_categories_user_lower_name ON categories (user_id, lower(name));
