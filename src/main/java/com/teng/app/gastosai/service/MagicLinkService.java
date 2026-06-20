@@ -18,10 +18,12 @@ import org.springframework.web.server.ResponseStatusException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 @Service
@@ -30,6 +32,9 @@ public class MagicLinkService {
 
     private static final int ABUSE_LIMIT = 5;
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
+    private final AtomicInteger dailySendCount = new AtomicInteger(0);
+    private volatile LocalDate dailySendDate = LocalDate.now();
 
     private final MagicLinkTokenRepository tokenRepository;
     private final UserRepository userRepository;
@@ -43,6 +48,9 @@ public class MagicLinkService {
 
     @Value("${gastos.app.frontend-base-url:http://localhost:5173}")
     private String frontendBaseUrl;
+
+    @Value("${gastos.ratelimit.magic-link-daily-max:200}")
+    private int magicLinkDailyMax;
 
     @Transactional
     public void requestLink(String email) {
@@ -69,6 +77,11 @@ public class MagicLinkService {
                 .tokenHash(hash)
                 .expiresAt(LocalDateTime.now().plusMinutes(ttlMinutes))
                 .build());
+
+        if (!withinDailyBudget()) {
+            log.warn("magic_link_daily_budget_exceeded");
+            return;
+        }
 
         var link = frontendBaseUrl + "/auth/verify?token=" + rawToken;
         emailSender.sendMagicLink(user.getEmail(), link);
@@ -104,6 +117,17 @@ public class MagicLinkService {
         User saved = userRepository.save(user);
         categorySeedService.seedPredefinedForUser(saved);
         return saved;
+    }
+
+    private boolean withinDailyBudget() {
+        LocalDate today = LocalDate.now();
+        synchronized (this) {
+            if (!today.equals(dailySendDate)) {
+                dailySendDate = today;
+                dailySendCount.set(0);
+            }
+        }
+        return dailySendCount.incrementAndGet() <= magicLinkDailyMax;
     }
 
     private static String generateRawToken() {

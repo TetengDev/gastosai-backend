@@ -21,4 +21,6 @@ public class AiManagedProperties {
     private int visionFree = 5;
     private int visionPremium = 50;
     private int visionTrial = 10;
+
+    private int absoluteMonthlyCap = 1000;
 }
