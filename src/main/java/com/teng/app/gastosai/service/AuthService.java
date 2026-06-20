@@ -32,7 +32,7 @@ public class AuthService {
 				.password(passwordEncoder.encode(request.password()))
 				.build();
 		userRepository.save(user);
-		return new AuthResponse(jwtUtil.generate(user.getEmail()), user.getEmail(), user.getName(), user.getNickname(), user.getAvatarColor(), user.getDefaultCategoryName(), user.getAvatar(), true, user.getRole().name());
+		return sessionFor(user, true);
 	}
 
 	@Transactional(readOnly = true)
@@ -42,6 +42,10 @@ public class AuthService {
 		if (!passwordEncoder.matches(request.password(), user.getPassword())) {
 			throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
 		}
-		return new AuthResponse(jwtUtil.generate(user.getEmail()), user.getEmail(), user.getName(), user.getNickname(), user.getAvatarColor(), user.getDefaultCategoryName(), user.getAvatar(), false, user.getRole().name());
+		return sessionFor(user, false);
+	}
+
+	public AuthResponse sessionFor(User user, boolean isNew) {
+		return new AuthResponse(jwtUtil.generate(user.getEmail()), user.getEmail(), user.getName(), user.getNickname(), user.getAvatarColor(), user.getDefaultCategoryName(), user.getAvatar(), isNew, user.getRole().name());
 	}
 }
