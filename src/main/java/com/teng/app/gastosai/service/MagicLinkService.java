@@ -47,8 +47,13 @@ public class MagicLinkService {
     public void requestLink(String email) {
         var normalised = email.trim().toLowerCase();
 
+        if (normalised.chars().anyMatch(c -> c < 0x20 || c == 0x7F)) {
+            log.warn("magic_link_rejected_control_chars");
+            return;
+        }
+
         if (tokenRepository.countUnusedSince(normalised, LocalDateTime.now().minusMinutes(ttlMinutes)) >= ABUSE_LIMIT) {
-            log.warn("magic_link_rate_limited email={}", normalised);
+            log.warn("magic_link_rate_limited");
             return;
         }
 
