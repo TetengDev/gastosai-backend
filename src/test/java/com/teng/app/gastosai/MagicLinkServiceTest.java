@@ -7,6 +7,7 @@ import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.MagicLinkTokenRepository;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.service.AuthService;
+import com.teng.app.gastosai.service.CategorySeedService;
 import com.teng.app.gastosai.service.EmailSender;
 import com.teng.app.gastosai.service.MagicLinkService;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,6 +41,7 @@ class MagicLinkServiceTest {
     @Mock PasswordEncoder passwordEncoder;
     @Mock EmailSender emailSender;
     @Mock AuthService authService;
+    @Mock CategorySeedService categorySeedService;
     @InjectMocks MagicLinkService magicLinkService;
 
     @BeforeEach

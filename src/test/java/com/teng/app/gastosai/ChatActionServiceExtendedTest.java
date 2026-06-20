@@ -118,7 +118,7 @@ class ChatActionServiceExtendedTest {
                 {"name":"Groceries","icon":"shopping-cart"}
                 """;
         when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("create_category", paramsJson));
-        when(categoryService.create(any())).thenReturn(new CategoryResponse(10L, "Groceries", "shopping-cart"));
+        when(categoryService.create(any(), any())).thenReturn(new CategoryResponse(10L, "Groceries", "shopping-cart"));
 
         ChatResponse resp = chatActionService.dispatch("Add a Groceries category", "execute", user());
 
@@ -145,7 +145,7 @@ class ChatActionServiceExtendedTest {
                 {"name":"Food"}
                 """;
         when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("create_category", paramsJson));
-        when(categoryService.create(any())).thenThrow(new IllegalArgumentException("Category already exists: Food"));
+        when(categoryService.create(any(), any())).thenThrow(new IllegalArgumentException("Category already exists: Food"));
 
         ChatResponse resp = chatActionService.dispatch("Add a Food category", "execute", user());
 
@@ -159,8 +159,8 @@ class ChatActionServiceExtendedTest {
                 {"currentName":"Food","newName":"Meals"}
                 """;
         when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("rename_category", paramsJson));
-        when(categoryService.findAll()).thenReturn(List.of(new CategoryResponse(5L, "Food", null)));
-        when(categoryService.update(eq(5L), any())).thenReturn(new CategoryResponse(5L, "Meals", null));
+        when(categoryService.findAll(any())).thenReturn(List.of(new CategoryResponse(5L, "Food", null)));
+        when(categoryService.update(eq(5L), any(), any())).thenReturn(new CategoryResponse(5L, "Meals", null));
 
         ChatResponse resp = chatActionService.dispatch("Rename Food to Meals", null, user());
 
@@ -187,7 +187,7 @@ class ChatActionServiceExtendedTest {
                 {"currentName":"Nonexistent","newName":"Other"}
                 """;
         when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("rename_category", paramsJson));
-        when(categoryService.findAll()).thenReturn(List.of());
+        when(categoryService.findAll(any())).thenReturn(List.of());
 
         ChatResponse resp = chatActionService.dispatch("Rename nonexistent", null, user());
 
@@ -214,7 +214,7 @@ class ChatActionServiceExtendedTest {
                 {"name":"OldCategory"}
                 """;
         when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("delete_category", paramsJson));
-        when(categoryService.findAll()).thenReturn(List.of(new CategoryResponse(7L, "OldCategory", null)));
+        when(categoryService.findAll(any())).thenReturn(List.of(new CategoryResponse(7L, "OldCategory", null)));
 
         ChatResponse resp = chatActionService.dispatch("Delete OldCategory", null, user());
 
@@ -226,7 +226,7 @@ class ChatActionServiceExtendedTest {
     void listCategories_returnsActionWithList() {
         String paramsJson = "{}";
         when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("list_categories", paramsJson));
-        when(categoryService.findAll()).thenReturn(List.of(
+        when(categoryService.findAll(any())).thenReturn(List.of(
                 new CategoryResponse(1L, "Uncategorized", null),
                 new CategoryResponse(2L, "Food", "utensils")
         ));

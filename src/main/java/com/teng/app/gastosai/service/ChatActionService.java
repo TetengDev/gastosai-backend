@@ -135,10 +135,10 @@ public class ChatActionService {
 				case CREATE_RECURRING -> handleCreateRecurring(params, user);
 				case UPDATE_RECURRING -> handleUpdateRecurring(params, user);
 				case DELETE_RECURRING -> handleDeleteRecurring(params, user);
-				case CREATE_CATEGORY -> handleCreateCategory(params);
-				case RENAME_CATEGORY -> handleRenameCategory(params);
-				case DELETE_CATEGORY -> handleDeleteCategory(params);
-				case LIST_CATEGORIES -> handleListCategories();
+				case CREATE_CATEGORY -> handleCreateCategory(params, user);
+				case RENAME_CATEGORY -> handleRenameCategory(params, user);
+				case DELETE_CATEGORY -> handleDeleteCategory(params, user);
+				case LIST_CATEGORIES -> handleListCategories(user);
 				case UPDATE_PROFILE -> handleUpdateProfile(params, user);
 				case GET_SUBSCRIPTION -> handleGetSubscription(user);
 				case LIST_GOALS -> handleListGoals(user);
@@ -152,7 +152,7 @@ public class ChatActionService {
 				case DISMISS_ALERT -> handleDismissAlert(params, user);
 				case DELETE_ALERT -> handleDeleteAlert(params, user);
 				case SET_DEFAULT_CATEGORY -> handleSetDefaultCategory(params, user);
-				case SET_CATEGORY_ICON -> handleSetCategoryIcon(params);
+				case SET_CATEGORY_ICON -> handleSetCategoryIcon(params, user);
 				case DELETE_EXPENSES -> handleDeleteExpenses(params, user);
 				case RECATEGORIZE_EXPENSES -> handleRecategorizeExpenses(params, user);
 				default -> new ChatResponse("text", call.paramsJson(), null);
@@ -307,13 +307,13 @@ public class ChatActionService {
 		String month = params.path("month").asText(YearMonth.now().toString());
 		BigDecimal amountLimit = params.get("amountLimit").decimalValue();
 		try {
-			Category cat = categoryService.getOrCreateByName(categoryName);
+			Category cat = categoryService.getOrCreateByName(categoryName, user);
 			BudgetRequest req = new BudgetRequest(cat.getId(), month, amountLimit, null, null);
 			Object result = budgetService.create(req, user);
 			return new ChatResponse("action", "Budget created for " + categoryName + " (₱" + amountLimit.toPlainString() + ").", result);
 		} catch (ResponseStatusException e) {
 			if (e.getStatusCode() == HttpStatus.CONFLICT) {
-				Category cat = categoryService.getOrCreateByName(categoryName);
+				Category cat = categoryService.getOrCreateByName(categoryName, user);
 				List<Budget> budgets = budgetRepository.findAllByUserAndMonth(user, month);
 				Budget existing = budgets.stream()
 						.filter(b -> b.getCategory().getId().equals(cat.getId()))
@@ -519,7 +519,7 @@ public class ChatActionService {
 		}
 
 		if (categoryName != null && !categoryName.isBlank()) {
-			Category cat = categoryService.getOrCreateByName(categoryName);
+			Category cat = categoryService.getOrCreateByName(categoryName, user);
 			List<Budget> budgets = budgetRepository.findAllByUserAndMonth(user, month);
 			Budget match = budgets.stream()
 					.filter(b -> b.getCategory().getId().equals(cat.getId()))
@@ -620,24 +620,24 @@ public class ChatActionService {
 		return null;
 	}
 
-	private ChatResponse handleCreateCategory(JsonNode params) {
+	private ChatResponse handleCreateCategory(JsonNode params, User user) {
 		String name = params.get("name").asText();
 		String icon = params.path("icon").asText(null);
 		try {
-			CategoryResponse result = categoryService.create(new CategoryRequest(name, icon));
+			CategoryResponse result = categoryService.create(new CategoryRequest(name, icon), user);
 			return new ChatResponse("action", "Category \"" + name + "\" created.", result);
 		} catch (IllegalArgumentException e) {
 			return new ChatResponse("text", e.getMessage(), null);
 		}
 	}
 
-	private ChatResponse handleRenameCategory(JsonNode params) {
+	private ChatResponse handleRenameCategory(JsonNode params, User user) {
 		String currentName = params.get("currentName").asText();
 		String newName = params.get("newName").asText();
 		if ("Uncategorized".equalsIgnoreCase(currentName)) {
 			return new ChatResponse("text", "The \"Uncategorized\" category cannot be renamed.", null);
 		}
-		var all = categoryService.findAll();
+		var all = categoryService.findAll(user);
 		var match = all.stream()
 				.filter(c -> c.name().equalsIgnoreCase(currentName))
 				.findFirst().orElse(null);
@@ -645,19 +645,19 @@ public class ChatActionService {
 			return new ChatResponse("text", "No category named \"" + currentName + "\" found.", null);
 		}
 		try {
-			CategoryResponse result = categoryService.update(match.id(), new CategoryRequest(newName, match.icon()));
+			CategoryResponse result = categoryService.update(match.id(), new CategoryRequest(newName, match.icon()), user);
 			return new ChatResponse("action", "Category \"" + currentName + "\" renamed to \"" + newName + "\".", result);
 		} catch (IllegalArgumentException e) {
 			return new ChatResponse("text", e.getMessage(), null);
 		}
 	}
 
-	private ChatResponse handleDeleteCategory(JsonNode params) {
+	private ChatResponse handleDeleteCategory(JsonNode params, User user) {
 		String name = params.get("name").asText();
 		if ("Uncategorized".equalsIgnoreCase(name)) {
 			return new ChatResponse("text", "The \"Uncategorized\" category cannot be deleted.", null);
 		}
-		var all = categoryService.findAll();
+		var all = categoryService.findAll(user);
 		var match = all.stream()
 				.filter(c -> c.name().equalsIgnoreCase(name))
 				.findFirst().orElse(null);
@@ -665,15 +665,15 @@ public class ChatActionService {
 			return new ChatResponse("text", "No category named \"" + name + "\" found.", null);
 		}
 		try {
-			categoryService.delete(match.id());
+			categoryService.delete(match.id(), user);
 			return new ChatResponse("action", "Category \"" + name + "\" deleted. Affected expenses moved to Uncategorized.", null);
 		} catch (IllegalArgumentException e) {
 			return new ChatResponse("text", e.getMessage(), null);
 		}
 	}
 
-	private ChatResponse handleListCategories() {
-		List<CategoryResponse> categories = categoryService.findAll();
+	private ChatResponse handleListCategories(User user) {
+		List<CategoryResponse> categories = categoryService.findAll(user);
 		return new ChatResponse("action", "You have " + categories.size() + " categories.", categories);
 	}
 
@@ -924,7 +924,7 @@ public class ChatActionService {
 	@Transactional
 	ChatResponse handleSetDefaultCategory(JsonNode params, User user) {
 		String categoryName = params.get("categoryName").asText();
-		Category cat = categoryService.getOrCreateByName(categoryName);
+		Category cat = categoryService.getOrCreateByName(categoryName, user);
 		String resolvedName = cat.getName();
 		UserProfileRequest req = new UserProfileRequest(
 				user.getName(),
@@ -938,15 +938,15 @@ public class ChatActionService {
 	}
 
 	@Transactional
-	ChatResponse handleSetCategoryIcon(JsonNode params) {
+	ChatResponse handleSetCategoryIcon(JsonNode params, User user) {
 		String categoryName = params.get("categoryName").asText();
 		String icon = params.get("icon").asText();
-		List<CategoryResponse> all = categoryService.findAll();
+		List<CategoryResponse> all = categoryService.findAll(user);
 		CategoryResponse match = all.stream()
 				.filter(c -> c.name().equalsIgnoreCase(categoryName))
 				.findFirst()
 				.orElseThrow(() -> new ResourceNotFoundException("Category not found: " + categoryName));
-		CategoryResponse result = categoryService.update(match.id(), new CategoryRequest(match.name(), icon));
+		CategoryResponse result = categoryService.update(match.id(), new CategoryRequest(match.name(), icon), user);
 		return new ChatResponse("action", "Icon for \"" + match.name() + "\" updated.", result);
 	}
 
@@ -1043,7 +1043,7 @@ public class ChatActionService {
 				.filter(e -> e.getCategory() != null && e.getCategory().getName().equalsIgnoreCase(fc))
 				.toList();
 
-		Category targetCat = categoryService.getOrCreateByName(toCategory);
+		Category targetCat = categoryService.getOrCreateByName(toCategory, user);
 		for (Expense e : matching) {
 			e.setCategory(targetCat);
 		}

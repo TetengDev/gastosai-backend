@@ -76,7 +76,7 @@ class DuplicateDetectionTest {
     @Test
     void recurring_duplicateNameAndFrequency_savesWhenForced() {
         RecurringExpenseService service = new RecurringExpenseService(recurringRepository, categoryService);
-        when(categoryService.getOrCreateByName(eq("Rent"))).thenReturn(Category.builder().id(2L).name("Rent").build());
+        when(categoryService.getOrCreateByName(eq("Rent"), any())).thenReturn(Category.builder().id(2L).name("Rent").build());
         when(recurringRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         RecurringExpenseRequest req = new RecurringExpenseRequest("Rent", new BigDecimal("5000"), "Rent",
                 Frequency.MONTHLY, 1, null, null, null, null, null);

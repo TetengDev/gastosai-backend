@@ -377,7 +377,7 @@ class ChatActionServiceReadToolsTest {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
                 new ChatToolCall("set_default_category", "{\"categoryName\":\"Groceries\"}"));
         Category cat = Category.builder().id(2L).name("Groceries").build();
-        when(categoryService.getOrCreateByName("Groceries")).thenReturn(cat);
+        when(categoryService.getOrCreateByName(eq("Groceries"), any())).thenReturn(cat);
 
         ChatResponse resp = chatActionService.dispatch("Set default category to Groceries", null, user());
 
@@ -392,8 +392,8 @@ class ChatActionServiceReadToolsTest {
     void setCategoryIcon_updatesIconAndReturnsAction() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
                 new ChatToolCall("set_category_icon", "{\"categoryName\":\"Food\",\"icon\":\"utensils\"}"));
-        when(categoryService.findAll()).thenReturn(List.of(new CategoryResponse(1L, "Food", null)));
-        when(categoryService.update(anyLong(), any())).thenReturn(new CategoryResponse(1L, "Food", "utensils"));
+        when(categoryService.findAll(any())).thenReturn(List.of(new CategoryResponse(1L, "Food", null)));
+        when(categoryService.update(anyLong(), any(), any())).thenReturn(new CategoryResponse(1L, "Food", "utensils"));
 
         ChatResponse resp = chatActionService.dispatch("Set food icon to utensils", null, user());
 
@@ -406,7 +406,7 @@ class ChatActionServiceReadToolsTest {
     void setCategoryIcon_categoryNotFound_throwsResourceNotFound() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
                 new ChatToolCall("set_category_icon", "{\"categoryName\":\"Ghost\",\"icon\":\"x\"}"));
-        when(categoryService.findAll()).thenReturn(List.of());
+        when(categoryService.findAll(any())).thenReturn(List.of());
 
         ChatResponse resp = chatActionService.dispatch("Set ghost icon", null, user());
 
@@ -495,7 +495,7 @@ class ChatActionServiceReadToolsTest {
         Expense e = Expense.builder().id(1L).amount(new BigDecimal("100"))
                 .category(food).date(LocalDateTime.now()).description("Lunch").build();
         when(expenseRepository.findAllByUserOrderByDateDesc(any())).thenReturn(List.of(e));
-        when(categoryService.getOrCreateByName("Meals")).thenReturn(meals);
+        when(categoryService.getOrCreateByName(eq("Meals"), any())).thenReturn(meals);
         when(expenseRepository.saveAll(any())).thenReturn(List.of(e));
 
         ChatResponse resp = chatActionService.dispatch("Move food to meals", "execute", user());

@@ -40,6 +40,7 @@ public class Budget {
 
 	@ManyToOne(fetch = FetchType.EAGER)
 	@JoinColumn(name = "category_id", nullable = false)
+	@OnDelete(action = OnDeleteAction.CASCADE)
 	private Category category;
 
 	@Column(name = "budget_month", nullable = false, length = 7)

@@ -45,6 +45,7 @@ public class Expense {
 
 	@ManyToOne
 	@JoinColumn(name = "category_id")
+	@OnDelete(action = OnDeleteAction.CASCADE)
 	private Category category;
 
 	private LocalDateTime date;

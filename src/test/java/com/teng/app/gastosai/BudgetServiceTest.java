@@ -58,7 +58,7 @@ class BudgetServiceTest {
 		Category cat = testCategory();
 		BudgetRequest req = new BudgetRequest(10L, "2026-06", new BigDecimal("5000.00"), null, null);
 
-		when(categoryRepository.findById(10L)).thenReturn(Optional.of(cat));
+		when(categoryRepository.findByIdAndUser(10L, user)).thenReturn(Optional.of(cat));
 		when(budgetRepository.findByUserAndCategoryAndMonth(user, cat, "2026-06")).thenReturn(Optional.empty());
 		when(budgetRepository.save(any())).thenAnswer(inv -> {
 			Budget b = inv.getArgument(0);
@@ -90,7 +90,7 @@ class BudgetServiceTest {
 
 		Budget existing = Budget.builder().id(7L).user(user).category(cat).month("2026-06")
 				.amountLimit(new BigDecimal("1000.00")).amountLimitInBaseCurrency(new BigDecimal("1000.00")).build();
-		when(categoryRepository.findById(10L)).thenReturn(Optional.of(cat));
+		when(categoryRepository.findByIdAndUser(10L, user)).thenReturn(Optional.of(cat));
 		when(budgetRepository.findByUserAndCategoryAndMonth(user, cat, "2026-06")).thenReturn(Optional.of(existing));
 
 		assertThatThrownBy(() -> budgetService.create(req, user))
@@ -106,7 +106,7 @@ class BudgetServiceTest {
 
 		Budget existing = Budget.builder().id(7L).user(user).category(cat).month("2026-06")
 				.amountLimit(new BigDecimal("1000.00")).amountLimitInBaseCurrency(new BigDecimal("1000.00")).build();
-		when(categoryRepository.findById(10L)).thenReturn(Optional.of(cat));
+		when(categoryRepository.findByIdAndUser(10L, user)).thenReturn(Optional.of(cat));
 		when(budgetRepository.findByUserAndCategoryAndMonth(user, cat, "2026-06")).thenReturn(Optional.of(existing));
 		when(budgetRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -122,7 +122,7 @@ class BudgetServiceTest {
 		User user = testUser();
 		BudgetRequest req = new BudgetRequest(99L, "2026-06", new BigDecimal("5000.00"), null, null);
 
-		when(categoryRepository.findById(99L)).thenReturn(Optional.empty());
+		when(categoryRepository.findByIdAndUser(99L, user)).thenReturn(Optional.empty());
 
 		assertThatThrownBy(() -> budgetService.create(req, user))
 				.isInstanceOf(ResourceNotFoundException.class)

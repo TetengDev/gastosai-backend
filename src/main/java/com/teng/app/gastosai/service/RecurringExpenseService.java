@@ -46,7 +46,7 @@ public class RecurringExpenseService {
 		String categoryName = (req.categoryName() != null && !req.categoryName().isBlank())
 				? req.categoryName()
 				: "Uncategorized";
-		Category category = categoryService.getOrCreateByName(categoryName);
+		Category category = categoryService.getOrCreateByName(categoryName, user);
 
 		RecurringExpense saved = recurringExpenseRepository.save(RecurringExpense.builder()
 				.user(user)
@@ -80,7 +80,7 @@ public class RecurringExpenseService {
 		String categoryName = (req.categoryName() != null && !req.categoryName().isBlank())
 				? req.categoryName()
 				: "Uncategorized";
-		Category category = categoryService.getOrCreateByName(categoryName);
+		Category category = categoryService.getOrCreateByName(categoryName, user);
 
 		expense.setName(req.name());
 		expense.setAmount(req.amount());
