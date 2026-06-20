@@ -29,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -63,8 +64,39 @@ class AiQuotaServiceTest {
     }
 
     @Test
+    void absoluteCap_blocks_whenAtCap_byoMode() {
+        managedProps.setAllowSharedKey(false);
+        managedProps.setAbsoluteMonthlyCap(1000);
+        User user = user(false);
+        stubUsed(1000L);
+        assertThatThrownBy(() -> aiQuotaService.assertWithinQuota(user, AiFeature.CHAT_CRUD_ASSISTANT))
+                .isInstanceOf(AiQuotaExceededException.class);
+    }
+
+    @Test
+    void absoluteCap_passes_whenUnderCap_byoMode() {
+        managedProps.setAllowSharedKey(false);
+        managedProps.setAbsoluteMonthlyCap(1000);
+        User user = user(false);
+        stubUsed(999L);
+        assertThatCode(() -> aiQuotaService.assertWithinQuota(user, AiFeature.CHAT_CRUD_ASSISTANT))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void absoluteCap_notApplied_toNonQuotaBearingFeature() {
+        managedProps.setAllowSharedKey(false);
+        managedProps.setAbsoluteMonthlyCap(0);
+        User user = user(false);
+        assertThatCode(() -> aiQuotaService.assertWithinQuota(user, AiFeature.EXPENSE_INSIGHT))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
     void managedOff_noEnforcement() {
         managedProps.setAllowSharedKey(false);
+        managedProps.setAbsoluteMonthlyCap(1000);
+        stubUsed(0L);
         assertThatCode(() -> aiQuotaService.assertWithinQuota(user(false), AiFeature.CHAT_CRUD_ASSISTANT))
                 .doesNotThrowAnyException();
     }
@@ -175,7 +207,7 @@ class AiQuotaServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Collection<AiFeature>> captor = ArgumentCaptor.forClass(Collection.class);
-        verify(aiUsageRepository).countByUserIdAndStatusAndFeatureInAndCreatedAtAfter(
+        verify(aiUsageRepository, atLeastOnce()).countByUserIdAndStatusAndFeatureInAndCreatedAtAfter(
                 eq(1L), eq(AiUsageStatus.SUCCESS), captor.capture(), any(LocalDateTime.class));
         Collection<AiFeature> counted = captor.getValue();
         assertThat(counted).contains(AiFeature.CHAT_CRUD_ASSISTANT, AiFeature.RECEIPT_ANALYSIS);
