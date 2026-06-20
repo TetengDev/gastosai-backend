@@ -4,6 +4,8 @@ import com.teng.app.gastosai.dto.CategoryRequest;
 import com.teng.app.gastosai.dto.CategoryResponse;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
+import com.teng.app.gastosai.entity.Role;
+import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.CategoryRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import com.teng.app.gastosai.service.CategoryService;
@@ -37,13 +39,18 @@ class CategoryServiceTest {
     @InjectMocks
     CategoryService categoryService;
 
+    private User testUser() {
+        return User.builder().id(1L).email("u@test.com").name("Test").password("pw").role(Role.USER).build();
+    }
+
     @Test
     void create_happyPath_savesAndReturnsResponse() {
-        when(categoryRepository.existsByNameIgnoreCase("Food")).thenReturn(false);
-        Category saved = Category.builder().id(1L).name("Food").icon("utensils").build();
+        User user = testUser();
+        when(categoryRepository.existsByUserAndNameIgnoreCase(user, "Food")).thenReturn(false);
+        Category saved = Category.builder().id(1L).name("Food").icon("utensils").user(user).build();
         when(categoryRepository.save(any(Category.class))).thenReturn(saved);
 
-        CategoryResponse response = categoryService.create(new CategoryRequest("Food", "utensils"));
+        CategoryResponse response = categoryService.create(new CategoryRequest("Food", "utensils"), user);
 
         assertThat(response.id()).isEqualTo(1L);
         assertThat(response.name()).isEqualTo("Food");
@@ -52,19 +59,21 @@ class CategoryServiceTest {
 
     @Test
     void create_throwsIllegalArgument_whenNameAlreadyExists() {
-        when(categoryRepository.existsByNameIgnoreCase("Food")).thenReturn(true);
+        User user = testUser();
+        when(categoryRepository.existsByUserAndNameIgnoreCase(user, "Food")).thenReturn(true);
 
-        assertThatThrownBy(() -> categoryService.create(new CategoryRequest("Food", null)))
+        assertThatThrownBy(() -> categoryService.create(new CategoryRequest("Food", null), user))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Food");
     }
 
     @Test
     void getOrCreateByName_returnsExisting_whenFound() {
-        Category existing = Category.builder().id(5L).name("Meal Plan").build();
-        when(categoryRepository.findByNameIgnoreCase("Meal Plan")).thenReturn(Optional.of(existing));
+        User user = testUser();
+        Category existing = Category.builder().id(5L).name("Meal Plan").user(user).build();
+        when(categoryRepository.findByUserAndNameIgnoreCase(user, "Meal Plan")).thenReturn(Optional.of(existing));
 
-        Category result = categoryService.getOrCreateByName("Meal Plan");
+        Category result = categoryService.getOrCreateByName("Meal Plan", user);
 
         assertThat(result.getId()).isEqualTo(5L);
         verify(categoryRepository, never()).save(any());
@@ -72,11 +81,12 @@ class CategoryServiceTest {
 
     @Test
     void getOrCreateByName_savesNew_whenNotFound() {
-        when(categoryRepository.findByNameIgnoreCase("NewCat")).thenReturn(Optional.empty());
-        Category saved = Category.builder().id(10L).name("NewCat").build();
+        User user = testUser();
+        when(categoryRepository.findByUserAndNameIgnoreCase(user, "NewCat")).thenReturn(Optional.empty());
+        Category saved = Category.builder().id(10L).name("NewCat").user(user).build();
         when(categoryRepository.save(any(Category.class))).thenReturn(saved);
 
-        Category result = categoryService.getOrCreateByName("NewCat");
+        Category result = categoryService.getOrCreateByName("NewCat", user);
 
         assertThat(result.getId()).isEqualTo(10L);
         verify(categoryRepository).save(argThat(c -> "NewCat".equals(c.getName())));
@@ -84,8 +94,9 @@ class CategoryServiceTest {
 
     @Test
     void delete_reassignExpensesToUncategorized_whenCategoryHasExpenses() {
-        Category toDelete = Category.builder().id(2L).name("Food").build();
-        when(categoryRepository.findById(2L)).thenReturn(Optional.of(toDelete));
+        User user = testUser();
+        Category toDelete = Category.builder().id(2L).name("Food").user(user).build();
+        when(categoryRepository.findByIdAndUser(2L, user)).thenReturn(Optional.of(toDelete));
 
         Expense expense = Expense.builder()
                 .id(1L)
@@ -95,10 +106,10 @@ class CategoryServiceTest {
                 .build();
         when(expenseRepository.findByCategory_Id(2L)).thenReturn(List.of(expense));
 
-        Category uncategorized = Category.builder().id(99L).name("Uncategorized").build();
-        when(categoryRepository.findByNameIgnoreCase("Uncategorized")).thenReturn(Optional.of(uncategorized));
+        Category uncategorized = Category.builder().id(99L).name("Uncategorized").user(user).build();
+        when(categoryRepository.findByUserAndNameIgnoreCase(user, "Uncategorized")).thenReturn(Optional.of(uncategorized));
 
-        categoryService.delete(2L);
+        categoryService.delete(2L, user);
 
         assertThat(expense.getCategory().getId()).isEqualTo(99L);
         verify(expenseRepository).saveAll(List.of(expense));
@@ -107,11 +118,12 @@ class CategoryServiceTest {
 
     @Test
     void delete_deletesDirectly_whenCategoryHasNoExpenses() {
-        Category toDelete = Category.builder().id(3L).name("Snacks").build();
-        when(categoryRepository.findById(3L)).thenReturn(Optional.of(toDelete));
+        User user = testUser();
+        Category toDelete = Category.builder().id(3L).name("Snacks").user(user).build();
+        when(categoryRepository.findByIdAndUser(3L, user)).thenReturn(Optional.of(toDelete));
         when(expenseRepository.findByCategory_Id(3L)).thenReturn(List.of());
 
-        categoryService.delete(3L);
+        categoryService.delete(3L, user);
 
         verify(expenseRepository, never()).saveAll(any());
         verify(categoryRepository).deleteById(3L);
@@ -119,10 +131,11 @@ class CategoryServiceTest {
 
     @Test
     void delete_defaultCategory_throws() {
-        Category def = Category.builder().id(4L).name("Uncategorized").build();
-        when(categoryRepository.findById(4L)).thenReturn(Optional.of(def));
+        User user = testUser();
+        Category def = Category.builder().id(4L).name("Uncategorized").user(user).build();
+        when(categoryRepository.findByIdAndUser(4L, user)).thenReturn(Optional.of(def));
 
-        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> categoryService.delete(4L));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> categoryService.delete(4L, user));
         verify(categoryRepository, never()).deleteById(any());
     }
 }

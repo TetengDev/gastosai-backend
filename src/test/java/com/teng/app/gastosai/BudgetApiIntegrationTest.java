@@ -61,6 +61,7 @@ class BudgetApiIntegrationTest {
 				.build();
 
 		budgetRepository.deleteAll();
+		categoryRepository.deleteAll();
 		userRepository.deleteAll();
 
 		User user = userRepository.save(User.builder()
@@ -71,10 +72,7 @@ class BudgetApiIntegrationTest {
 
 		authHeader = "Bearer " + jwtUtil.generate(user.getEmail());
 
-		Category cat = categoryRepository.findAll().stream()
-				.filter(c -> c.getName().equals("Meal Plan"))
-				.findFirst()
-				.orElseGet(() -> categoryRepository.save(Category.builder().name("Meal Plan").build()));
+		Category cat = categoryRepository.save(Category.builder().name("Meal Plan").user(user).build());
 		categoryId = cat.getId();
 	}
 

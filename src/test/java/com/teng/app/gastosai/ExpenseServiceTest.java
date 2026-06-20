@@ -60,7 +60,7 @@ class ExpenseServiceTest {
     void create_usesUncategorized_whenCategoryBlank() {
         User user = regularUser();
         Category uncategorized = Category.builder().id(1L).name("Uncategorized").build();
-        when(categoryService.getOrCreateByName("Uncategorized")).thenReturn(uncategorized);
+        when(categoryService.getOrCreateByName("Uncategorized", user)).thenReturn(uncategorized);
 
         Expense saved = Expense.builder()
                 .id(10L)
@@ -76,14 +76,14 @@ class ExpenseServiceTest {
                 new ExpenseRequest(new BigDecimal("50"), "", null, "Test", null, null, null, null), user);
 
         assertThat(response.category()).isEqualTo("Uncategorized");
-        verify(categoryService).getOrCreateByName("Uncategorized");
+        verify(categoryService).getOrCreateByName("Uncategorized", user);
     }
 
     @Test
     void create_usesProvidedCategory_whenCategorySupplied() {
         User user = regularUser();
         Category mealPlan = Category.builder().id(2L).name("Meal Plan").build();
-        when(categoryService.getOrCreateByName("Meal Plan")).thenReturn(mealPlan);
+        when(categoryService.getOrCreateByName("Meal Plan", user)).thenReturn(mealPlan);
 
         Expense saved = Expense.builder()
                 .id(11L)
@@ -99,7 +99,7 @@ class ExpenseServiceTest {
                 new ExpenseRequest(new BigDecimal("120"), "Meal Plan", null, "Lunch", null, null, null, null), user);
 
         assertThat(response.category()).isEqualTo("Meal Plan");
-        verify(categoryService).getOrCreateByName("Meal Plan");
+        verify(categoryService).getOrCreateByName("Meal Plan", user);
     }
 
     @Test
@@ -161,7 +161,7 @@ class ExpenseServiceTest {
                 .build();
 
         when(expenseRepository.findByIdAndUser(7L, user)).thenReturn(Optional.of(existing));
-        when(categoryService.getOrCreateByName("Meal Plan")).thenReturn(newCat);
+        when(categoryService.getOrCreateByName("Meal Plan", user)).thenReturn(newCat);
         when(expenseRepository.save(any(Expense.class))).thenReturn(existing);
 
         ExpenseResponse response = expenseService.update(7L,
@@ -301,7 +301,7 @@ class ExpenseServiceTest {
     void create_setsDateToNow_whenDateNotProvided() {
         User user = regularUser();
         Category uncategorized = Category.builder().id(1L).name("Uncategorized").build();
-        when(categoryService.getOrCreateByName("Uncategorized")).thenReturn(uncategorized);
+        when(categoryService.getOrCreateByName("Uncategorized", user)).thenReturn(uncategorized);
 
         when(expenseRepository.save(argThat(e -> e.getDate() != null)))
                 .thenAnswer(inv -> {
@@ -395,7 +395,7 @@ class ExpenseServiceTest {
     void create_computesAmountInBaseCurrency_forForeignCurrency() {
         User user = regularUser();
         Category uncategorized = Category.builder().id(1L).name("Uncategorized").build();
-        when(categoryService.getOrCreateByName("Uncategorized")).thenReturn(uncategorized);
+        when(categoryService.getOrCreateByName("Uncategorized", user)).thenReturn(uncategorized);
 
         when(expenseRepository.save(any(Expense.class))).thenAnswer(inv -> {
             Expense e = inv.getArgument(0);
@@ -425,7 +425,7 @@ class ExpenseServiceTest {
     void create_defaultsCurrencyToPhp_whenNotProvided() {
         User user = regularUser();
         Category uncategorized = Category.builder().id(1L).name("Uncategorized").build();
-        when(categoryService.getOrCreateByName("Uncategorized")).thenReturn(uncategorized);
+        when(categoryService.getOrCreateByName("Uncategorized", user)).thenReturn(uncategorized);
 
         when(expenseRepository.save(any(Expense.class))).thenAnswer(inv -> {
             Expense e = inv.getArgument(0);

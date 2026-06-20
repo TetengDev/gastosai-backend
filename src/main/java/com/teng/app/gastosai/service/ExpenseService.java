@@ -49,7 +49,7 @@ public class ExpenseService {
 	public ExpenseResponse create(ExpenseRequest request, User user) {
 		String categoryName = (request.category() == null || request.category().isBlank())
 				? DEFAULT_CATEGORY : request.category();
-		Category category = categoryService.getOrCreateByName(categoryName);
+		Category category = categoryService.getOrCreateByName(categoryName, user);
 		ExpenseType expenseType = request.expenseType() != null
 				? ExpenseType.valueOf(request.expenseType())
 				: ExpenseType.PERSONAL;
@@ -99,7 +99,7 @@ public class ExpenseService {
 
 		String categoryName = (request.category() == null || request.category().isBlank())
 				? DEFAULT_CATEGORY : request.category();
-		Category category = categoryService.getOrCreateByName(categoryName);
+		Category category = categoryService.getOrCreateByName(categoryName, user);
 		expense.setAmount(request.amount());
 		expense.setCategory(category);
 		expense.setDate(request.date() != null ? request.date() : expense.getDate());
