@@ -36,6 +36,7 @@ public class MagicLinkService {
     private final PasswordEncoder passwordEncoder;
     private final EmailSender emailSender;
     private final AuthService authService;
+    private final CategorySeedService categorySeedService;
 
     @Value("${gastos.magiclink.ttl-minutes:15}")
     private int ttlMinutes;
@@ -100,7 +101,9 @@ public class MagicLinkService {
                 .password(passwordEncoder.encode(UUID.randomUUID().toString()))
                 .role(Role.USER)
                 .build();
-        return userRepository.save(user);
+        User saved = userRepository.save(user);
+        categorySeedService.seedPredefinedForUser(saved);
+        return saved;
     }
 
     private static String generateRawToken() {

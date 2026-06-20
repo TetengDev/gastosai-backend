@@ -42,7 +42,7 @@ public class BudgetService {
 
 	@Transactional
 	public BudgetResponse create(BudgetRequest req, User user, boolean force) {
-		Category category = categoryRepository.findById(req.categoryId())
+		Category category = categoryRepository.findByIdAndUser(req.categoryId(), user)
 				.orElseThrow(() -> new ResourceNotFoundException("Category not found: " + req.categoryId()));
 
 		Optional<Budget> existing = budgetRepository.findByUserAndCategoryAndMonth(user, category, req.month());

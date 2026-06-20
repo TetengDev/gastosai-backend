@@ -65,6 +65,7 @@ class AlertApiIntegrationTest {
     String authHeader;
     String currentMonth;
     String prevMonth;
+    User testUser;
 
     @BeforeEach
     void setUp() {
@@ -75,15 +76,16 @@ class AlertApiIntegrationTest {
         alertRepository.deleteAll();
         budgetRepository.deleteAll();
         expenseRepository.deleteAll();
+        categoryRepository.deleteAll();
         userRepository.deleteAll();
 
-        User user = userRepository.save(User.builder()
+        testUser = userRepository.save(User.builder()
                 .name("Alert User")
                 .email("alert@test.com")
                 .password(passwordEncoder.encode("password"))
                 .build());
 
-        authHeader = "Bearer " + jwtUtil.generate(user.getEmail());
+        authHeader = "Bearer " + jwtUtil.generate(testUser.getEmail());
 
         YearMonth now = YearMonth.now();
         currentMonth = now.toString();
@@ -195,8 +197,8 @@ class AlertApiIntegrationTest {
     }
 
     private long createCategory(String name) {
-        return categoryRepository.findByNameIgnoreCase(name)
-                .orElseGet(() -> categoryRepository.save(Category.builder().name(name).build()))
+        return categoryRepository.findByUserAndNameIgnoreCase(testUser, name)
+                .orElseGet(() -> categoryRepository.save(Category.builder().name(name).user(testUser).build()))
                 .getId();
     }
 

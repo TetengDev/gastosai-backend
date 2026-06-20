@@ -7,6 +7,7 @@ import com.teng.app.gastosai.dto.RegisterRequest;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.service.AuthService;
+import com.teng.app.gastosai.service.CategorySeedService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -28,6 +29,7 @@ class AuthServiceTest {
     @Mock UserRepository userRepository;
     @Mock PasswordEncoder passwordEncoder;
     @Mock JwtUtil jwtUtil;
+    @Mock CategorySeedService categorySeedService;
     @InjectMocks AuthService authService;
 
     @Test

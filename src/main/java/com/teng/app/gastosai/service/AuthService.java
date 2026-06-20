@@ -20,6 +20,7 @@ public class AuthService {
 	private final UserRepository userRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final JwtUtil jwtUtil;
+	private final CategorySeedService categorySeedService;
 
 	@Transactional
 	public AuthResponse register(RegisterRequest request) {
@@ -31,8 +32,9 @@ public class AuthService {
 				.email(request.email())
 				.password(passwordEncoder.encode(request.password()))
 				.build();
-		userRepository.save(user);
-		return sessionFor(user, true);
+		User saved = userRepository.save(user);
+		categorySeedService.seedPredefinedForUser(saved);
+		return sessionFor(saved, true);
 	}
 
 	@Transactional(readOnly = true)

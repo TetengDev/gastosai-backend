@@ -4,6 +4,7 @@ import com.teng.app.gastosai.dto.CategoryRequest;
 import com.teng.app.gastosai.dto.CategoryResponse;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
+import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.CategoryRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
@@ -23,21 +24,22 @@ public class CategoryService {
 	private final ExpenseRepository expenseRepository;
 
 	@Transactional
-	public CategoryResponse create(CategoryRequest request) {
+	public CategoryResponse create(CategoryRequest request, User user) {
 		String trimmed = request.name().trim();
-		if (categoryRepository.existsByNameIgnoreCase(trimmed)) {
+		if (categoryRepository.existsByUserAndNameIgnoreCase(user, trimmed)) {
 			throw new IllegalArgumentException("Category already exists: " + request.name());
 		}
 		Category saved = categoryRepository.save(Category.builder()
 				.name(trimmed)
 				.icon(request.icon() != null ? request.icon().trim() : null)
+				.user(user)
 				.build());
 		return toResponse(saved);
 	}
 
 	@Transactional(readOnly = true)
-	public List<CategoryResponse> findAll() {
-		return categoryRepository.findAll().stream()
+	public List<CategoryResponse> findAll(User user) {
+		return categoryRepository.findAllByUser(user).stream()
 				.sorted((a, b) -> {
 					boolean aDef = isDefault(a.getName());
 					boolean bDef = isDefault(b.getName());
@@ -49,19 +51,19 @@ public class CategoryService {
 	}
 
 	@Transactional(readOnly = true)
-	public CategoryResponse findById(Long id) {
-		return categoryRepository.findById(id)
+	public CategoryResponse findById(Long id, User user) {
+		return categoryRepository.findByIdAndUser(id, user)
 				.map(this::toResponse)
 				.orElseThrow(() -> new ResourceNotFoundException("Category not found: " + id));
 	}
 
 	@Transactional
-	public CategoryResponse update(Long id, CategoryRequest request) {
-		Category existing = categoryRepository.findById(id)
+	public CategoryResponse update(Long id, CategoryRequest request, User user) {
+		Category existing = categoryRepository.findByIdAndUser(id, user)
 				.orElseThrow(() -> new ResourceNotFoundException("Category not found: " + id));
 
 		String trimmed = request.name().trim();
-		Category conflicting = categoryRepository.findByNameIgnoreCase(trimmed).orElse(null);
+		Category conflicting = categoryRepository.findByUserAndNameIgnoreCase(user, trimmed).orElse(null);
 		if (conflicting != null && !conflicting.getId().equals(existing.getId())) {
 			throw new IllegalArgumentException("Category already exists: " + request.name());
 		}
@@ -73,8 +75,8 @@ public class CategoryService {
 	}
 
 	@Transactional
-	public void delete(Long id) {
-		Category toDelete = categoryRepository.findById(id)
+	public void delete(Long id, User user) {
+		Category toDelete = categoryRepository.findByIdAndUser(id, user)
 				.orElseThrow(() -> new ResourceNotFoundException("Category not found: " + id));
 		if (isDefault(toDelete.getName())) {
 			throw new IllegalArgumentException("Default categories cannot be deleted");
@@ -82,7 +84,7 @@ public class CategoryService {
 
 		List<Expense> affected = expenseRepository.findByCategory_Id(toDelete.getId());
 		if (!affected.isEmpty()) {
-			Category fallback = getOrCreateByName(DEFAULT_CATEGORY);
+			Category fallback = getOrCreateByName(DEFAULT_CATEGORY, user);
 			affected.forEach(e -> e.setCategory(fallback));
 			expenseRepository.saveAll(affected);
 		}
@@ -91,13 +93,13 @@ public class CategoryService {
 	}
 
 	@Transactional
-	public void deleteAllExceptDefault() {
-		List<Category> toDelete = categoryRepository.findAll().stream()
+	public void deleteAllExceptDefault(User user) {
+		List<Category> toDelete = categoryRepository.findAllByUser(user).stream()
 				.filter(c -> !isDefault(c.getName()))
 				.toList();
 		if (toDelete.isEmpty()) return;
 
-		Category fallback = getOrCreateByName(DEFAULT_CATEGORY);
+		Category fallback = getOrCreateByName(DEFAULT_CATEGORY, user);
 		for (Category cat : toDelete) {
 			List<Expense> affected = expenseRepository.findByCategory_Id(cat.getId());
 			if (!affected.isEmpty()) {
@@ -113,10 +115,13 @@ public class CategoryService {
 	}
 
 	@Transactional
-	public Category getOrCreateByName(String categoryName) {
+	public Category getOrCreateByName(String categoryName, User user) {
 		String trimmed = categoryName.trim();
-		return categoryRepository.findByNameIgnoreCase(trimmed)
-				.orElseGet(() -> categoryRepository.save(Category.builder().name(trimmed).build()));
+		return categoryRepository.findByUserAndNameIgnoreCase(user, trimmed)
+				.orElseGet(() -> categoryRepository.save(Category.builder()
+						.name(trimmed)
+						.user(user)
+						.build()));
 	}
 
 	private CategoryResponse toResponse(Category c) {

@@ -12,13 +12,14 @@ import com.teng.app.gastosai.entity.SubscriptionStatus;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.entity.UserSubscription;
 import com.teng.app.gastosai.repository.BudgetRepository;
-import com.teng.app.gastosai.repository.CategoryRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import com.teng.app.gastosai.repository.RecurringExpenseRepository;
 import com.teng.app.gastosai.repository.SavingsGoalRepository;
 import com.teng.app.gastosai.repository.SubscriptionPlanRepository;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.repository.UserSubscriptionRepository;
+import com.teng.app.gastosai.service.CategorySeedService;
+import com.teng.app.gastosai.service.CategoryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -43,7 +44,8 @@ public class AppDataLoader implements ApplicationRunner {
 	private static final Logger log = LoggerFactory.getLogger(AppDataLoader.class);
 
 	private final ExpenseRepository expenseRepository;
-	private final CategoryRepository categoryRepository;
+	private final CategoryService categoryService;
+	private final CategorySeedService categorySeedService;
 	private final UserRepository userRepository;
 	private final BudgetRepository budgetRepository;
 	private final RecurringExpenseRepository recurringExpenseRepository;
@@ -59,7 +61,8 @@ public class AppDataLoader implements ApplicationRunner {
 
 	public AppDataLoader(
 			ExpenseRepository expenseRepository,
-			CategoryRepository categoryRepository,
+			CategoryService categoryService,
+			CategorySeedService categorySeedService,
 			UserRepository userRepository,
 			BudgetRepository budgetRepository,
 			RecurringExpenseRepository recurringExpenseRepository,
@@ -73,7 +76,8 @@ public class AppDataLoader implements ApplicationRunner {
 			@Value("${gastos.seed-sample-data:false}") boolean seedSampleData,
 			@Value("${gastos.admin.email:}") String adminEmail) {
 		this.expenseRepository = expenseRepository;
-		this.categoryRepository = categoryRepository;
+		this.categoryService = categoryService;
+		this.categorySeedService = categorySeedService;
 		this.userRepository = userRepository;
 		this.budgetRepository = budgetRepository;
 		this.recurringExpenseRepository = recurringExpenseRepository;
@@ -93,13 +97,13 @@ public class AppDataLoader implements ApplicationRunner {
 		if (seedSampleData) {
 			seedAll(getOrCreateDemoUser());
 		}
-		// Admin accounts always get sample data (regardless of seed flag) so testing has data.
 		if (adminEmail != null && !adminEmail.isBlank()) {
 			userRepository.findByEmail(adminEmail).ifPresent(this::seedAll);
 		}
 	}
 
 	private void seedAll(User user) {
+		categorySeedService.seedPredefinedForUser(user);
 		seedExpensesIfEmpty(user);
 		seedBudgetsIfEmpty(user);
 		seedRecurringIfEmpty(user);
@@ -117,8 +121,6 @@ public class AppDataLoader implements ApplicationRunner {
 			log.warn("Skipping demo subscription seed: PREMIUM plan not yet seeded");
 			return;
 		}
-		// Give the demo account an open-ended PREMIUM subscription so it stays fully featured even after
-		// monetization enforcement is enabled (currentPeriodEnd null = no expiry).
 		userSubscriptionRepository.save(UserSubscription.builder()
 				.user(demoUser)
 				.plan(premium)
@@ -150,11 +152,7 @@ public class AppDataLoader implements ApplicationRunner {
 		samples.forEach(sample -> {
 			String trimmed = sample.categoryName().trim();
 			byName.computeIfAbsent(trimmed, k ->
-					categoryRepository.findByNameIgnoreCase(k)
-							.orElseGet(() -> categoryRepository.save(
-									Category.builder()
-											.name(trimmed)
-											.build())));
+					categoryService.getOrCreateByName(trimmed, demoUser));
 		});
 
 		long expenseCount = expenseRepository.findAllByUserOrderByDateDesc(demoUser).size();
@@ -207,17 +205,15 @@ public class AppDataLoader implements ApplicationRunner {
 
 		int count = 0;
 		for (BudgetSeed seed : seeds) {
-			if (categoryRepository.findByNameIgnoreCase(seed.categoryName()).isPresent()) {
-				Category cat = categoryRepository.findByNameIgnoreCase(seed.categoryName()).get();
-				budgetRepository.save(Budget.builder()
-						.user(user)
-						.category(cat)
-						.month(currentMonth)
-						.amountLimit(new BigDecimal(seed.amount()))
-						.amountLimitInBaseCurrency(new BigDecimal(seed.amount()))
-						.build());
-				count++;
-			}
+			Category cat = categoryService.getOrCreateByName(seed.categoryName(), user);
+			budgetRepository.save(Budget.builder()
+					.user(user)
+					.category(cat)
+					.month(currentMonth)
+					.amountLimit(new BigDecimal(seed.amount()))
+					.amountLimitInBaseCurrency(new BigDecimal(seed.amount()))
+					.build());
+			count++;
 		}
 		log.info("Loaded {} sample budgets for demo user ({})", count, currentMonth);
 	}
@@ -267,7 +263,7 @@ public class AppDataLoader implements ApplicationRunner {
 
 		int count = 0;
 		for (RecurringSeed seed : seeds) {
-			Category cat = categoryRepository.findByNameIgnoreCase(seed.categoryName()).orElse(null);
+			Category cat = categoryService.getOrCreateByName(seed.categoryName(), user);
 			recurringExpenseRepository.save(RecurringExpense.builder()
 					.user(user)
 					.name(seed.name())

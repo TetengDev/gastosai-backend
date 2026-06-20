@@ -208,8 +208,8 @@ class ChatActionServiceIntegrationTest {
 
     @Test
     void deleteExpenses_withoutExecuteMode_returnsPreview() throws Exception {
-        Category food = categoryRepository.findByNameIgnoreCase("Food")
-                .orElseGet(() -> categoryRepository.save(Category.builder().name("Food").build()));
+        Category food = categoryRepository.findByUserAndNameIgnoreCase(user1, "Food")
+                .orElseGet(() -> categoryRepository.save(Category.builder().name("Food").user(user1).build()));
         Expense e = expenseRepository.save(Expense.builder()
                 .user(user1)
                 .amount(new BigDecimal("100"))
@@ -232,8 +232,8 @@ class ChatActionServiceIntegrationTest {
 
     @Test
     void deleteExpenses_withExecuteMode_deletesAndReturnsCount() throws Exception {
-        Category food = categoryRepository.findByNameIgnoreCase("Food")
-                .orElseGet(() -> categoryRepository.save(Category.builder().name("Food").build()));
+        Category food = categoryRepository.findByUserAndNameIgnoreCase(user1, "Food")
+                .orElseGet(() -> categoryRepository.save(Category.builder().name("Food").user(user1).build()));
         Expense e = expenseRepository.save(Expense.builder()
                 .user(user1)
                 .amount(new BigDecimal("100"))
@@ -257,8 +257,8 @@ class ChatActionServiceIntegrationTest {
 
     @Test
     void deleteExpenses_anotherUsersIds_deletesNothing() throws Exception {
-        Category food = categoryRepository.findByNameIgnoreCase("Food")
-                .orElseGet(() -> categoryRepository.save(Category.builder().name("Food").build()));
+        Category food = categoryRepository.findByUserAndNameIgnoreCase(user2, "Food")
+                .orElseGet(() -> categoryRepository.save(Category.builder().name("Food").user(user2).build()));
         Expense othersExpense = expenseRepository.save(Expense.builder()
                 .user(user2)
                 .amount(new BigDecimal("100"))

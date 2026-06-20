@@ -20,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -52,7 +53,7 @@ class CsvImportServiceTest {
                 + "2026-06-01,500.00,Food,Lunch\n"
                 + "2026-06-02,200.50,Transport,Grab\n";
 
-        when(categoryService.getOrCreateByName(anyString())).thenAnswer(inv ->
+        when(categoryService.getOrCreateByName(anyString(), any())).thenAnswer(inv ->
                 category(inv.getArgument(0)));
 
         ImportResult result = csvImportService.importCsv(csv(content), user());
@@ -107,7 +108,7 @@ class CsvImportServiceTest {
         String content = "date,amount,category\n"
                 + "2026-06-01,₱1500.00,Food\n";
 
-        when(categoryService.getOrCreateByName(anyString())).thenReturn(category("Food"));
+        when(categoryService.getOrCreateByName(anyString(), any())).thenReturn(category("Food"));
 
         ImportResult result = csvImportService.importCsv(csv(content), user());
 
@@ -121,12 +122,12 @@ class CsvImportServiceTest {
         String content = "date,amount,description\n"
                 + "2026-06-01,100.00,Misc\n";
 
-        when(categoryService.getOrCreateByName("Uncategorized")).thenReturn(category("Uncategorized"));
+        when(categoryService.getOrCreateByName(eq("Uncategorized"), any())).thenReturn(category("Uncategorized"));
 
         ImportResult result = csvImportService.importCsv(csv(content), user());
 
         assertThat(result.imported()).isEqualTo(1);
-        verify(categoryService).getOrCreateByName("Uncategorized");
+        verify(categoryService).getOrCreateByName(eq("Uncategorized"), any());
     }
 
     // --- invalid amount format → error row ---
@@ -153,7 +154,7 @@ class CsvImportServiceTest {
                 + "2026-06-03,bad,Food\n"         // error
                 + "2026-06-04,200.00,Transport\n"; // imported
 
-        when(categoryService.getOrCreateByName(anyString())).thenAnswer(inv ->
+        when(categoryService.getOrCreateByName(anyString(), any())).thenAnswer(inv ->
                 category(inv.getArgument(0)));
 
         ImportResult result = csvImportService.importCsv(csv(content), user());
@@ -170,7 +171,7 @@ class CsvImportServiceTest {
         String content = "date,amount,category\n"
                 + "06/14/2026,300.00,Food\n";
 
-        when(categoryService.getOrCreateByName(anyString())).thenReturn(category("Food"));
+        when(categoryService.getOrCreateByName(anyString(), any())).thenReturn(category("Food"));
 
         ImportResult result = csvImportService.importCsv(csv(content), user());
 
@@ -182,7 +183,7 @@ class CsvImportServiceTest {
         String content = "amount,category\n"
                 + "100.00,Food\n";
 
-        when(categoryService.getOrCreateByName(anyString())).thenReturn(category("Food"));
+        when(categoryService.getOrCreateByName(anyString(), any())).thenReturn(category("Food"));
 
         ImportResult result = csvImportService.importCsv(csv(content), user());
 
@@ -210,7 +211,7 @@ class CsvImportServiceTest {
                 + "2026-06-01,500.00,Food\n"
                 + "2026-06-02,200.00,Transport\n";
 
-        when(categoryService.getOrCreateByName(anyString())).thenAnswer(inv -> category(inv.getArgument(0)));
+        when(categoryService.getOrCreateByName(anyString(), any())).thenAnswer(inv -> category(inv.getArgument(0)));
 
         ImportResult result = csvImportService.importCsv(csv(content), user(), true);
 

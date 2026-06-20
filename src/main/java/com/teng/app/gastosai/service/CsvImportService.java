@@ -136,7 +136,7 @@ public class CsvImportService {
 	}
 
 	private void persist(PendingRow row, User user) {
-		Category category = categoryService.getOrCreateByName(row.categoryName());
+		Category category = categoryService.getOrCreateByName(row.categoryName(), user);
 		expenseRepository.save(Expense.builder()
 				.amount(row.amount())
 				.user(user)
