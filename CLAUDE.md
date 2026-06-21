@@ -35,7 +35,7 @@ API docs available at `http://localhost:8080/swagger-ui.html` when running.
 
 ## Architecture
 
-Spring Boot 4.0.5 / Java 25 REST API. PostgreSQL via JPA/Hibernate with DDL auto-creation on startup. Tests use H2 in-memory.
+Spring Boot 4.1 / Java 25 REST API. PostgreSQL via JPA/Hibernate; schema is managed by **Flyway** (migrations V1–V13) with `ddl-auto=validate`. Tests use H2 in-memory (Flyway off in tests — schema derived from entities).
 
 **Request flow:** `Controller → Service → Repository`. The AI query flow deviates: `AiController → AiQueryService → SqlGenerator (Claude or OpenAI) → SqlGuard validation → raw JDBC execution → formatted response`.
 
@@ -45,7 +45,7 @@ Spring Boot 4.0.5 / Java 25 REST API. PostgreSQL via JPA/Hibernate with DDL auto
 
 **AI provider config** is split into `ClaudeProperties`, `OpenAiProperties` (model + API key), and `AiProviderProperties` (which provider to activate), all bound via `@ConfigurationProperties`.
 
-**Domain model**: three entities — `Expense` (amount `BigDecimal(19,4)`, date `LocalDateTime`, description `String`, FK to Category), `Category` (unique name `String(50)`, icon `String(50)` nullable), `User` (email unique, name, nickname, avatarColor `String(20)`, password BCrypt, createdAt). JWT is issued on login, register, and profile update; subject = email. `CategoryService` auto-creates a category by name when creating an expense if it doesn't exist, and reassigns expenses to Uncategorized on category delete.
+**Domain model** (core entities): `Expense` (amount `BigDecimal(19,4)`, date, description, FK to Category + User), `Category` (per-user, unique on `(user_id, name)`, icon), `User` (email unique, name, nickname, avatarColor, BCrypt password, role). Plus `Budget`, `SavingsGoal`, `RecurringExpense`, `Alert`, `AiUsage`, `MagicLinkToken`, `Submission`, `Conversation`/`ChatMessage` (chat history). JWT is issued on login, register, and profile update; subject = email. `CategoryService.getOrCreateByName()` auto-creates a per-user category when creating an expense; deleting a category reassigns that user's expenses to Uncategorized.
 
 **Reporting**: `ExpenseRepository` has JPQL queries for monthly aggregation (year/month + total) and category aggregation (category name + total), surfaced via `GET /expenses/report/monthly` and `GET /expenses/report/category`.
 
