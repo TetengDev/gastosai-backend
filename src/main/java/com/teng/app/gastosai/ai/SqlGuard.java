@@ -40,8 +40,13 @@ public final class SqlGuard {
 			throw new IllegalArgumentException("SQL must query the expenses table");
 		}
 		// Reject subqueries/derived tables (a second SELECT). The fallback path scopes results to the
-		// user by inserting a WHERE/AND user_id filter into this SQL; that is only sound on a single
-		// flat SELECT. CTEs are already excluded by the leading-SELECT requirement above.
+		// user by inserting a WHERE/AND user_id filter into this SQL (AiQueryService.appendUserFilter);
+		// that string surgery is only sound on a single flat SELECT. CTEs are already excluded by the
+		// leading-SELECT requirement above.
+		// TENANT-ISOLATION COUPLING: relaxing this single-SELECT / no-subquery rule (or any FORBIDDEN
+		// pattern) can let appendUserFilter attach the scope to the wrong query and leak other users'
+		// rows. Any such change REQUIRES a paired review of appendUserFilter + a new cross-user
+		// regression test (see AiQueryFallbackTenantIsolationTest). Do not modify without second review.
 		if (countSelects(s) > 1) {
 			throw new IllegalArgumentException("Nested SELECTs / subqueries are not allowed");
 		}

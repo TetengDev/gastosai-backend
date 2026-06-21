@@ -7,6 +7,7 @@ import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.ai.SqlGuard;
 import com.teng.app.gastosai.ai.query.AnalyticsQueryPlan;
 import com.teng.app.gastosai.ai.query.AnalyticsQueryPlanner;
+import com.teng.app.gastosai.ai.query.GuardedFallbackExecutor;
 import com.teng.app.gastosai.ai.query.QueryIntent;
 import com.teng.app.gastosai.ai.query.QueryIntentValidator;
 import com.teng.app.gastosai.ai.query.SafeAnalyticsExecutor;
@@ -21,7 +22,6 @@ import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -41,7 +41,7 @@ public class AiQueryService {
 			"I couldn't run that query right now. Try rephrasing — for example: 'total spent this month' or 'expenses by category this month'.";
 
 	private final SqlGenerator sqlGenerator;
-	private final JdbcTemplate jdbcTemplate;
+	private final GuardedFallbackExecutor guardedFallbackExecutor;
 	private final QueryIntentValidator queryIntentValidator;
 	private final AnalyticsQueryPlanner analyticsQueryPlanner;
 	private final SafeAnalyticsExecutor safeAnalyticsExecutor;
@@ -124,7 +124,7 @@ public class AiQueryService {
 		// SQL may embed user identifiers / value literals — keep it at DEBUG, not INFO.
 		log.debug("AI-generated SQL (user-scoped): {}", scopedSql);
 		try {
-			return jdbcTemplate.queryForList(scopedSql);
+			return guardedFallbackExecutor.run(scopedSql);
 		} catch (DataAccessException e) {
 			log.warn("AI query execution failed: {}", e.getMessage());
 			log.debug("Failed SQL: {}", scopedSql);
@@ -163,6 +163,10 @@ public class AiQueryService {
 		return text.length() > max ? text.substring(0, max) : text;
 	}
 
+	// TENANT-ISOLATION COUPLING: this string surgery is sound ONLY because SqlGuard guarantees a
+	// single flat SELECT with no subqueries/UNION. If SqlGuard's SELECT/subquery rules are ever
+	// relaxed, this method can attach the user_id scope to the wrong query and leak other users'
+	// rows — change both together and extend AiQueryFallbackTenantIsolationTest. See SqlGuard.
 	private static String appendUserFilter(String sql, Long userId) {
 		String s = sql.trim().replaceAll("\\s+", " ");
 		String lower = s.toLowerCase();
