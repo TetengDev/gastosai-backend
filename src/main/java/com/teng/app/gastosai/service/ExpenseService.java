@@ -6,6 +6,7 @@ import com.teng.app.gastosai.dto.ExpenseRequest;
 import com.teng.app.gastosai.dto.ExpenseResponse;
 import com.teng.app.gastosai.dto.MonthlyComparisonResponse;
 import com.teng.app.gastosai.dto.MonthlyReportItem;
+import com.teng.app.gastosai.dto.PageResponse;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
 import com.teng.app.gastosai.entity.ExpenseType;
@@ -16,7 +17,9 @@ import lombok.RequiredArgsConstructor;
 import org.apache.commons.csv.CSVFormat;
 import org.springframework.cache.annotation.CacheEvict;
 import org.apache.commons.csv.CSVPrinter;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -179,6 +182,40 @@ public class ExpenseService {
 					: expenseRepository.findAllByUserAndDateLessThanOrderByDateDesc(user, toDt);
 		}
 		return expenses.stream().map(this::toResponse).toList();
+	}
+
+	private static final int MAX_PAGE_SIZE = 100;
+	private static final int DEFAULT_PAGE_SIZE = 50;
+
+	@Transactional(readOnly = true)
+	public PageResponse<ExpenseResponse> findPage(User user, LocalDate from, LocalDate to, int page, int size) {
+		int safeSize = (size <= 0) ? DEFAULT_PAGE_SIZE : Math.min(size, MAX_PAGE_SIZE);
+		int safePage = Math.max(page, 0);
+		Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "date"));
+
+		Page<Expense> result;
+		if (from == null && to == null) {
+			result = user.isAdmin()
+					? expenseRepository.findAll(pageable)
+					: expenseRepository.findByUser(user, pageable);
+		} else if (from != null && to != null) {
+			LocalDateTime fromDt = from.atStartOfDay();
+			LocalDateTime toDt = to.plusDays(1).atStartOfDay();
+			result = user.isAdmin()
+					? expenseRepository.findByDateGreaterThanEqualAndDateLessThan(fromDt, toDt, pageable)
+					: expenseRepository.findByUserAndDateGreaterThanEqualAndDateLessThan(user, fromDt, toDt, pageable);
+		} else if (from != null) {
+			LocalDateTime fromDt = from.atStartOfDay();
+			result = user.isAdmin()
+					? expenseRepository.findByDateGreaterThanEqual(fromDt, pageable)
+					: expenseRepository.findByUserAndDateGreaterThanEqual(user, fromDt, pageable);
+		} else {
+			LocalDateTime toDt = to.plusDays(1).atStartOfDay();
+			result = user.isAdmin()
+					? expenseRepository.findByDateLessThan(toDt, pageable)
+					: expenseRepository.findByUserAndDateLessThan(user, toDt, pageable);
+		}
+		return PageResponse.of(result.map(this::toResponse));
 	}
 
 	@Transactional(readOnly = true)
