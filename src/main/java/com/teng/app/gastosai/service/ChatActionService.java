@@ -27,6 +27,7 @@ import com.teng.app.gastosai.dto.UserProfileRequest;
 import com.teng.app.gastosai.entity.AiUsageStatus;
 import com.teng.app.gastosai.entity.Budget;
 import com.teng.app.gastosai.entity.Category;
+import com.teng.app.gastosai.entity.Conversation;
 import com.teng.app.gastosai.entity.Expense;
 import com.teng.app.gastosai.entity.Frequency;
 import com.teng.app.gastosai.entity.RecurringExpense;
@@ -89,6 +90,24 @@ public class ChatActionService {
 	private final AiProviderProperties aiProviderProperties;
 	private final OpenAiProperties openAiProperties;
 	private final ClaudeProperties claudeProperties;
+	private final ConversationService conversationService;
+
+	/**
+	 * Conversation-aware entry point: runs the stateless {@link #dispatch(String, String, User)} and then
+	 * persists the turn under the given (or a newly created) conversation, returning the response tagged
+	 * with its conversation id. Persistence failures never fail the chat — they are logged and swallowed.
+	 */
+	public ChatResponse dispatch(String message, String mode, User user, Long conversationId) {
+		ChatResponse response = dispatch(message, mode, user);
+		try {
+			Conversation conversation = conversationService.getOrCreate(user, conversationId);
+			conversationService.recordTurn(conversation, aiRedactionService.redact(message), response);
+			return response.withConversation(conversation.getId());
+		} catch (Exception e) {
+			log.warn("chat_history_persist_failed", e);
+			return response;
+		}
+	}
 
 	public ChatResponse dispatch(String message, String mode, User user) {
 		aiQuotaService.assertWithinQuota(user, AiFeature.CHAT_CRUD_ASSISTANT);

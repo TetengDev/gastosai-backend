@@ -67,7 +67,7 @@ public class AiController {
 	public ResponseEntity<ChatResponse> chat(@Valid @RequestBody ChatRequest req,
 			@AuthenticationPrincipal User user) {
 		return ResponseEntity.ok(llmCircuitBreaker.execute(
-				() -> chatActionService.dispatch(req.message(), req.mode(), user),
+				() -> chatActionService.dispatch(req.message(), req.mode(), user, req.conversationId()),
 				() -> new ChatResponse("text", DEGRADED_MESSAGE, null)));
 	}
 }
