@@ -5,6 +5,8 @@ import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.dto.ChatResponse;
 import com.teng.app.gastosai.entity.Conversation;
 import com.teng.app.gastosai.entity.User;
+import com.teng.app.gastosai.entity.AiUsageStatus;
+import com.teng.app.gastosai.repository.ChatAuditLogRepository;
 import com.teng.app.gastosai.repository.ConversationRepository;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.service.ChatActionService;
@@ -25,6 +27,7 @@ class ChatContextResolutionTest {
 	@Autowired ChatActionService chatActionService;
 	@Autowired UserRepository userRepository;
 	@Autowired ConversationRepository conversationRepository;
+	@Autowired ChatAuditLogRepository chatAuditLogRepository;
 
 	@MockitoBean SqlGenerator sqlGenerator;
 
@@ -32,6 +35,7 @@ class ChatContextResolutionTest {
 
 	@BeforeEach
 	void setUp() {
+		chatAuditLogRepository.deleteAll();
 		conversationRepository.deleteAll();
 		userRepository.deleteAll();
 		user = userRepository.save(User.builder().name("Ctx").email("ctx@test.com").password("x").build());
@@ -48,6 +52,11 @@ class ChatContextResolutionTest {
 		Conversation conv = conversationRepository.findById(res.conversationId()).orElseThrow();
 		assertThat(conv.getLastEntityType()).isEqualTo("expense");
 		assertThat(conv.getLastEntityId()).isNotNull();
+
+		var audit = chatAuditLogRepository.findByUserIdOrderByCreatedAtDesc(user.getId());
+		assertThat(audit).hasSize(1);
+		assertThat(audit.get(0).getToolName()).isEqualTo("create_expense");
+		assertThat(audit.get(0).getStatus()).isEqualTo(AiUsageStatus.SUCCESS);
 	}
 
 	@Test

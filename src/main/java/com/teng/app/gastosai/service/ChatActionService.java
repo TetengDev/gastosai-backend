@@ -91,6 +91,7 @@ public class ChatActionService {
 	private final OpenAiProperties openAiProperties;
 	private final ClaudeProperties claudeProperties;
 	private final ConversationService conversationService;
+	private final ChatAuditService chatAuditService;
 
 	/**
 	 * Conversation-aware entry point: runs the stateless {@link #dispatch(String, String, User)} and then
@@ -107,7 +108,8 @@ public class ChatActionService {
 			log.warn("chat_context_load_failed", e);
 		}
 
-		ChatResponse response = dispatch(effectiveMessage, mode, user);
+		ChatResponse response = dispatchCore(effectiveMessage, mode, user,
+				conversation != null ? conversation.getId() : null);
 
 		if (conversation != null) {
 			try {
@@ -150,6 +152,10 @@ public class ChatActionService {
 	}
 
 	public ChatResponse dispatch(String message, String mode, User user) {
+		return dispatchCore(message, mode, user, null);
+	}
+
+	private ChatResponse dispatchCore(String message, String mode, User user, Long conversationId) {
 		aiQuotaService.assertWithinQuota(user, AiFeature.CHAT_CRUD_ASSISTANT);
 		int max = aiManagedProperties.getMaxPromptChars();
 		String safeMessage = aiRedactionService.redact(message);
@@ -157,15 +163,18 @@ public class ChatActionService {
 			safeMessage = safeMessage.substring(0, max);
 		}
 		final String finalMessage = safeMessage;
+		ChatTool resolvedTool = ChatTool.TEXT;
 		try {
 			ChatToolCall call = sqlGenerator.classifyIntent(finalMessage);
 			ChatTool tool = ChatTool.fromKey(call.toolName());
+			resolvedTool = tool;
 
 			if (tool == ChatTool.TEXT) {
 				// best-effort: provider usage not surfaced here yet (TODO wire tokens)
 				aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
 						resolveModel(), AiFeature.CHAT_CRUD_ASSISTANT,
 						null, null, AiUsageStatus.SUCCESS, null);
+				chatAuditService.record(user.getId(), conversationId, tool.key(), AiUsageStatus.SUCCESS, null);
 				return new ChatResponse("text", call.paramsJson(), null);
 			}
 
@@ -178,6 +187,7 @@ public class ChatActionService {
 				aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
 						resolveModel(), AiFeature.CHAT_CRUD_ASSISTANT,
 						null, null, AiUsageStatus.SUCCESS, null);
+				chatAuditService.record(user.getId(), conversationId, tool.key(), AiUsageStatus.SUCCESS, "preview");
 				return new ChatResponse("preview", buildPreviewMessage(tool, params), previewData);
 			}
 
@@ -219,12 +229,14 @@ public class ChatActionService {
 			aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
 					resolveModel(), AiFeature.CHAT_CRUD_ASSISTANT,
 					null, null, AiUsageStatus.SUCCESS, null);
+			chatAuditService.record(user.getId(), conversationId, tool.key(), AiUsageStatus.SUCCESS, null);
 			return response;
 		}
 		catch (ResourceNotFoundException e) {
 			aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
 					resolveModel(), AiFeature.CHAT_CRUD_ASSISTANT,
 					null, null, AiUsageStatus.FAILED, "ResourceNotFoundException");
+			chatAuditService.record(user.getId(), conversationId, resolvedTool.key(), AiUsageStatus.FAILED, "ResourceNotFoundException");
 			return new ChatResponse("text", "I couldn't find that item.", null);
 		}
 		catch (Exception e) {
@@ -232,6 +244,7 @@ public class ChatActionService {
 			aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
 					resolveModel(), AiFeature.CHAT_CRUD_ASSISTANT,
 					null, null, AiUsageStatus.FAILED, e.getClass().getSimpleName());
+			chatAuditService.record(user.getId(), conversationId, resolvedTool.key(), AiUsageStatus.FAILED, e.getClass().getSimpleName());
 			return new ChatResponse("text", "Something went wrong while handling that. Please rephrase and try again.", null);
 		}
 	}
