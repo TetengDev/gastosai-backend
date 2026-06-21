@@ -56,6 +56,7 @@ public class SecurityConfig {
 						.requestMatchers(HttpMethod.POST, "/submissions").permitAll()
 						.requestMatchers(HttpMethod.GET, "/submissions").hasRole("ADMIN")
 						.requestMatchers("/submissions/**").hasRole("ADMIN")
+						.requestMatchers("/admin/**").hasRole("ADMIN")
 						.anyRequest().authenticated()
 				)
 				.exceptionHandling(e -> e
