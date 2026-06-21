@@ -202,11 +202,13 @@ class ExpenseApiIntegrationTest {
 	}
 
 	@Test
-	void page_nonNumericSize_returns400() throws Exception {
+	void page_nonNumericSize_returns400_withoutEchoingInput() throws Exception {
 		mockMvc.perform(get("/expenses/page")
 						.header("Authorization", authHeader)
 						.param("size", "abc"))
-				.andExpect(status().isBadRequest());
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.detail").value("Invalid value for parameter 'size'."))
+				.andExpect(content().string(org.hamcrest.Matchers.not(containsString("abc"))));
 	}
 
 	@Test

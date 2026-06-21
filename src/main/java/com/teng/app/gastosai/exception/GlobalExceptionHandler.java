@@ -11,6 +11,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.stream.Collectors;
@@ -72,6 +73,15 @@ public class GlobalExceptionHandler {
 	public ResponseEntity<ProblemDetail> missingParam(MissingServletRequestParameterException ex) {
 		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST,
 				"Required parameter '" + ex.getParameterName() + "' is missing");
+		pd.setTitle("Bad Request");
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd);
+	}
+
+	@ExceptionHandler(MethodArgumentTypeMismatchException.class)
+	public ResponseEntity<ProblemDetail> typeMismatch(MethodArgumentTypeMismatchException ex) {
+		// Generic message — do not echo the raw rejected input value back to the client.
+		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST,
+				"Invalid value for parameter '" + ex.getName() + "'.");
 		pd.setTitle("Bad Request");
 		return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd);
 	}
