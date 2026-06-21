@@ -3,6 +3,7 @@ package com.teng.app.gastosai;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.ai.query.AnalyticsQueryPlan;
 import com.teng.app.gastosai.ai.query.AnalyticsQueryPlanner;
+import com.teng.app.gastosai.ai.query.GuardedFallbackExecutor;
 import com.teng.app.gastosai.ai.query.DateRange;
 import com.teng.app.gastosai.ai.query.Metric;
 import com.teng.app.gastosai.ai.query.QueryIntent;
@@ -26,7 +27,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -45,7 +45,7 @@ import static org.mockito.Mockito.when;
 class AiQueryServiceTest {
 
     @Mock SqlGenerator sqlGenerator;
-    @Mock JdbcTemplate jdbcTemplate;
+    @Mock GuardedFallbackExecutor guardedFallbackExecutor;
     @Mock QueryIntentValidator queryIntentValidator;
     @Mock AnalyticsQueryPlanner analyticsQueryPlanner;
     @Mock SafeAnalyticsExecutor safeAnalyticsExecutor;
@@ -77,7 +77,7 @@ class AiQueryServiceTest {
     @Test
     void query_nonAdmin_appendsUserFilter() {
         when(sqlGenerator.generateSql(anyString())).thenReturn("SELECT * FROM expenses");
-        when(jdbcTemplate.queryForList(anyString())).thenReturn(List.of());
+        when(guardedFallbackExecutor.run(anyString())).thenReturn(List.of());
         when(sqlGenerator.generateSummary(anyString(), anyString(), anyString())).thenReturn("none");
 
         AiQueryResponse r = aiQueryService.runNaturalLanguageQuery("test", "plain", user(false));
@@ -88,7 +88,7 @@ class AiQueryServiceTest {
     void query_admin_isAlsoUserScoped() {
         when(sqlGenerator.generateSql(anyString())).thenReturn("SELECT * FROM expenses");
         org.mockito.ArgumentCaptor<String> sqlCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
-        when(jdbcTemplate.queryForList(sqlCaptor.capture())).thenReturn(List.of(Map.of("total", BigDecimal.TEN)));
+        when(guardedFallbackExecutor.run(sqlCaptor.capture())).thenReturn(List.of(Map.of("total", BigDecimal.TEN)));
         when(sqlGenerator.generateSummary(anyString(), anyString(), anyString())).thenReturn("ok");
 
         aiQueryService.runNaturalLanguageQuery("test", "plain", user(true));
@@ -100,7 +100,7 @@ class AiQueryServiceTest {
     @Test
     void query_admin_executesViaFallback() {
         when(sqlGenerator.generateSql(anyString())).thenReturn("SELECT * FROM expenses");
-        when(jdbcTemplate.queryForList(anyString())).thenReturn(List.of(Map.of("total", BigDecimal.TEN)));
+        when(guardedFallbackExecutor.run(anyString())).thenReturn(List.of(Map.of("total", BigDecimal.TEN)));
         when(sqlGenerator.generateSummary(anyString(), anyString(), anyString())).thenReturn("ok");
 
         AiQueryResponse r = aiQueryService.runNaturalLanguageQuery("test", "plain", user(true));
@@ -111,7 +111,7 @@ class AiQueryServiceTest {
     void query_existingWhereClause_appendsAnd() {
         when(sqlGenerator.generateSql(anyString()))
                 .thenReturn("SELECT * FROM expenses WHERE amount > 0");
-        when(jdbcTemplate.queryForList(anyString())).thenReturn(List.of());
+        when(guardedFallbackExecutor.run(anyString())).thenReturn(List.of());
         when(sqlGenerator.generateSummary(any(), any(), any())).thenReturn("ok");
 
         aiQueryService.runNaturalLanguageQuery("test", "plain", user(false));
@@ -121,7 +121,7 @@ class AiQueryServiceTest {
     void query_withGroupBy_filterInsertedBeforeGroupBy() {
         when(sqlGenerator.generateSql(anyString()))
                 .thenReturn("SELECT category, SUM(amount) FROM expenses GROUP BY category");
-        when(jdbcTemplate.queryForList(anyString())).thenReturn(List.of());
+        when(guardedFallbackExecutor.run(anyString())).thenReturn(List.of());
         when(sqlGenerator.generateSummary(any(), any(), any())).thenReturn("ok");
 
         aiQueryService.runNaturalLanguageQuery("test", null, user(false));
@@ -150,7 +150,7 @@ class AiQueryServiceTest {
         when(sqlGenerator.classifyQueryIntentJson(anyString())).thenReturn("{\"metric\":\"BOGUS\"}");
         when(queryIntentValidator.parse(anyString())).thenReturn(Optional.empty());
         when(sqlGenerator.generateSql(anyString())).thenReturn("SELECT SUM(amount) FROM expenses");
-        when(jdbcTemplate.queryForList(anyString())).thenReturn(List.of());
+        when(guardedFallbackExecutor.run(anyString())).thenReturn(List.of());
         when(sqlGenerator.generateSummary(any(), any(), any())).thenReturn("fallback");
 
         AiQueryResponse r = aiQueryService.runNaturalLanguageQuery("weird question", "plain", user(false));
@@ -162,7 +162,7 @@ class AiQueryServiceTest {
     @Test
     void query_singleScalarRow_returnsFormattedValue() {
         when(sqlGenerator.generateSql(anyString())).thenReturn("SELECT SUM(amount) FROM expenses");
-        when(jdbcTemplate.queryForList(anyString()))
+        when(guardedFallbackExecutor.run(anyString()))
                 .thenReturn(List.of(Map.of("sum", new BigDecimal("123.456"))));
         when(sqlGenerator.generateSummary(any(), any(), any())).thenReturn("123.46");
 
