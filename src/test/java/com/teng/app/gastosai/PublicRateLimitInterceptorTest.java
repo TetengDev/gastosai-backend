@@ -1,5 +1,6 @@
 package com.teng.app.gastosai;
 
+import com.teng.app.gastosai.config.InMemoryRateLimiterStore;
 import com.teng.app.gastosai.config.PublicRateLimitInterceptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,7 +15,7 @@ class PublicRateLimitInterceptorTest {
 
     @BeforeEach
     void setUp() {
-        interceptor = new PublicRateLimitInterceptor(3);
+        interceptor = new PublicRateLimitInterceptor(3, new InMemoryRateLimiterStore());
     }
 
     private MockHttpServletResponse response() {
