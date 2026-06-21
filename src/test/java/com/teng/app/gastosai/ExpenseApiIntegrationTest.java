@@ -120,6 +120,46 @@ class ExpenseApiIntegrationTest {
 	}
 
 	@Test
+	void page_returnsPagedEnvelopeAndMetadata() throws Exception {
+		for (int i = 1; i <= 3; i++) {
+			mockMvc.perform(post("/expenses")
+							.header("Authorization", authHeader)
+							.contentType(MediaType.APPLICATION_JSON)
+							.content("{\"amount\": %d.00, \"category\": \"Food\", \"date\": \"2026-04-0%dT00:00:00\", \"description\": \"e%d\"}".formatted(i, i, i)))
+					.andExpect(status().isCreated());
+		}
+
+		mockMvc.perform(get("/expenses/page")
+						.header("Authorization", authHeader)
+						.param("page", "0")
+						.param("size", "2"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.content.length()").value(2))
+				.andExpect(jsonPath("$.totalElements").value(3))
+				.andExpect(jsonPath("$.totalPages").value(2))
+				.andExpect(jsonPath("$.page").value(0))
+				.andExpect(jsonPath("$.size").value(2))
+				.andExpect(jsonPath("$.last").value(false));
+
+		mockMvc.perform(get("/expenses/page")
+						.header("Authorization", authHeader)
+						.param("page", "1")
+						.param("size", "2"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.content.length()").value(1))
+				.andExpect(jsonPath("$.last").value(true));
+	}
+
+	@Test
+	void page_capsSizeAt100() throws Exception {
+		mockMvc.perform(get("/expenses/page")
+						.header("Authorization", authHeader)
+						.param("size", "500"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.size").value(100));
+	}
+
+	@Test
 	void monthlyComparison_returnsExpectedFields() throws Exception {
 		mockMvc.perform(get("/expenses/report/monthly-comparison")
 						.header("Authorization", authHeader)

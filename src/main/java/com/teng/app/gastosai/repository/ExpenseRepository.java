@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
@@ -17,6 +18,22 @@ import java.util.Optional;
 public interface ExpenseRepository extends JpaRepository<Expense, Long> {
 
 	List<Expense> findAllByUserOrderByDateDesc(User user);
+
+	// Paged variants (sort supplied via Pageable). Non-admin scoped by user; admin uses date-only /
+	// findAll(Pageable) to mirror ExpenseService.findAll's admin-sees-all behavior.
+	Page<Expense> findByUser(User user, Pageable pageable);
+
+	Page<Expense> findByUserAndDateGreaterThanEqualAndDateLessThan(User user, LocalDateTime from, LocalDateTime to, Pageable pageable);
+
+	Page<Expense> findByUserAndDateGreaterThanEqual(User user, LocalDateTime from, Pageable pageable);
+
+	Page<Expense> findByUserAndDateLessThan(User user, LocalDateTime to, Pageable pageable);
+
+	Page<Expense> findByDateGreaterThanEqualAndDateLessThan(LocalDateTime from, LocalDateTime to, Pageable pageable);
+
+	Page<Expense> findByDateGreaterThanEqual(LocalDateTime from, Pageable pageable);
+
+	Page<Expense> findByDateLessThan(LocalDateTime to, Pageable pageable);
 
 	Optional<Expense> findByIdAndUser(Long id, User user);
 

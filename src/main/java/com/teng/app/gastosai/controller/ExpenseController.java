@@ -8,6 +8,7 @@ import com.teng.app.gastosai.dto.ExpenseResponse;
 import com.teng.app.gastosai.dto.ImportResult;
 import com.teng.app.gastosai.dto.MonthlyComparisonResponse;
 import com.teng.app.gastosai.dto.MonthlyReportItem;
+import com.teng.app.gastosai.dto.PageResponse;
 import com.teng.app.gastosai.dto.ParseExpenseRequest;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
 import com.teng.app.gastosai.config.RequiresFeature;
@@ -60,6 +61,16 @@ public class ExpenseController {
 			@RequestParam(required = false) LocalDate to,
 			@AuthenticationPrincipal User user) {
 		return expenseService.findAll(user, from, to);
+	}
+
+	@GetMapping("/page")
+	public PageResponse<ExpenseResponse> page(
+			@RequestParam(defaultValue = "0") int page,
+			@RequestParam(defaultValue = "50") int size,
+			@RequestParam(required = false) LocalDate from,
+			@RequestParam(required = false) LocalDate to,
+			@AuthenticationPrincipal User user) {
+		return expenseService.findPage(user, from, to, page, size);
 	}
 
 	@GetMapping("/{id}")
