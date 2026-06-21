@@ -28,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -48,6 +49,7 @@ class MagicLinkServiceTest {
     void setup() {
         ReflectionTestUtils.setField(magicLinkService, "ttlMinutes", 15);
         ReflectionTestUtils.setField(magicLinkService, "frontendBaseUrl", "http://localhost:5173");
+        ReflectionTestUtils.setField(magicLinkService, "magicLinkDailyMax", 200);
     }
 
     @Test
@@ -195,6 +197,28 @@ class MagicLinkServiceTest {
         assertThatThrownBy(() -> magicLinkService.verify(rawToken))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode()).isEqualTo(UNAUTHORIZED));
+    }
+
+    @Test
+    void requestLink_dailyBudgetExceeded_skipsEmail() {
+        ReflectionTestUtils.setField(magicLinkService, "magicLinkDailyMax", 1);
+
+        var user = User.builder().email("a@example.com").name("a").role(Role.USER).password("hashed").build();
+        when(userRepository.findByEmail("a@example.com")).thenReturn(Optional.of(user));
+        when(tokenRepository.countUnusedSince(anyString(), any())).thenReturn(0L);
+        when(tokenRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        magicLinkService.requestLink("a@example.com");
+
+        verify(emailSender).sendMagicLink(anyString(), anyString());
+
+        when(userRepository.findByEmail("b@example.com")).thenReturn(Optional.of(
+                User.builder().email("b@example.com").name("b").role(Role.USER).password("hashed").build()));
+        when(tokenRepository.countUnusedSince(eq("b@example.com"), any())).thenReturn(0L);
+
+        magicLinkService.requestLink("b@example.com");
+
+        verify(emailSender).sendMagicLink(anyString(), anyString());
     }
 
     private static String sha256Hex(String input) {

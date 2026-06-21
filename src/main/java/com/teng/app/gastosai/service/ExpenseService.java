@@ -281,13 +281,23 @@ public class ExpenseService {
 			for (ExpenseResponse e : expenses) {
 				printer.printRecord(
 						e.date().format(fmt),
-						e.description(),
-						e.category(),
+						csvSafe(e.description()),
+						csvSafe(e.category()),
 						e.amount().toPlainString()
 				);
 			}
 		}
 		return sw.toString().getBytes(StandardCharsets.UTF_8);
+	}
+
+	private static String csvSafe(String v) {
+		if (v != null && !v.isEmpty()) {
+			char first = v.charAt(0);
+			if (first == '=' || first == '+' || first == '-' || first == '@' || first == '\t' || first == '\r') {
+				return "'" + v;
+			}
+		}
+		return v;
 	}
 
 	private ExpenseResponse toResponse(final Expense e) {

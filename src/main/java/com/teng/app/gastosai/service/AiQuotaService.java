@@ -32,6 +32,12 @@ public class AiQuotaService {
 
     @Transactional(readOnly = true)
     public void assertWithinQuota(User user, AiFeature feature) {
+        if (QUOTA_BEARING.contains(feature)) {
+            long used = usedThisMonth(user.getId());
+            if (used >= managedProps.getAbsoluteMonthlyCap()) {
+                throw new AiQuotaExceededException();
+            }
+        }
         if (!managedProps.isAllowSharedKey() || !managedProps.isFeaturesEnabled()) {
             return;
         }
@@ -40,7 +46,6 @@ public class AiQuotaService {
             return;
         }
         PlanKey plan = entitlements.plan();
-        LocalDateTime monthStart = startOfCurrentMonth();
 
         long used = usedThisMonth(user.getId());
         if (used >= monthlyCap(plan)) {

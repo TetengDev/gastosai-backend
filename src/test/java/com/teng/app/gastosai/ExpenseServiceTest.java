@@ -19,7 +19,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -449,5 +451,50 @@ class ExpenseServiceTest {
                 "PHP".equals(e.getCurrency())
                 && e.getExchangeRate().compareTo(BigDecimal.ONE) == 0
                 && e.getAmountInBaseCurrency().compareTo(new BigDecimal("100.0000")) == 0));
+    }
+
+    @Test
+    void exportCsv_prefixesFormulaInjectionChars_inDescriptionAndCategory() throws IOException {
+        User user = regularUser();
+        Category cat = Category.builder().id(1L).name("=HYPERLINK(\"x\")").build();
+        Expense e = Expense.builder()
+                .id(1L)
+                .amount(new BigDecimal("100.0000"))
+                .category(cat)
+                .date(LocalDateTime.of(2026, 6, 1, 10, 0))
+                .description("=cmd|'/c calc'!A1")
+                .amountInBaseCurrency(new BigDecimal("100.0000"))
+                .build();
+
+        when(expenseRepository.findAllByUserOrderByDateDesc(user)).thenReturn(List.of(e));
+
+        byte[] csv = expenseService.exportCsv(user, null, null);
+        String content = new String(csv, StandardCharsets.UTF_8);
+
+        assertThat(content).contains("'=cmd|'/c calc'!A1");
+        assertThat(content).contains("'=HYPERLINK");
+    }
+
+    @Test
+    void exportCsv_doesNotPrefix_safeValues() throws IOException {
+        User user = regularUser();
+        Category cat = Category.builder().id(1L).name("Meal Plan").build();
+        Expense e = Expense.builder()
+                .id(2L)
+                .amount(new BigDecimal("50.0000"))
+                .category(cat)
+                .date(LocalDateTime.of(2026, 6, 2, 9, 0))
+                .description("Lunch at cafe")
+                .amountInBaseCurrency(new BigDecimal("50.0000"))
+                .build();
+
+        when(expenseRepository.findAllByUserOrderByDateDesc(user)).thenReturn(List.of(e));
+
+        byte[] csv = expenseService.exportCsv(user, null, null);
+        String content = new String(csv, StandardCharsets.UTF_8);
+
+        assertThat(content).contains("Lunch at cafe");
+        assertThat(content).contains("Meal Plan");
+        assertThat(content).doesNotContain("'Lunch at cafe");
     }
 }

@@ -18,6 +18,7 @@ public class WebConfig implements WebMvcConfigurer {
 	private final AiRateLimitInterceptor aiRateLimitInterceptor;
 	private final AiKeyContextInterceptor aiKeyContextInterceptor;
 	private final ViewAsInterceptor viewAsInterceptor;
+	private final PublicRateLimitInterceptor publicRateLimitInterceptor;
 
 	@Override
 	public void addCorsMappings(CorsRegistry registry) {
@@ -31,6 +32,9 @@ public class WebConfig implements WebMvcConfigurer {
 	@Override
 	public void addInterceptors(InterceptorRegistry registry) {
 		registry.addInterceptor(viewAsInterceptor);
+		registry.addInterceptor(publicRateLimitInterceptor)
+				.addPathPatterns("/auth/login", "/auth/register", "/auth/magic-link",
+						"/auth/magic-link/verify", "/submissions");
 		// /expenses/parse also calls the LLM, so it needs the per-user key (BYO) like /ai/**.
 		// /ai/usage is informational only (no LLM call), so it is exempt from the key and rate-limit gates.
 		registry.addInterceptor(aiKeyContextInterceptor).addPathPatterns("/ai/**", "/expenses/parse").excludePathPatterns("/ai/usage");
