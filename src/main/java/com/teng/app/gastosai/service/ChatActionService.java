@@ -98,14 +98,54 @@ public class ChatActionService {
 	 * with its conversation id. Persistence failures never fail the chat — they are logged and swallowed.
 	 */
 	public ChatResponse dispatch(String message, String mode, User user, Long conversationId) {
-		ChatResponse response = dispatch(message, mode, user);
+		Conversation conversation = null;
+		String effectiveMessage = message;
 		try {
-			Conversation conversation = conversationService.getOrCreate(user, conversationId);
-			conversationService.recordTurn(conversation, aiRedactionService.redact(message), response);
-			return response.withConversation(conversation.getId());
+			conversation = conversationService.getOrCreate(user, conversationId);
+			effectiveMessage = withContext(conversation, message);
 		} catch (Exception e) {
-			log.warn("chat_history_persist_failed", e);
-			return response;
+			log.warn("chat_context_load_failed", e);
+		}
+
+		ChatResponse response = dispatch(effectiveMessage, mode, user);
+
+		if (conversation != null) {
+			try {
+				conversationService.recordTurn(conversation, aiRedactionService.redact(message), response);
+				captureEntity(conversation, response);
+				return response.withConversation(conversation.getId());
+			} catch (Exception e) {
+				log.warn("chat_history_persist_failed", e);
+			}
+		}
+		return response;
+	}
+
+	/**
+	 * Prefixes the message with a short transcript + last-entity hint so the intent classifier can
+	 * resolve follow-ups ("delete it", "make it 500"). Hybrid: deterministic last-entity tracking +
+	 * LLM context. Returns the message unchanged for a brand-new conversation.
+	 */
+	private String withContext(Conversation conversation, String message) {
+		String transcript = conversationService.recentTranscript(conversation, 6);
+		StringBuilder ctx = new StringBuilder();
+		if (!transcript.isBlank()) {
+			ctx.append("Conversation so far:\n").append(transcript).append("\n\n");
+		}
+		if ("expense".equals(conversation.getLastEntityType()) && conversation.getLastEntityId() != null) {
+			ctx.append("If the user refers to \"it\" / \"that one\" / \"the last expense\" without an id, ")
+					.append("use expense id ").append(conversation.getLastEntityId()).append(".\n\n");
+		}
+		if (ctx.length() == 0) {
+			return message;
+		}
+		return ctx.append("Current message: ").append(message).toString();
+	}
+
+	/** Remembers the single expense a turn created/updated so the next turn can refer back to it. */
+	private void captureEntity(Conversation conversation, ChatResponse response) {
+		if (response.result() instanceof com.teng.app.gastosai.dto.ExpenseResponse er && er.id() != null) {
+			conversationService.recordEntity(conversation, "expense", er.id());
 		}
 	}
 
