@@ -93,4 +93,23 @@ class ConversationServiceTest {
 		assertThatThrownBy(() -> service.delete(c.getId(), bob))
 				.isInstanceOf(ResourceNotFoundException.class);
 	}
+
+	@Test
+	void recordEntity_persistsLastEntity() {
+		Conversation c = service.getOrCreate(alice, null);
+		service.recordEntity(c, "expense", 42L);
+		Conversation reloaded = service.getOrCreate(alice, c.getId());
+		assertThat(reloaded.getLastEntityType()).isEqualTo("expense");
+		assertThat(reloaded.getLastEntityId()).isEqualTo(42L);
+	}
+
+	@Test
+	void recentTranscript_returnsOrderedLines() {
+		Conversation c = service.getOrCreate(alice, null);
+		service.recordTurn(c, "how much on food?", new ChatResponse("text", "You spent 500.", null));
+		String t = service.recentTranscript(c, 6);
+		assertThat(t).contains("User: how much on food?");
+		assertThat(t).contains("Assistant: You spent 500.");
+		assertThat(t.indexOf("User:")).isLessThan(t.indexOf("Assistant:"));
+	}
 }

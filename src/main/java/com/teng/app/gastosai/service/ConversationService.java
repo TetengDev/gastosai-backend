@@ -66,6 +66,30 @@ public class ConversationService {
 		conversationRepository.save(conversation);
 	}
 
+	/** Remembers the entity a turn just acted on, so a later "delete it"/"make it 500" can resolve it. */
+	@Transactional
+	public void recordEntity(Conversation conversation, String entityType, Long entityId) {
+		conversation.setLastEntityType(entityType);
+		conversation.setLastEntityId(entityId);
+		conversationRepository.save(conversation);
+	}
+
+	/** A compact transcript of the last {@code limit} messages (oldest→newest) for LLM follow-up context. */
+	@Transactional(readOnly = true)
+	public String recentTranscript(Conversation conversation, int limit) {
+		List<ChatMessage> all = chatMessageRepository.findByConversationOrderByCreatedAtAsc(conversation);
+		int from = Math.max(0, all.size() - limit);
+		return all.subList(from, all.size()).stream()
+				.map(m -> (m.getRole() == ChatMessageRole.USER ? "User: " : "Assistant: ") + trimLine(m.getContent()))
+				.collect(java.util.stream.Collectors.joining("\n"));
+	}
+
+	private static String trimLine(String s) {
+		if (s == null) return "";
+		String one = s.replaceAll("\\s+", " ").strip();
+		return one.length() <= 200 ? one : one.substring(0, 200) + "…";
+	}
+
 	@Transactional(readOnly = true)
 	public List<ConversationSummaryDto> list(User user) {
 		return conversationRepository.findByUserOrderByUpdatedAtDesc(user).stream()

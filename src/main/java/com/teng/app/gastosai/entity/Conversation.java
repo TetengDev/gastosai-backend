@@ -45,4 +45,11 @@ public class Conversation {
 
 	@Column(name = "updated_at", nullable = false)
 	private LocalDateTime updatedAt;
+
+	/** Most recently referenced entity in this conversation, for follow-up resolution (e.g. "delete it"). */
+	@Column(name = "last_entity_type", length = 32)
+	private String lastEntityType;
+
+	@Column(name = "last_entity_id")
+	private Long lastEntityId;
 }
