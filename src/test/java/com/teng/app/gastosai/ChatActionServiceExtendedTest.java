@@ -88,6 +88,8 @@ class ChatActionServiceExtendedTest {
     @Mock AiProviderProperties aiProviderProperties;
     @Mock OpenAiProperties openAiProperties;
     @Mock ClaudeProperties claudeProperties;
+    @Mock com.teng.app.gastosai.service.ConversationService conversationService;
+    @Mock com.teng.app.gastosai.service.ChatAuditService chatAuditService;
 
     @InjectMocks ChatActionService chatActionService;
 
