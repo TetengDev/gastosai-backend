@@ -41,6 +41,18 @@ services:
       - caddy_data:/data
       - caddy_config:/config
 
+  # Optional shared rate-limit store (cross-instance). Only needed when scaling the API
+  # past one instance. Start it with: docker compose --profile redis ... up -d, and set
+  # RATELIMIT_REDIS_ENABLED=true + REDIS_HOST=redis in .env.prod.
+  redis:
+    image: redis:7-alpine
+    profiles: ["redis"]
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    volumes:
+      - redis_data:/data
+
 volumes:
   caddy_data:
   caddy_config:
+  redis_data:
