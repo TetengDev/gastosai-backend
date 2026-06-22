@@ -158,6 +158,6 @@ public class CategoryService {
 	}
 
 	private CategoryResponse toResponse(Category c) {
-		return new CategoryResponse(c.getId(), c.getName(), c.getIcon());
+		return new CategoryResponse(c.getId(), c.getName(), c.getIcon(), c.getBucket());
 	}
 }

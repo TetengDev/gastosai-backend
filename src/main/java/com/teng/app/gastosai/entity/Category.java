@@ -2,6 +2,8 @@ package com.teng.app.gastosai.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -35,6 +37,11 @@ public class Category {
 
 	@Column(length = 50)
 	private String icon;
+
+	/** Optional bucket for rule-based budgeting (NEEDS/WANTS/SAVINGS); null = unassigned. */
+	@Enumerated(EnumType.STRING)
+	@Column(length = 16)
+	private Bucket bucket;
 
 	@ManyToOne(optional = false, fetch = FetchType.LAZY)
 	@JoinColumn(name = "user_id", nullable = false)
