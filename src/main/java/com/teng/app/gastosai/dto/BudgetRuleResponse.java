@@ -5,6 +5,7 @@ import com.teng.app.gastosai.entity.BudgetRuleType;
 import java.math.BigDecimal;
 
 public record BudgetRuleResponse(
+        boolean enabled,
         BudgetRuleType ruleType,
         BigDecimal monthlyIncome,
         int needsPct,

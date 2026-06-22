@@ -1,6 +1,7 @@
 package com.teng.app.gastosai.controller;
 
 import com.teng.app.gastosai.dto.BucketAssignmentRequest;
+import com.teng.app.gastosai.dto.BudgetRuleEnabledRequest;
 import com.teng.app.gastosai.dto.BudgetRuleRequest;
 import com.teng.app.gastosai.dto.BudgetRuleResponse;
 import com.teng.app.gastosai.dto.BudgetRuleSummaryResponse;
@@ -35,6 +36,12 @@ public class BudgetRuleController {
     public BudgetRuleResponse upsert(@Valid @RequestBody BudgetRuleRequest request,
             @AuthenticationPrincipal User user) {
         return budgetRuleService.upsert(user, request);
+    }
+
+    @PutMapping("/enabled")
+    public BudgetRuleResponse setEnabled(@RequestBody BudgetRuleEnabledRequest request,
+            @AuthenticationPrincipal User user) {
+        return budgetRuleService.setEnabled(user, request.enabled());
     }
 
     @PutMapping("/buckets")

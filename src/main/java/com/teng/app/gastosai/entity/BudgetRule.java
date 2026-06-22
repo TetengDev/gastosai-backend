@@ -56,6 +56,11 @@ public class BudgetRule {
     @Column(name = "savings_pct", nullable = false)
     private int savingsPct;
 
+    /** Opt-in: the budgeting-rule UI is shown only when the user has enabled it. */
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean enabled = false;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();

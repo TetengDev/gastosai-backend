@@ -43,10 +43,22 @@ class BudgetRuleServiceTest {
 
         BudgetRuleResponse r = service.get(user);
 
+        assertThat(r.enabled()).isFalse();
         assertThat(r.ruleType()).isEqualTo(BudgetRuleType.FIFTY_THIRTY_TWENTY);
         assertThat(r.needsPct()).isEqualTo(50);
         assertThat(r.wantsPct()).isEqualTo(30);
         assertThat(r.savingsPct()).isEqualTo(20);
+    }
+
+    @Test
+    void setEnabled_createsAndEnablesDefaultRule_whenNoneExists() {
+        when(budgetRuleRepository.findByUser(user)).thenReturn(Optional.empty());
+        when(budgetRuleRepository.save(any(BudgetRule.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        BudgetRuleResponse r = service.setEnabled(user, true);
+
+        assertThat(r.enabled()).isTrue();
+        assertThat(r.ruleType()).isEqualTo(BudgetRuleType.FIFTY_THIRTY_TWENTY);
     }
 
     @Test

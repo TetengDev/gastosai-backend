@@ -38,10 +38,25 @@ public class BudgetRuleService {
         return budgetRuleRepository.findByUser(user)
                 .map(this::toResponse)
                 .orElseGet(() -> new BudgetRuleResponse(
-                        BudgetRuleType.FIFTY_THIRTY_TWENTY, BigDecimal.ZERO,
+                        false, BudgetRuleType.FIFTY_THIRTY_TWENTY, BigDecimal.ZERO,
                         BudgetRuleType.FIFTY_THIRTY_TWENTY.needs,
                         BudgetRuleType.FIFTY_THIRTY_TWENTY.wants,
                         BudgetRuleType.FIFTY_THIRTY_TWENTY.savings));
+    }
+
+    @Transactional
+    public BudgetRuleResponse setEnabled(User user, boolean enabled) {
+        BudgetRule rule = budgetRuleRepository.findByUser(user).orElseGet(() -> BudgetRule.builder()
+                .user(user)
+                .ruleType(BudgetRuleType.FIFTY_THIRTY_TWENTY)
+                .monthlyIncome(BigDecimal.ZERO)
+                .needsPct(BudgetRuleType.FIFTY_THIRTY_TWENTY.needs)
+                .wantsPct(BudgetRuleType.FIFTY_THIRTY_TWENTY.wants)
+                .savingsPct(BudgetRuleType.FIFTY_THIRTY_TWENTY.savings)
+                .build());
+        rule.setEnabled(enabled);
+        rule.setUpdatedAt(java.time.LocalDateTime.now());
+        return toResponse(budgetRuleRepository.save(rule));
     }
 
     @Transactional
@@ -73,6 +88,7 @@ public class BudgetRuleService {
         rule.setNeedsPct(needs);
         rule.setWantsPct(wants);
         rule.setSavingsPct(savings);
+        rule.setEnabled(true); // saving a rule is an explicit use of the feature
         rule.setUpdatedAt(java.time.LocalDateTime.now());
         return toResponse(budgetRuleRepository.save(rule));
     }
@@ -140,7 +156,8 @@ public class BudgetRuleService {
     }
 
     private BudgetRuleResponse toResponse(BudgetRule rule) {
-        return new BudgetRuleResponse(rule.getRuleType(), rule.getMonthlyIncome().setScale(2, RoundingMode.HALF_UP),
+        return new BudgetRuleResponse(rule.isEnabled(), rule.getRuleType(),
+                rule.getMonthlyIncome().setScale(2, RoundingMode.HALF_UP),
                 rule.getNeedsPct(), rule.getWantsPct(), rule.getSavingsPct());
     }
 }

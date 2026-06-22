@@ -75,10 +75,23 @@ class BudgetRuleApiIntegrationTest {
     }
 
     @Test
-    void newUser_getsDefaultRule() throws Exception {
+    void newUser_getsDefaultRule_disabled() throws Exception {
         mockMvc.perform(get("/budget-rules").header("Authorization", auth))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(false))
                 .andExpect(jsonPath("$.ruleType").value("FIFTY_THIRTY_TWENTY"))
                 .andExpect(jsonPath("$.monthlyIncome").value(0));
+    }
+
+    @Test
+    void enableEndpoint_turnsFeatureOn() throws Exception {
+        mockMvc.perform(put("/budget-rules/enabled").header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(true));
+
+        mockMvc.perform(get("/budget-rules").header("Authorization", auth))
+                .andExpect(jsonPath("$.enabled").value(true));
     }
 }
