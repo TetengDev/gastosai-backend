@@ -380,7 +380,7 @@ public class ChatActionService {
 		BigDecimal amountLimit = params.get("amountLimit").decimalValue();
 		try {
 			Category cat = categoryService.getOrCreateByName(categoryName, user);
-			BudgetRequest req = new BudgetRequest(cat.getId(), month, amountLimit, null, null);
+			BudgetRequest req = new BudgetRequest(cat.getId(), month, amountLimit, null, null, null);
 			Object result = budgetService.create(req, user);
 			return new ChatResponse("action", "Budget created for " + categoryName + " (₱" + amountLimit.toPlainString() + ").", result);
 		} catch (ResponseStatusException e) {
@@ -585,7 +585,7 @@ public class ChatActionService {
 		if (id > 0) {
 			Budget budget = budgetRepository.findByIdAndUser(id, user)
 					.orElseThrow(() -> new ResourceNotFoundException("Budget not found: " + id));
-			BudgetRequest req = new BudgetRequest(budget.getCategory().getId(), budget.getMonth(), amountLimit, null, null);
+			BudgetRequest req = new BudgetRequest(budget.getCategory().getId(), budget.getMonth(), amountLimit, null, null, null);
 			Object result = budgetService.update(id, req, user);
 			return new ChatResponse("action", "Budget updated to ₱" + amountLimit.setScale(2, RoundingMode.HALF_UP).toPlainString() + ".", result);
 		}
@@ -600,7 +600,7 @@ public class ChatActionService {
 			if (match == null) {
 				return new ChatResponse("text", "No budget found for " + categoryName + " in " + month + ".", null);
 			}
-			BudgetRequest req = new BudgetRequest(match.getCategory().getId(), month, amountLimit, null, null);
+			BudgetRequest req = new BudgetRequest(match.getCategory().getId(), month, amountLimit, null, null, null);
 			Object result = budgetService.update(match.getId(), req, user);
 			return new ChatResponse("action", "Budget for " + categoryName + " updated to ₱" + amountLimit.setScale(2, RoundingMode.HALF_UP).toPlainString() + ".", result);
 		}

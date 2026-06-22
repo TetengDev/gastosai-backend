@@ -10,6 +10,7 @@ public record BudgetResponse(
 		BigDecimal amountLimit,
 		String currency,
 		BigDecimal exchangeRate,
-		BigDecimal amountLimitInBaseCurrency
+		BigDecimal amountLimitInBaseCurrency,
+		boolean recurring
 ) {
 }
