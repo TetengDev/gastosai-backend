@@ -44,6 +44,11 @@ class MagicLinkApiIntegrationTest {
             links.add(link);
         }
 
+        @Override
+        public void sendNotification(String toEmail, String subject, String body) {
+            // no-op for tests
+        }
+
         String lastLink() {
             return links.get(links.size() - 1);
         }
