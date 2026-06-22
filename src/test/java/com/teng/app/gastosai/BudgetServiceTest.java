@@ -27,6 +27,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -53,10 +56,43 @@ class BudgetServiceTest {
 	}
 
 	@Test
+	void findAllByMonth_carriesForwardRecurringBudget() {
+		User user = testUser();
+		Category cat = testCategory();
+		Budget june = Budget.builder().id(1L).user(user).category(cat).month("2026-06")
+				.amountLimit(new BigDecimal("5000.0000")).currency("PHP").exchangeRate(BigDecimal.ONE)
+				.amountLimitInBaseCurrency(new BigDecimal("5000.0000")).recurring(true).build();
+		when(budgetRepository.findAllByUser(user)).thenReturn(List.of(june));
+		when(budgetRepository.findAllByUserAndMonth(user, "2026-07")).thenReturn(List.of());
+
+		budgetService.findAllByMonth("2026-07", user);
+
+		verify(budgetRepository).save(argThat(b ->
+				"2026-07".equals(b.getMonth()) && b.isRecurring()
+						&& b.getCategory().getId().equals(10L)
+						&& b.getAmountLimit().compareTo(new BigDecimal("5000.0000")) == 0));
+	}
+
+	@Test
+	void findAllByMonth_doesNotCarryForwardNonRecurringBudget() {
+		User user = testUser();
+		Category cat = testCategory();
+		Budget june = Budget.builder().id(1L).user(user).category(cat).month("2026-06")
+				.amountLimit(new BigDecimal("5000.0000")).currency("PHP").exchangeRate(BigDecimal.ONE)
+				.amountLimitInBaseCurrency(new BigDecimal("5000.0000")).recurring(false).build();
+		when(budgetRepository.findAllByUser(user)).thenReturn(List.of(june));
+		when(budgetRepository.findAllByUserAndMonth(user, "2026-07")).thenReturn(List.of());
+
+		budgetService.findAllByMonth("2026-07", user);
+
+		verify(budgetRepository, never()).save(any());
+	}
+
+	@Test
 	void create_success() {
 		User user = testUser();
 		Category cat = testCategory();
-		BudgetRequest req = new BudgetRequest(10L, "2026-06", new BigDecimal("5000.00"), null, null);
+		BudgetRequest req = new BudgetRequest(10L, "2026-06", new BigDecimal("5000.00"), null, null, null);
 
 		when(categoryRepository.findByIdAndUser(10L, user)).thenReturn(Optional.of(cat));
 		when(budgetRepository.findByUserAndCategoryAndMonth(user, cat, "2026-06")).thenReturn(Optional.empty());
@@ -86,7 +122,7 @@ class BudgetServiceTest {
 	void create_duplicateBudget_throwsConflict() {
 		User user = testUser();
 		Category cat = testCategory();
-		BudgetRequest req = new BudgetRequest(10L, "2026-06", new BigDecimal("5000.00"), null, null);
+		BudgetRequest req = new BudgetRequest(10L, "2026-06", new BigDecimal("5000.00"), null, null, null);
 
 		Budget existing = Budget.builder().id(7L).user(user).category(cat).month("2026-06")
 				.amountLimit(new BigDecimal("1000.00")).amountLimitInBaseCurrency(new BigDecimal("1000.00")).build();
@@ -102,7 +138,7 @@ class BudgetServiceTest {
 	void create_duplicateWithForce_overwritesExisting() {
 		User user = testUser();
 		Category cat = testCategory();
-		BudgetRequest req = new BudgetRequest(10L, "2026-06", new BigDecimal("8000.00"), null, null);
+		BudgetRequest req = new BudgetRequest(10L, "2026-06", new BigDecimal("8000.00"), null, null, null);
 
 		Budget existing = Budget.builder().id(7L).user(user).category(cat).month("2026-06")
 				.amountLimit(new BigDecimal("1000.00")).amountLimitInBaseCurrency(new BigDecimal("1000.00")).build();
@@ -120,7 +156,7 @@ class BudgetServiceTest {
 	@Test
 	void create_unknownCategory_throwsNotFound() {
 		User user = testUser();
-		BudgetRequest req = new BudgetRequest(99L, "2026-06", new BigDecimal("5000.00"), null, null);
+		BudgetRequest req = new BudgetRequest(99L, "2026-06", new BigDecimal("5000.00"), null, null, null);
 
 		when(categoryRepository.findByIdAndUser(99L, user)).thenReturn(Optional.empty());
 

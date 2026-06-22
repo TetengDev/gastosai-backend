@@ -394,8 +394,8 @@ class ChatActionServiceReadToolsTest {
     void setCategoryIcon_updatesIconAndReturnsAction() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
                 new ChatToolCall("set_category_icon", "{\"categoryName\":\"Food\",\"icon\":\"utensils\"}"));
-        when(categoryService.findAll(any())).thenReturn(List.of(new CategoryResponse(1L, "Food", null)));
-        when(categoryService.update(anyLong(), any(), any())).thenReturn(new CategoryResponse(1L, "Food", "utensils"));
+        when(categoryService.findAll(any())).thenReturn(List.of(new CategoryResponse(1L, "Food", null, null)));
+        when(categoryService.update(anyLong(), any(), any())).thenReturn(new CategoryResponse(1L, "Food", "utensils", null));
 
         ChatResponse resp = chatActionService.dispatch("Set food icon to utensils", null, user());
 

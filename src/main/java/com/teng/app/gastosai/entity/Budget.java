@@ -60,4 +60,9 @@ public class Budget {
 	@Column(nullable = false, precision = 19, scale = 4)
 	@Builder.Default
 	private BigDecimal amountLimitInBaseCurrency = BigDecimal.ZERO;
+
+	/** When true, this budget is carried forward to later months automatically. */
+	@Column(nullable = false)
+	@Builder.Default
+	private boolean recurring = false;
 }

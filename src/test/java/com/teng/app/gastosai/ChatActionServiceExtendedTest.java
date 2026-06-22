@@ -120,7 +120,7 @@ class ChatActionServiceExtendedTest {
                 {"name":"Groceries","icon":"shopping-cart"}
                 """;
         when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("create_category", paramsJson));
-        when(categoryService.create(any(), any())).thenReturn(new CategoryResponse(10L, "Groceries", "shopping-cart"));
+        when(categoryService.create(any(), any())).thenReturn(new CategoryResponse(10L, "Groceries", "shopping-cart", null));
 
         ChatResponse resp = chatActionService.dispatch("Add a Groceries category", "execute", user());
 
@@ -161,8 +161,8 @@ class ChatActionServiceExtendedTest {
                 {"currentName":"Food","newName":"Meals"}
                 """;
         when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("rename_category", paramsJson));
-        when(categoryService.findAll(any())).thenReturn(List.of(new CategoryResponse(5L, "Food", null)));
-        when(categoryService.update(eq(5L), any(), any())).thenReturn(new CategoryResponse(5L, "Meals", null));
+        when(categoryService.findAll(any())).thenReturn(List.of(new CategoryResponse(5L, "Food", null, null)));
+        when(categoryService.update(eq(5L), any(), any())).thenReturn(new CategoryResponse(5L, "Meals", null, null));
 
         ChatResponse resp = chatActionService.dispatch("Rename Food to Meals", null, user());
 
@@ -216,7 +216,7 @@ class ChatActionServiceExtendedTest {
                 {"name":"OldCategory"}
                 """;
         when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("delete_category", paramsJson));
-        when(categoryService.findAll(any())).thenReturn(List.of(new CategoryResponse(7L, "OldCategory", null)));
+        when(categoryService.findAll(any())).thenReturn(List.of(new CategoryResponse(7L, "OldCategory", null, null)));
 
         ChatResponse resp = chatActionService.dispatch("Delete OldCategory", null, user());
 
@@ -229,8 +229,8 @@ class ChatActionServiceExtendedTest {
         String paramsJson = "{}";
         when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("list_categories", paramsJson));
         when(categoryService.findAll(any())).thenReturn(List.of(
-                new CategoryResponse(1L, "Uncategorized", null),
-                new CategoryResponse(2L, "Food", "utensils")
+                new CategoryResponse(1L, "Uncategorized", null, null),
+                new CategoryResponse(2L, "Food", "utensils", null)
         ));
 
         ChatResponse resp = chatActionService.dispatch("Show my categories", null, user());
@@ -254,7 +254,7 @@ class ChatActionServiceExtendedTest {
         when(budgetRepository.findByIdAndUser(anyLong(), any())).thenReturn(Optional.of(budget));
         when(budgetService.update(anyLong(), any(), any())).thenReturn(
                 new com.teng.app.gastosai.dto.BudgetResponse(42L, 3L, "Food", "2026-06",
-                        new BigDecimal("5000.00"), "PHP", BigDecimal.ONE, new BigDecimal("5000.00")));
+                        new BigDecimal("5000.00"), "PHP", BigDecimal.ONE, new BigDecimal("5000.00"), false));
 
         ChatResponse resp = chatActionService.dispatch("Update budget 42 to 5000", null, user());
 
