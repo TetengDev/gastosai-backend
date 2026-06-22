@@ -50,11 +50,11 @@ PostgreSQL (Supabase), with OpenAI / Claude as the AI provider.
 | Expense CRUD, budgets, goals, recurring | ✓ | ✓ | ✓ |
 | AI insights (cached) | ✓ | ✓ | ✓ |
 | AI chatbot — **plain** mode | ✓ | ✓ | ✓ |
-| AI chatbot — **professional / GenZ** modes | ✗ (planned gate) | ✓ | ✓ |
+| AI chatbot — **professional / GenZ** modes | ✗ (falls back to plain) | ✓ | ✓ |
 | Receipt vision | ✓ (sub-capped) | ✓ | ✓ (sub-capped) |
 | CSV export | ✓ | ✓ | ✓ |
-| PDF export, forecasting, anomaly detection, advanced insights | ✗ | ✓ | ✓ |
-| Custom categories | ✓ up to 5 (planned cap) | unlimited | unlimited |
+| Standalone NL analytics query (`/ai/query`), PDF export, forecasting, anomaly, advanced insights | ✗ | ✓ | ✓ |
+| Custom categories | ✓ up to 5 | unlimited | unlimited |
 | **AI requests / month (chat + vision pooled)** | **30** | **300** | **50 / window** |
 | — of which receipt-vision sub-cap | **5** | **50** | **10** |
 
@@ -71,7 +71,8 @@ Prices are decision-ready from the pricing memo; billing/payment integration is 
 |---|---|
 | `gastos.monetization.enforce` (`MONETIZATION_ENFORCE`) | `false` (default) = all features unlocked for all users. `true` = tiers enforced. |
 | Admin **view-as-tier** toggle (UI) | Admin can preview the app as FREE / PREMIUM / TRIAL without changing their own plan. |
-| Seeded test users (when sample seed is on) | `free@`, `premium@`, `trial@gastosai.dev` (planned) + the admin account let you exercise each tier by logging in. |
+| Seeded test users (when sample seed is on) | `free@` / `premium@` / `trial@gastosai.dev` (passwords `free123` / `premium123` / `trial123`) + the admin account let you exercise each tier by logging in. |
+| Category caps (`gastos.limits.categories.*`) | When enforced: FREE = 5, PREMIUM/TRIAL = unlimited. Only applied while `enforce=true`. |
 | `gastos.ai.allowSharedKey` (`AI_ALLOW_SHARED_KEY`) | `true` = managed (shared-key) AI. `false` = bring-your-own-key. |
 
 ---

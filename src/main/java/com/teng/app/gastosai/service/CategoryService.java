@@ -1,10 +1,15 @@
 package com.teng.app.gastosai.service;
 
+import com.teng.app.gastosai.config.CategoryLimitProperties;
+import com.teng.app.gastosai.config.MonetizationProperties;
 import com.teng.app.gastosai.dto.CategoryRequest;
 import com.teng.app.gastosai.dto.CategoryResponse;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
+import com.teng.app.gastosai.entity.PlanKey;
 import com.teng.app.gastosai.entity.User;
+import com.teng.app.gastosai.exception.FeatureLockedException;
+import com.teng.app.gastosai.entity.FeatureKey;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.CategoryRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
@@ -22,6 +27,9 @@ public class CategoryService {
 
 	private final CategoryRepository categoryRepository;
 	private final ExpenseRepository expenseRepository;
+	private final MonetizationProperties monetizationProperties;
+	private final CategoryLimitProperties categoryLimits;
+	private final EntitlementService entitlementService;
 
 	@Transactional
 	public CategoryResponse create(CategoryRequest request, User user) {
@@ -29,6 +37,7 @@ public class CategoryService {
 		if (categoryRepository.existsByUserAndNameIgnoreCase(user, trimmed)) {
 			throw new IllegalArgumentException("Category already exists: " + request.name());
 		}
+		enforceCategoryLimit(user);
 		Category saved = categoryRepository.save(Category.builder()
 				.name(trimmed)
 				.icon(request.icon() != null ? request.icon().trim() : null)
@@ -112,6 +121,30 @@ public class CategoryService {
 
 	private boolean isDefault(String name) {
 		return DEFAULT_CATEGORY.equalsIgnoreCase(name);
+	}
+
+	/**
+	 * Block creating more categories than the user's plan allows. No-op unless monetization is
+	 * enforced. {@link EntitlementService#describe} already folds in the admin/view-as logic, so
+	 * admins (and PREMIUM) resolve to an unlimited cap.
+	 */
+	private void enforceCategoryLimit(User user) {
+		if (!monetizationProperties.isEnforce()) {
+			return;
+		}
+		int cap = capFor(entitlementService.describe(user).plan());
+		if (cap > 0 && categoryRepository.countByUser(user) >= cap) {
+			throw new FeatureLockedException(FeatureKey.CUSTOM_CATEGORIES,
+					"Your plan is limited to " + cap + " categories. Upgrade to add more.");
+		}
+	}
+
+	private int capFor(PlanKey plan) {
+		return switch (plan) {
+			case FREE -> categoryLimits.getFree();
+			case PREMIUM -> categoryLimits.getPremium();
+			case TRIAL -> categoryLimits.getTrial();
+		};
 	}
 
 	@Transactional

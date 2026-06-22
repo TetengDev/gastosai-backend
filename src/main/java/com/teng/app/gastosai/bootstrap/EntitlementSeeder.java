@@ -27,7 +27,13 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class EntitlementSeeder implements CommandLineRunner {
 
-    private static final Set<FeatureKey> FREE_FEATURES = EnumSet.of(FeatureKey.EXPORT_CSV);
+    // FREE gets the chatbot (bounded by the AI quota) so the "plain tone is free, professional/GenZ
+    // tones are paid" split is meaningful, plus CSV export. Premium-only capabilities (standalone NL
+    // analytics query, PDF export, forecasting, anomaly/advanced insights, premium chat personas) are
+    // NOT granted here.
+    private static final Set<FeatureKey> FREE_FEATURES = EnumSet.of(
+            FeatureKey.EXPORT_CSV,
+            FeatureKey.NL_CHATBOT);
 
     private static final Logger log = LoggerFactory.getLogger(EntitlementSeeder.class);
 
@@ -39,8 +45,10 @@ public class EntitlementSeeder implements CommandLineRunner {
     public void run(String... args) {
         SubscriptionPlan free = ensurePlan(PlanKey.FREE, "Free", 0);
         SubscriptionPlan premium = ensurePlan(PlanKey.PREMIUM, "Premium", 14900); // TODO annual price ₱1290
+        SubscriptionPlan trial = ensurePlan(PlanKey.TRIAL, "Trial", 0); // Premium-equivalent, time-boxed
         ensureFeatures(free, FREE_FEATURES);
         ensureFeatures(premium, EnumSet.allOf(FeatureKey.class));
+        ensureFeatures(trial, EnumSet.allOf(FeatureKey.class));
     }
 
     private SubscriptionPlan ensurePlan(PlanKey key, String name, int priceCents) {

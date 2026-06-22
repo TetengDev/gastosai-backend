@@ -95,52 +95,60 @@ public class AppDataLoader implements ApplicationRunner {
 	@Override
 	public void run(ApplicationArguments args) {
 		if (seedSampleData) {
-			seedAll(getOrCreateDemoUser());
+			seedAll(getOrCreateDemoUser(), PlanKey.PREMIUM);
+			// Per-tier test accounts so each subscription level is testable by logging in
+			// (in addition to the admin "view as" toggle).
+			seedAll(getOrCreateUser("free@gastosai.dev", "free123", "Free Tester"), PlanKey.FREE);
+			seedAll(getOrCreateUser("premium@gastosai.dev", "premium123", "Premium Tester"), PlanKey.PREMIUM);
+			seedAll(getOrCreateUser("trial@gastosai.dev", "trial123", "Trial Tester"), PlanKey.TRIAL);
 		}
 		if (adminEmail != null && !adminEmail.isBlank()) {
-			userRepository.findByEmail(adminEmail).ifPresent(this::seedAll);
+			userRepository.findByEmail(adminEmail).ifPresent(u -> seedAll(u, PlanKey.PREMIUM));
 		}
 	}
 
-	private void seedAll(User user) {
+	private void seedAll(User user, PlanKey planKey) {
 		categorySeedService.seedPredefinedForUser(user);
 		seedExpensesIfEmpty(user);
 		seedBudgetsIfEmpty(user);
 		seedRecurringIfEmpty(user);
 		seedGoalsIfEmpty(user);
-		seedSubscriptionIfMissing(user);
+		seedSubscription(user, planKey);
 	}
 
-	private void seedSubscriptionIfMissing(User demoUser) {
-		if (userSubscriptionRepository.findFirstByUserOrderByCreatedAtDesc(demoUser).isPresent()) {
-			log.info("Skipping demo subscription seed: subscription already exists for demo user");
+	private void seedSubscription(User user, PlanKey planKey) {
+		if (userSubscriptionRepository.findFirstByUserOrderByCreatedAtDesc(user).isPresent()) {
 			return;
 		}
-		SubscriptionPlan premium = subscriptionPlanRepository.findByPlanKey(PlanKey.PREMIUM).orElse(null);
-		if (premium == null) {
-			log.warn("Skipping demo subscription seed: PREMIUM plan not yet seeded");
+		SubscriptionPlan plan = subscriptionPlanRepository.findByPlanKey(planKey).orElse(null);
+		if (plan == null) {
+			log.warn("Skipping subscription seed: {} plan not yet seeded", planKey);
 			return;
 		}
+		boolean trial = planKey == PlanKey.TRIAL;
 		userSubscriptionRepository.save(UserSubscription.builder()
-				.user(demoUser)
-				.plan(premium)
-				.status(SubscriptionStatus.ACTIVE)
+				.user(user)
+				.plan(plan)
+				.status(trial ? SubscriptionStatus.TRIAL : SubscriptionStatus.ACTIVE)
 				.startedAt(LocalDateTime.now())
-				.currentPeriodEnd(null)
+				.currentPeriodEnd(trial ? LocalDateTime.now().plusDays(14) : null)
 				.provider("seed")
 				.build());
-		log.info("Seeded PREMIUM subscription for demo user");
+		log.info("Seeded {} subscription for {}", planKey, user.getEmail());
 	}
 
 	private User getOrCreateDemoUser() {
-		return userRepository.findByEmail(demoEmail).orElseGet(() -> {
-			User user = User.builder()
-					.name(demoName)
-					.email(demoEmail)
-					.password(passwordEncoder.encode(demoPassword))
-					.build();
-			User saved = userRepository.save(user);
-			log.info("Demo account created — email: {} / password: {}", demoEmail, demoPassword);
+		return getOrCreateUser(demoEmail, demoPassword, demoName);
+	}
+
+	private User getOrCreateUser(String email, String password, String name) {
+		return userRepository.findByEmail(email).orElseGet(() -> {
+			User saved = userRepository.save(User.builder()
+					.name(name)
+					.email(email)
+					.password(passwordEncoder.encode(password))
+					.build());
+			log.info("Account created — email: {} / password: {}", email, password);
 			return saved;
 		});
 	}

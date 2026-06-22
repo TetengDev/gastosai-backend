@@ -1,14 +1,21 @@
 package com.teng.app.gastosai;
 
+import com.teng.app.gastosai.config.CategoryLimitProperties;
+import com.teng.app.gastosai.config.MonetizationProperties;
 import com.teng.app.gastosai.dto.CategoryRequest;
 import com.teng.app.gastosai.dto.CategoryResponse;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
+import com.teng.app.gastosai.entity.FeatureKey;
+import com.teng.app.gastosai.entity.PlanKey;
 import com.teng.app.gastosai.entity.Role;
+import com.teng.app.gastosai.entity.SubscriptionStatus;
 import com.teng.app.gastosai.entity.User;
+import com.teng.app.gastosai.exception.FeatureLockedException;
 import com.teng.app.gastosai.repository.CategoryRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import com.teng.app.gastosai.service.CategoryService;
+import com.teng.app.gastosai.service.EntitlementService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -16,6 +23,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -36,6 +44,15 @@ class CategoryServiceTest {
     @Mock
     ExpenseRepository expenseRepository;
 
+    @Mock
+    MonetizationProperties monetizationProperties;
+
+    @Mock
+    CategoryLimitProperties categoryLimits;
+
+    @Mock
+    EntitlementService entitlementService;
+
     @InjectMocks
     CategoryService categoryService;
 
@@ -55,6 +72,35 @@ class CategoryServiceTest {
         assertThat(response.id()).isEqualTo(1L);
         assertThat(response.name()).isEqualTo("Food");
         assertThat(response.icon()).isEqualTo("utensils");
+    }
+
+    @Test
+    void create_blockedAtPlanCategoryCap_whenEnforced() {
+        User user = testUser();
+        when(categoryRepository.existsByUserAndNameIgnoreCase(user, "Sixth")).thenReturn(false);
+        when(monetizationProperties.isEnforce()).thenReturn(true);
+        when(entitlementService.describe(user)).thenReturn(new EntitlementService.Entitlements(
+                PlanKey.FREE, SubscriptionStatus.ACTIVE, EnumSet.noneOf(FeatureKey.class), false));
+        when(categoryLimits.getFree()).thenReturn(5);
+        when(categoryRepository.countByUser(user)).thenReturn(5L);
+
+        assertThatThrownBy(() -> categoryService.create(new CategoryRequest("Sixth", null), user))
+                .isInstanceOf(FeatureLockedException.class)
+                .hasMessageContaining("limited to 5");
+        verify(categoryRepository, never()).save(any());
+    }
+
+    @Test
+    void create_allowed_whenEnforcementOff() {
+        User user = testUser();
+        when(categoryRepository.existsByUserAndNameIgnoreCase(user, "Food")).thenReturn(false);
+        when(monetizationProperties.isEnforce()).thenReturn(false);
+        Category saved = Category.builder().id(1L).name("Food").user(user).build();
+        when(categoryRepository.save(any(Category.class))).thenReturn(saved);
+
+        CategoryResponse response = categoryService.create(new CategoryRequest("Food", null), user);
+
+        assertThat(response.name()).isEqualTo("Food");
     }
 
     @Test

@@ -90,6 +90,38 @@ class EntitlementServiceTest {
     }
 
     @Test
+    void resolveChatMode_plainAndBlank_returnPlain_withoutDbHit() {
+        assertThat(service.resolveChatMode("plain", user)).isEqualTo("plain");
+        assertThat(service.resolveChatMode(null, user)).isEqualTo("plain");
+        assertThat(service.resolveChatMode("  ", user)).isEqualTo("plain");
+        verifyNoInteractions(planRepository, planFeatureRepository, userSubscriptionRepository);
+    }
+
+    @Test
+    void resolveChatMode_premiumTone_allowedWhenEntitled() {
+        when(monetizationProperties.isEnforce()).thenReturn(true);
+        SubscriptionPlan premium = plan(PlanKey.PREMIUM);
+        UserSubscription sub = UserSubscription.builder()
+                .plan(premium).status(SubscriptionStatus.ACTIVE)
+                .currentPeriodEnd(LocalDateTime.now().plusDays(1)).build();
+        when(userSubscriptionRepository.findFirstByUserOrderByCreatedAtDesc(user)).thenReturn(Optional.of(sub));
+        when(planFeatureRepository.existsByPlanAndFeatureKey(premium, FeatureKey.CHAT_PERSONAS)).thenReturn(true);
+
+        assertThat(service.resolveChatMode("genz", user)).isEqualTo("genz");
+    }
+
+    @Test
+    void resolveChatMode_premiumTone_fallsBackToPlainWhenNotEntitled() {
+        when(monetizationProperties.isEnforce()).thenReturn(true);
+        SubscriptionPlan free = plan(PlanKey.FREE);
+        when(userSubscriptionRepository.findFirstByUserOrderByCreatedAtDesc(user)).thenReturn(Optional.empty());
+        when(planRepository.findByPlanKey(PlanKey.FREE)).thenReturn(Optional.of(free));
+        when(planFeatureRepository.existsByPlanAndFeatureKey(free, FeatureKey.CHAT_PERSONAS)).thenReturn(false);
+
+        assertThat(service.resolveChatMode("professional", user)).isEqualTo("plain");
+    }
+
+    @Test
     void requireFeatureAccess_throwsWhenBlocked() {
         when(monetizationProperties.isEnforce()).thenReturn(true);
         SubscriptionPlan free = plan(PlanKey.FREE);

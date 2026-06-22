@@ -12,6 +12,11 @@ public class FeatureLockedException extends RuntimeException {
         this.feature = feature;
     }
 
+    public FeatureLockedException(FeatureKey feature, String message) {
+        super(message);
+        this.feature = feature;
+    }
+
     public FeatureKey getFeature() {
         return feature;
     }

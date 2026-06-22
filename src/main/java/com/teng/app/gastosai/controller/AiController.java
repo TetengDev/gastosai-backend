@@ -11,6 +11,7 @@ import com.teng.app.gastosai.entity.FeatureKey;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.service.AiQueryService;
 import com.teng.app.gastosai.service.ChatActionService;
+import com.teng.app.gastosai.service.EntitlementService;
 import com.teng.app.gastosai.service.VisionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -38,14 +39,16 @@ public class AiController {
 	private final AiQueryService aiQueryService;
 	private final VisionService visionService;
 	private final ChatActionService chatActionService;
+	private final EntitlementService entitlementService;
 	private final LlmCircuitBreaker llmCircuitBreaker;
 
 	@PostMapping("/query")
 	@RequiresFeature(FeatureKey.AI_ANALYTICS)
 	public AiQueryResponse query(@Valid @RequestBody AiQueryRequest request,
 			@AuthenticationPrincipal User user) {
+		String mode = entitlementService.resolveChatMode(request.mode(), user);
 		return llmCircuitBreaker.execute(
-				() -> aiQueryService.runNaturalLanguageQuery(request.question(), request.mode(), user),
+				() -> aiQueryService.runNaturalLanguageQuery(request.question(), mode, user),
 				() -> new AiQueryResponse(DEGRADED_MESSAGE));
 	}
 
@@ -56,7 +59,7 @@ public class AiController {
 			@RequestParam(value = "mode", required = false, defaultValue = "plain") String mode,
 			@AuthenticationPrincipal User user) {
 		try {
-			return visionService.analyze(question, file, mode, user);
+			return visionService.analyze(question, file, entitlementService.resolveChatMode(mode, user), user);
 		} catch (IOException e) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Failed to read file: " + e.getMessage());
 		}
@@ -66,8 +69,9 @@ public class AiController {
 	@RequiresFeature(FeatureKey.NL_CHATBOT)
 	public ResponseEntity<ChatResponse> chat(@Valid @RequestBody ChatRequest req,
 			@AuthenticationPrincipal User user) {
+		String mode = entitlementService.resolveChatMode(req.mode(), user);
 		return ResponseEntity.ok(llmCircuitBreaker.execute(
-				() -> chatActionService.dispatch(req.message(), req.mode(), user, req.conversationId()),
+				() -> chatActionService.dispatch(req.message(), mode, user, req.conversationId()),
 				() -> new ChatResponse("text", DEGRADED_MESSAGE, null)));
 	}
 }
