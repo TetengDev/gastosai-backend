@@ -30,4 +30,15 @@ public class JavaMailEmailSender implements EmailSender {
         mailSender.send(message);
         log.info("magic_link_sent to={}", toEmail);
     }
+
+    @Override
+    public void sendNotification(String toEmail, String subject, String body) {
+        var message = new SimpleMailMessage();
+        message.setFrom(from);
+        message.setTo(toEmail);
+        message.setSubject(subject);
+        message.setText(body);
+        mailSender.send(message);
+        log.info("notification_sent to={}", toEmail);
+    }
 }

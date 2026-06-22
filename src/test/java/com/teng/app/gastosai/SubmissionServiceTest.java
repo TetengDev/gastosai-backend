@@ -6,6 +6,7 @@ import com.teng.app.gastosai.entity.Submission;
 import com.teng.app.gastosai.entity.SubmissionType;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.SubmissionRepository;
+import com.teng.app.gastosai.service.EmailSender;
 import com.teng.app.gastosai.service.SubmissionService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -13,6 +14,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -26,6 +28,7 @@ import static org.mockito.Mockito.when;
 class SubmissionServiceTest {
 
 	@Mock SubmissionRepository submissionRepository;
+	@Mock EmailSender emailSender;
 	@InjectMocks SubmissionService submissionService;
 
 	@Test
@@ -47,6 +50,18 @@ class SubmissionServiceTest {
 		assertThat(saved.getMessage()).isEqualTo("Hello");
 		assertThat(resp.id()).isEqualTo(7L);
 		assertThat(resp.handled()).isFalse();
+	}
+
+	@Test
+	void create_emailsContactInbox_whenConfigured() {
+		ReflectionTestUtils.setField(submissionService, "notificationEmail", "owner@test.com");
+		when(submissionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+		submissionService.create(new SubmissionRequest(SubmissionType.CONTACT, "Jane", "jane@test.com", "Hi"));
+
+		org.mockito.Mockito.verify(emailSender).sendNotification(
+				org.mockito.ArgumentMatchers.eq("owner@test.com"),
+				any(), any());
 	}
 
 	@Test
