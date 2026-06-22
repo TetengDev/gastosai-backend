@@ -9,4 +9,9 @@ public class LoggingEmailSender implements EmailSender {
     public void sendMagicLink(String toEmail, String link) {
         log.info("magic_link_issued to={} link={}", toEmail, link);
     }
+
+    @Override
+    public void sendNotification(String toEmail, String subject, String body) {
+        log.info("notification_issued to={} subject={}", toEmail, subject);
+    }
 }

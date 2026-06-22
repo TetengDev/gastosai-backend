@@ -22,8 +22,15 @@ public class WebConfig implements WebMvcConfigurer {
 
 	@Override
 	public void addCorsMappings(CorsRegistry registry) {
+		// Normalize configured origins: trim whitespace and strip trailing slashes. The browser's
+		// Origin header never has a trailing slash, so a misconfigured "https://app.example/" would
+		// otherwise silently block every cross-origin call.
+		String[] origins = java.util.Arrays.stream(allowedOrigins)
+				.filter(o -> o != null && !o.isBlank())
+				.map(o -> o.trim().replaceAll("/+$", ""))
+				.toArray(String[]::new);
 		registry.addMapping("/**")
-				.allowedOriginPatterns(allowedOrigins)
+				.allowedOriginPatterns(origins)
 				.allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
 				.allowedHeaders("*")
 				.maxAge(3600);
