@@ -22,9 +22,12 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -61,15 +64,53 @@ public class BudgetService {
 		budget.setCurrency(currency);
 		budget.setExchangeRate(rate);
 		budget.setAmountLimitInBaseCurrency(req.amountLimit().multiply(rate));
+		budget.setRecurring(Boolean.TRUE.equals(req.recurring()));
 
 		return toResponse(budgetRepository.save(budget));
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional
 	public List<BudgetResponse> findAllByMonth(String month, User user) {
+		materializeRecurring(user, month);
 		return budgetRepository.findAllByUserAndMonth(user, month).stream()
 				.map(this::toResponse)
 				.toList();
+	}
+
+	/**
+	 * Carry recurring budgets forward: for each category whose most recent budget (in any month up to
+	 * {@code month}) is marked recurring, create a copy for {@code month} if one does not already
+	 * exist. Lazy — runs when a month is first viewed. Turning recurring off on a later month stops
+	 * the carry-forward because the most recent row is then non-recurring.
+	 */
+	private void materializeRecurring(User user, String month) {
+		List<Budget> all = budgetRepository.findAllByUser(user);
+		Map<Long, Budget> latestUpToMonth = new HashMap<>();
+		Set<Long> categoriesWithThisMonth = new HashSet<>();
+		for (Budget b : all) {
+			Long categoryId = b.getCategory().getId();
+			if (b.getMonth().equals(month)) {
+				categoriesWithThisMonth.add(categoryId);
+			}
+			if (b.getMonth().compareTo(month) <= 0) {
+				latestUpToMonth.merge(categoryId, b,
+						(x, y) -> x.getMonth().compareTo(y.getMonth()) >= 0 ? x : y);
+			}
+		}
+		for (Budget latest : latestUpToMonth.values()) {
+			if (latest.isRecurring() && !categoriesWithThisMonth.contains(latest.getCategory().getId())) {
+				budgetRepository.save(Budget.builder()
+						.user(user)
+						.category(latest.getCategory())
+						.month(month)
+						.amountLimit(latest.getAmountLimit())
+						.currency(latest.getCurrency())
+						.exchangeRate(latest.getExchangeRate())
+						.amountLimitInBaseCurrency(latest.getAmountLimitInBaseCurrency())
+						.recurring(true)
+						.build());
+			}
+		}
 	}
 
 	@Transactional
@@ -83,6 +124,9 @@ public class BudgetService {
 		budget.setCurrency(currency);
 		budget.setExchangeRate(rate);
 		budget.setAmountLimitInBaseCurrency(req.amountLimit().multiply(rate));
+		if (req.recurring() != null) {
+			budget.setRecurring(req.recurring());
+		}
 		return toResponse(budgetRepository.save(budget));
 	}
 
@@ -98,12 +142,13 @@ public class BudgetService {
 		budgetRepository.deleteAll(budgetRepository.findAllByUserAndMonth(user, month));
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional
 	public BudgetSummaryResponse getSummary(String month, User user) {
 		YearMonth yearMonth = parseMonth(month);
 		int year = yearMonth.getYear();
 		int monthInt = yearMonth.getMonthValue();
 
+		materializeRecurring(user, month);
 		List<Budget> budgets = budgetRepository.findAllByUserAndMonth(user, month);
 
 		List<Object[]> spentRows = expenseRepository.sumByCategoryAndMonth(user, year, monthInt);
@@ -200,7 +245,8 @@ public class BudgetService {
 				b.getAmountLimit().setScale(2, RoundingMode.HALF_UP),
 				b.getCurrency(),
 				b.getExchangeRate().setScale(4, RoundingMode.HALF_UP),
-				b.getAmountLimitInBaseCurrency().setScale(2, RoundingMode.HALF_UP)
+				b.getAmountLimitInBaseCurrency().setScale(2, RoundingMode.HALF_UP),
+				b.isRecurring()
 		);
 	}
 

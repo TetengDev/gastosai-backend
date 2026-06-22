@@ -254,7 +254,7 @@ class ChatActionServiceExtendedTest {
         when(budgetRepository.findByIdAndUser(anyLong(), any())).thenReturn(Optional.of(budget));
         when(budgetService.update(anyLong(), any(), any())).thenReturn(
                 new com.teng.app.gastosai.dto.BudgetResponse(42L, 3L, "Food", "2026-06",
-                        new BigDecimal("5000.00"), "PHP", BigDecimal.ONE, new BigDecimal("5000.00")));
+                        new BigDecimal("5000.00"), "PHP", BigDecimal.ONE, new BigDecimal("5000.00"), false));
 
         ChatResponse resp = chatActionService.dispatch("Update budget 42 to 5000", null, user());
 
