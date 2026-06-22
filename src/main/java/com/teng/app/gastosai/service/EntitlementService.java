@@ -58,6 +58,24 @@ public class EntitlementService {
         }
     }
 
+    /**
+     * Resolve the chat tone the user is actually allowed to use. "plain" is always available;
+     * "professional"/"genz" require {@link FeatureKey#CHAT_PERSONAS}. Falls back to "plain" rather
+     * than failing, so a downgraded user still gets a reply. Respects the admin view-as simulation
+     * and the {@code monetization.enforce} flag via {@link #canAccessFeature}.
+     */
+    @Transactional(readOnly = true)
+    public String resolveChatMode(String mode, User user) {
+        if (mode == null || mode.isBlank()) {
+            return "plain";
+        }
+        String normalized = mode.trim().toLowerCase(java.util.Locale.ROOT);
+        if ("plain".equals(normalized)) {
+            return "plain";
+        }
+        return canAccessFeature(user, FeatureKey.CHAT_PERSONAS) ? normalized : "plain";
+    }
+
     @Transactional(readOnly = true)
     public Entitlements describe(User user) {
         boolean admin = user.isAdmin();

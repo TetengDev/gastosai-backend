@@ -57,6 +57,6 @@ class EntitlementEnforcementIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.plan").value("FREE"))
                 .andExpect(jsonPath("$.features").isArray())
-                .andExpect(jsonPath("$.features[0]").value("EXPORT_CSV"));
+                .andExpect(jsonPath("$.features", org.hamcrest.Matchers.containsInAnyOrder("EXPORT_CSV", "NL_CHATBOT")));
     }
 }
