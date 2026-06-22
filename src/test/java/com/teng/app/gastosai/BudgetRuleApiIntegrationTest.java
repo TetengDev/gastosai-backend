@@ -75,6 +75,12 @@ class BudgetRuleApiIntegrationTest {
     }
 
     @Test
+    void summary_malformedMonth_returns400() throws Exception {
+        mockMvc.perform(get("/budget-rules/summary?month=NOPE").header("Authorization", auth))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void newUser_getsDefaultRule_disabled() throws Exception {
         mockMvc.perform(get("/budget-rules").header("Authorization", auth))
                 .andExpect(status().isOk())

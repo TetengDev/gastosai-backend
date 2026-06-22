@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.YearMonth;
+import java.time.format.DateTimeParseException;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
@@ -105,7 +106,12 @@ public class BudgetRuleService {
 
     @Transactional(readOnly = true)
     public BudgetRuleSummaryResponse summary(User user, String month) {
-        YearMonth ym = YearMonth.parse(month);
+        YearMonth ym;
+        try {
+            ym = YearMonth.parse(month);
+        } catch (DateTimeParseException ex) {
+            throw new IllegalArgumentException("Invalid month, expected format YYYY-MM: " + month);
+        }
         BudgetRuleResponse rule = get(user);
 
         Map<Long, Bucket> bucketByCategory = new HashMap<>();
