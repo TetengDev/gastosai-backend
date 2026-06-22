@@ -6,6 +6,7 @@ import com.teng.app.gastosai.entity.Expense;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
 import org.apache.commons.csv.CSVRecord;
@@ -27,6 +28,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CsvImportService {
@@ -119,7 +121,9 @@ public class CsvImportService {
 				persist(row, user);
 				imported++;
 			} catch (Exception e) {
-				errors.add("Save failed: " + e.getMessage());
+				// Don't leak the raw DB/exception text to the user.
+				log.warn("csv_import_row_save_failed: {}", e.getMessage());
+				errors.add("A row could not be saved.");
 			}
 		}
 		return new ImportResult(imported, skipped, errors);
@@ -143,6 +147,9 @@ public class CsvImportService {
 				.category(category)
 				.date(row.date())
 				.description(row.description())
+				.currency("PHP")
+				.exchangeRate(BigDecimal.ONE)
+				.amountInBaseCurrency(row.amount())
 				.build());
 	}
 
