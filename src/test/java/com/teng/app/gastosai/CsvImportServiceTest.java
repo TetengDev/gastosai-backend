@@ -2,12 +2,14 @@ package com.teng.app.gastosai;
 
 import com.teng.app.gastosai.dto.ImportResult;
 import com.teng.app.gastosai.entity.Category;
+import com.teng.app.gastosai.entity.Expense;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import com.teng.app.gastosai.service.CategoryService;
 import com.teng.app.gastosai.service.CsvImportService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -61,7 +63,15 @@ class CsvImportServiceTest {
         assertThat(result.imported()).isEqualTo(2);
         assertThat(result.skipped()).isEqualTo(0);
         assertThat(result.errors()).isEmpty();
-        verify(expenseRepository, times(2)).save(any());
+        ArgumentCaptor<Expense> cap = ArgumentCaptor.forClass(Expense.class);
+        verify(expenseRepository, times(2)).save(cap.capture());
+        // Regression guard: amountInBaseCurrency must be set (DB column is NOT NULL in prod;
+        // omitting it broke every CSV import even though the mocked/H2 path didn't catch it).
+        assertThat(cap.getAllValues()).allSatisfy(e -> {
+            assertThat(e.getAmountInBaseCurrency()).isNotNull();
+            assertThat(e.getAmountInBaseCurrency()).isEqualByComparingTo(e.getAmount());
+            assertThat(e.getCurrency()).isEqualTo("PHP");
+        });
     }
 
     // --- missing amount column → skip ---
