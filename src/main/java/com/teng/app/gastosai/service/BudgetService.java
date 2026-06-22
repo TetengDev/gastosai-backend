@@ -84,6 +84,18 @@ public class BudgetService {
 	 * the carry-forward because the most recent row is then non-recurring.
 	 */
 	private void materializeRecurring(User user, String month) {
+		// Storage-amplification guard: only auto-create rows up to next month. Without this an
+		// authenticated user could request arbitrary far-future months and have a row written for
+		// every recurring category on each read.
+		YearMonth target;
+		try {
+			target = YearMonth.parse(month);
+		} catch (DateTimeParseException ex) {
+			return;
+		}
+		if (target.isAfter(YearMonth.now().plusMonths(1))) {
+			return;
+		}
 		List<Budget> all = budgetRepository.findAllByUser(user);
 		Map<Long, Budget> latestUpToMonth = new HashMap<>();
 		Set<Long> categoriesWithThisMonth = new HashSet<>();

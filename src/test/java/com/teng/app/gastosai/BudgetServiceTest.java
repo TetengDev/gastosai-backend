@@ -89,6 +89,21 @@ class BudgetServiceTest {
 	}
 
 	@Test
+	void findAllByMonth_doesNotMaterializeFarFutureMonth() {
+		User user = testUser();
+		Category cat = testCategory();
+		Budget june = Budget.builder().id(1L).user(user).category(cat).month("2026-06")
+				.amountLimit(new BigDecimal("5000.0000")).currency("PHP").exchangeRate(BigDecimal.ONE)
+				.amountLimitInBaseCurrency(new BigDecimal("5000.0000")).recurring(true).build();
+		when(budgetRepository.findAllByUserAndMonth(user, "2099-12")).thenReturn(List.of());
+
+		budgetService.findAllByMonth("2099-12", user);
+
+		// Far-future month is past the materialization horizon — no rows created (storage guard).
+		verify(budgetRepository, never()).save(any());
+	}
+
+	@Test
 	void create_success() {
 		User user = testUser();
 		Category cat = testCategory();
