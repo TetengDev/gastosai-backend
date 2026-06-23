@@ -1,11 +1,13 @@
 package com.teng.app.gastosai.controller;
 
 import com.teng.app.gastosai.dto.AuthResponse;
+import com.teng.app.gastosai.dto.GoogleAuthRequest;
 import com.teng.app.gastosai.dto.LoginRequest;
 import com.teng.app.gastosai.dto.MagicLinkRequest;
 import com.teng.app.gastosai.dto.MagicLinkVerifyRequest;
 import com.teng.app.gastosai.dto.RegisterRequest;
 import com.teng.app.gastosai.service.AuthService;
+import com.teng.app.gastosai.service.GoogleAuthService;
 import com.teng.app.gastosai.service.MagicLinkService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +27,7 @@ public class AuthController {
 
 	private final AuthService authService;
 	private final MagicLinkService magicLinkService;
+	private final GoogleAuthService googleAuthService;
 
 	@PostMapping("/register")
 	@ResponseStatus(HttpStatus.CREATED)
@@ -46,5 +49,10 @@ public class AuthController {
 	@PostMapping("/magic-link/verify")
 	public AuthResponse verifyMagicLink(@Valid @RequestBody MagicLinkVerifyRequest request) {
 		return magicLinkService.verify(request.token());
+	}
+
+	@PostMapping("/google")
+	public AuthResponse google(@Valid @RequestBody GoogleAuthRequest request) {
+		return googleAuthService.loginWithIdToken(request.idToken());
 	}
 }
