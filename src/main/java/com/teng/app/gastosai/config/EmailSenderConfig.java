@@ -3,6 +3,7 @@ package com.teng.app.gastosai.config;
 import com.teng.app.gastosai.service.EmailSender;
 import com.teng.app.gastosai.service.JavaMailEmailSender;
 import com.teng.app.gastosai.service.LoggingEmailSender;
+import com.teng.app.gastosai.service.ResendEmailSender;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -13,15 +14,24 @@ import org.springframework.mail.javamail.JavaMailSender;
 public class EmailSenderConfig {
 
     /**
-     * Spring Boot creates a JavaMailSender bean whenever {@code spring.mail.host} is *present*,
-     * and our property defaults to an empty string ({@code ${MAIL_HOST:}}) so it is always present.
-     * An empty host would make JavaMail attempt SMTP against nothing and silently drop magic links.
-     * So we only use real SMTP when the host is actually configured; otherwise we log the link
-     * (dev / unconfigured deployments still see the link in the server log).
+     * Email transport selection, in priority order:
+     * <ol>
+     *   <li><b>Resend</b> (HTTP API over 443) when {@code RESEND_API_KEY} is set — required on PaaS
+     *       free tiers (e.g. Render) that block outbound SMTP ports.</li>
+     *   <li><b>SMTP</b> via JavaMail when {@code spring.mail.host} is a non-blank value. (The host
+     *       defaults to an empty string, which is still a *present* property and would otherwise make
+     *       Spring build a JavaMailSender that sends to nothing — hence the explicit blank check.)</li>
+     *   <li><b>Logging</b> fallback — dev / unconfigured deployments see the link in the server log.</li>
+     * </ol>
      */
     @Bean
     public EmailSender emailSender(ObjectProvider<JavaMailSender> mailSenderProvider,
+                                   @Value("${gastos.mail.resend.api-key:}") String resendApiKey,
+                                   @Value("${gastos.mail.from:no-reply@gastosai.app}") String from,
                                    @Value("${spring.mail.host:}") String mailHost) {
+        if (resendApiKey != null && !resendApiKey.isBlank()) {
+            return new ResendEmailSender(resendApiKey, from);
+        }
         JavaMailSender mailSender = mailSenderProvider.getIfAvailable();
         if (mailSender != null && mailHost != null && !mailHost.isBlank()) {
             return new JavaMailEmailSender(mailSender);
