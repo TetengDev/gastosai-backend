@@ -80,7 +80,9 @@ Prices are decision-ready from the pricing memo; billing/payment integration is 
 ## 5. Current limitations
 
 - **No payment/billing flow** — tiers are defined and enforceable but there is no checkout,
-  subscription management, or pricing page; upgrades are manual/admin today.
+  subscription management, or pricing page; upgrades are manual/admin today. The sequenced path
+  to charging money (payment provider, checkout, webhook, pricing UI) is in
+  [docs/go-live-strategy.md](go-live-strategy.md).
 - **Monetization not enforced** by default (intentional for alpha/beta).
 - **Receipt vision cost** — gpt-4o-mini applies a ~33× image-token multiplier; vision has its
   own sub-cap but model choice is a known cost risk (see pricing memo §4).
