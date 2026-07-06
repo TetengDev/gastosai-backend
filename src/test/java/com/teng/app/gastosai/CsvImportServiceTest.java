@@ -245,6 +245,46 @@ class CsvImportServiceTest {
         verify(expenseRepository, never()).save(any());
     }
 
+    // --- abuse limits ---
+
+    @Test
+    void import_overRowCap_rejectsWholeFile_persistsNothing() throws IOException {
+        org.springframework.test.util.ReflectionTestUtils.setField(csvImportService, "maxRows", 2);
+        String content = "date,amount,category\n"
+                + "2026-06-01,10,Food\n"
+                + "2026-06-02,20,Food\n"
+                + "2026-06-03,30,Food\n"; // 3 data rows > cap of 2
+
+        ImportResult result = csvImportService.importCsv(csv(content), user());
+
+        assertThat(result.imported()).isZero();
+        assertThat(result.skipped()).isZero();
+        assertThat(result.errors()).hasSize(1);
+        assertThat(result.errors().get(0)).contains("exceeds");
+        verify(expenseRepository, never()).save(any());
+    }
+
+    @Test
+    void import_overlongFields_truncatedToCaps() throws IOException {
+        String longCategory = "c".repeat(200);      // cap 100
+        String longDescription = "d".repeat(600);    // cap 500
+        String content = "date,amount,category,description\n"
+                + "2026-06-01,10," + longCategory + "," + longDescription + "\n";
+
+        when(categoryService.getOrCreateByName(anyString(), any())).thenAnswer(inv ->
+                category(inv.getArgument(0)));
+
+        ImportResult result = csvImportService.importCsv(csv(content), user());
+
+        assertThat(result.imported()).isEqualTo(1);
+        ArgumentCaptor<String> catCap = ArgumentCaptor.forClass(String.class);
+        verify(categoryService).getOrCreateByName(catCap.capture(), any());
+        assertThat(catCap.getValue()).hasSize(100);
+        ArgumentCaptor<Expense> expCap = ArgumentCaptor.forClass(Expense.class);
+        verify(expenseRepository).save(expCap.capture());
+        assertThat(expCap.getValue().getDescription()).hasSize(500);
+    }
+
     @Test
     void buildTemplate_returnsCsvWithHeader() throws IOException {
         String csv = new String(csvImportService.buildTemplate(), StandardCharsets.UTF_8);

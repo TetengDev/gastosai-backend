@@ -82,6 +82,29 @@ class ExpenseServiceTest {
     }
 
     @Test
+    void exportCsv_neutralizesFormulaInjection() throws IOException {
+        User user = regularUser();
+        Category cat = Category.builder().id(1L).name("Food").build();
+        Expense e = Expense.builder()
+                .id(1L)
+                .user(user)
+                .category(cat)
+                .amount(new BigDecimal("10.0000"))
+                .amountInBaseCurrency(new BigDecimal("10.0000"))
+                .date(LocalDateTime.of(2026, 6, 1, 10, 0))
+                .description("=cmd|' /c calc'!A1")
+                .build();
+        when(expenseRepository.findAllByUserOrderByDateDesc(user)).thenReturn(List.of(e));
+
+        String csv = new String(expenseService.exportCsv(user, null, null), StandardCharsets.UTF_8);
+
+        // The formula cell must be neutralized with a leading apostrophe (CWE-1236),
+        // never emitted as a bare =... that a spreadsheet would execute.
+        assertThat(csv).contains("'=cmd");
+        assertThat(csv).doesNotContain(",=cmd");
+    }
+
+    @Test
     void create_usesProvidedCategory_whenCategorySupplied() {
         User user = regularUser();
         Category mealPlan = Category.builder().id(2L).name("Meal Plan").build();
