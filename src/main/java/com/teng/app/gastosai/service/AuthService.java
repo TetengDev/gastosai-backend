@@ -37,11 +37,19 @@ public class AuthService {
 		return sessionFor(saved, true);
 	}
 
+	// Bcrypt hash of a throwaway value, computed once with the configured encoder. Matched
+	// against when the email is unknown so a login attempt takes the same time whether or
+	// not the account exists — closes the timing side-channel that would otherwise allow
+	// user enumeration (CWE-208).
+	private final String dummyHash = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder()
+			.encode("gastos-nonexistent-account-placeholder");
+
 	@Transactional(readOnly = true)
 	public AuthResponse login(LoginRequest request) {
-		User user = userRepository.findByEmail(request.email())
-				.orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
-		if (!passwordEncoder.matches(request.password(), user.getPassword())) {
+		User user = userRepository.findByEmail(request.email()).orElse(null);
+		String hash = user != null ? user.getPassword() : dummyHash;
+		boolean matches = passwordEncoder.matches(request.password(), hash);
+		if (user == null || !matches) {
 			throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
 		}
 		return sessionFor(user, false);

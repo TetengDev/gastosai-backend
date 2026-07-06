@@ -51,6 +51,10 @@ class SecurityHeadersIntegrationTest {
                 .andExpect(header().string("Strict-Transport-Security",
                         org.hamcrest.Matchers.containsString("includeSubDomains")))
                 .andExpect(header().exists("Content-Security-Policy"))
+                .andExpect(header().string("Content-Security-Policy",
+                        org.hamcrest.Matchers.containsString("frame-ancestors 'none'")))
+                .andExpect(header().exists("X-Frame-Options"))
+                .andExpect(header().string("X-Frame-Options", "DENY"))
                 .andExpect(header().exists("Referrer-Policy"))
                 .andExpect(header().string("Referrer-Policy", "no-referrer"));
     }
