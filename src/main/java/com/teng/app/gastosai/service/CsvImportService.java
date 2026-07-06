@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
 import org.apache.commons.csv.CSVRecord;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -53,11 +54,11 @@ public class CsvImportService {
 	// (unbounded memory + DB/category storage amplification, CWE-770) or multi-megabyte
 	// single fields into the unbounded `description` TEXT column. Field initializers are the
 	// defaults used in unit tests (@Value is only applied under Spring).
-	@org.springframework.beans.factory.annotation.Value("${gastos.import.max-rows:10000}")
+	@Value("${gastos.import.max-rows:10000}")
 	private int maxRows = 10000;
-	@org.springframework.beans.factory.annotation.Value("${gastos.import.max-description-length:500}")
+	@Value("${gastos.import.max-description-length:500}")
 	private int maxDescriptionLength = 500;
-	@org.springframework.beans.factory.annotation.Value("${gastos.import.max-category-length:100}")
+	@Value("${gastos.import.max-category-length:100}")
 	private int maxCategoryLength = 100;
 
 	private record PendingRow(BigDecimal amount, String categoryName, String description, LocalDateTime date) {

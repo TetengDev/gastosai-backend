@@ -14,6 +14,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import java.io.IOException;
@@ -249,7 +250,7 @@ class CsvImportServiceTest {
 
     @Test
     void import_overRowCap_rejectsWholeFile_persistsNothing() throws IOException {
-        org.springframework.test.util.ReflectionTestUtils.setField(csvImportService, "maxRows", 2);
+        ReflectionTestUtils.setField(csvImportService, "maxRows", 2);
         String content = "date,amount,category\n"
                 + "2026-06-01,10,Food\n"
                 + "2026-06-02,20,Food\n"
