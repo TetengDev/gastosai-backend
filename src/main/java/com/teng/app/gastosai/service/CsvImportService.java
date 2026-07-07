@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
 import org.apache.commons.csv.CSVRecord;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -49,6 +50,17 @@ public class CsvImportService {
 	private final CategoryService categoryService;
 	private final PlatformTransactionManager transactionManager;
 
+	// Abuse limits — a 10 MB upload could otherwise carry hundreds of thousands of rows
+	// (unbounded memory + DB/category storage amplification, CWE-770) or multi-megabyte
+	// single fields into the unbounded `description` TEXT column. Field initializers are the
+	// defaults used in unit tests (@Value is only applied under Spring).
+	@Value("${gastos.import.max-rows:10000}")
+	private int maxRows = 10000;
+	@Value("${gastos.import.max-description-length:500}")
+	private int maxDescriptionLength = 500;
+	@Value("${gastos.import.max-category-length:100}")
+	private int maxCategoryLength = 100;
+
 	private record PendingRow(BigDecimal amount, String categoryName, String description, LocalDateTime date) {
 	}
 
@@ -74,10 +86,16 @@ public class CsvImportService {
 		List<String> errors = new ArrayList<>();
 		int skipped = 0;
 		int rowNum = 1;
+		boolean overCap = false;
 
 		try (Reader reader = new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8)) {
 			for (CSVRecord record : format.parse(reader)) {
 				rowNum++;
+				// Row cap: stop reading past the limit so a huge file can't exhaust memory.
+				if (rowNum - 1 > maxRows) {
+					overCap = true;
+					break;
+				}
 				String amountRaw = col(record, "amount");
 				if (amountRaw == null) {
 					if (strict) errors.add("Row " + rowNum + ": missing amount");
@@ -98,10 +116,16 @@ public class CsvImportService {
 				}
 				pending.add(new PendingRow(
 						amount,
-						firstNonBlank(col(record, "category"), DEFAULT_CATEGORY),
-						firstNonBlank(col(record, "description"), col(record, "note"), ""),
+						clamp(firstNonBlank(col(record, "category"), DEFAULT_CATEGORY), maxCategoryLength),
+						clamp(firstNonBlank(col(record, "description"), col(record, "note"), ""), maxDescriptionLength),
 						parseDate(firstNonBlank(col(record, "date"), col(record, "datetime")))));
 			}
+		}
+
+		// Row cap hit: reject the whole file (no partial import) with a clear, non-leaky message.
+		if (overCap) {
+			return new ImportResult(0, 0, List.of(
+					"File exceeds the maximum of " + maxRows + " rows. Nothing was imported — split it into smaller files."));
 		}
 
 		// Strict: reject the whole file if anything was wrong — persist nothing.
@@ -160,6 +184,10 @@ public class CsvImportService {
 		} catch (IllegalArgumentException ignored) {
 			return null;
 		}
+	}
+
+	private static String clamp(String s, int max) {
+		return (s != null && s.length() > max) ? s.substring(0, max) : s;
 	}
 
 	private static String firstNonBlank(String... values) {
