@@ -15,7 +15,12 @@
 	<description/>
 	<url/>
 	<licenses>
-		<license/>
+		<license>
+			<name>Proprietary — All Rights Reserved</name>
+			<url>https://github.com/TetengDev/gastosai/blob/master/LICENSE</url>
+			<distribution>manual</distribution>
+			<comments>Proprietary software. See the LICENSE file at the repository root.</comments>
+		</license>
 	</licenses>
 	<developers>
 		<developer/>
