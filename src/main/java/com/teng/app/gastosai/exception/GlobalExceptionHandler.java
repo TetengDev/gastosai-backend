@@ -54,6 +54,13 @@ public class GlobalExceptionHandler {
 		return ResponseEntity.status(status).body(pd);
 	}
 
+	@ExceptionHandler(InvalidSignatureException.class)
+	public ResponseEntity<ProblemDetail> invalidSignature(InvalidSignatureException ex) {
+		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, ex.getMessage());
+		pd.setTitle("Unauthorized");
+		return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(pd);
+	}
+
 	@ExceptionHandler({ IllegalArgumentException.class, IllegalStateException.class })
 	public ResponseEntity<ProblemDetail> badRequest(RuntimeException ex) {
 		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
