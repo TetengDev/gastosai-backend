@@ -1,5 +1,6 @@
 package com.teng.app.gastosai.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teng.app.gastosai.config.PricingProperties;
@@ -51,40 +52,38 @@ public class PaymentService {
             throw new InvalidSignatureException();
         }
 
+        JsonNode root;
         try {
-            JsonNode root = objectMapper.readTree(rawBody);
-            String eventType = root.path("data").path("attributes").path("type").asText();
-
-            if (!"checkout_session.payment.paid".equals(eventType)) {
-                return;
-            }
-
-            String sessionId = root.path("data").path("attributes").path("data").path("id").asText();
-            if (sessionId.isBlank()) {
-                return;
-            }
-
-            Optional<PaymentCheckout> checkoutOpt = checkoutRepository.findBySessionId(sessionId);
-            if (checkoutOpt.isEmpty()) {
-                return;
-            }
-
-            PaymentCheckout checkout = checkoutOpt.get();
-            if (checkout.getStatus() == CheckoutStatus.PAID) {
-                return;
-            }
-
-            User user = checkout.getUser();
-            LocalDateTime periodEnd = checkout.getBillingPeriod().plus(LocalDateTime.now());
-            subscriptionService.activate(user, PlanKey.PREMIUM, "paymongo", sessionId, periodEnd);
-
-            checkout.setStatus(CheckoutStatus.PAID);
-            checkout.setPaidAt(LocalDateTime.now());
-            checkoutRepository.save(checkout);
-
-        } catch (Exception e) {
-            throw new IllegalStateException("Failed to process webhook", e);
+            root = objectMapper.readTree(rawBody);
+        } catch (JsonProcessingException e) {
+            // Malformed JSON from a signature-valid source is unexpected and not retryable — ack it.
+            return;
         }
+
+        String eventType = root.path("data").path("attributes").path("type").asText();
+        if (!"checkout_session.payment.paid".equals(eventType)) {
+            return;
+        }
+
+        String sessionId = root.path("data").path("attributes").path("data").path("id").asText();
+        if (sessionId.isBlank()) {
+            return;
+        }
+
+        PaymentCheckout checkout = checkoutRepository.findBySessionId(sessionId).orElse(null);
+        if (checkout == null || checkout.getStatus() == CheckoutStatus.PAID) {
+            return;
+        }
+
+        // Let any persistence failure below propagate as a 5xx so PayMongo retries the event
+        // (wrapping it as IllegalStateException would surface as 400 and drop a paid event).
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime periodEnd = checkout.getBillingPeriod().plus(now);
+        subscriptionService.activate(checkout.getUser(), PlanKey.PREMIUM, "paymongo", sessionId, periodEnd);
+
+        checkout.setStatus(CheckoutStatus.PAID);
+        checkout.setPaidAt(now);
+        checkoutRepository.save(checkout);
     }
 
     @Transactional(readOnly = true)

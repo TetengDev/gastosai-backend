@@ -8,16 +8,27 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Instant;
 import java.util.HexFormat;
 
 @Component
 @RequiredArgsConstructor
 public class PayMongoWebhookVerifier {
 
+    // PayMongo's recommended replay window: reject events whose signed timestamp is
+    // more than 5 minutes from now.
+    private static final long TOLERANCE_SECONDS = 300;
+
     private final PayMongoProperties properties;
 
     public boolean verify(String rawBody, String signatureHeader) {
         if (signatureHeader == null || signatureHeader.isBlank()) {
+            return false;
+        }
+        // Fail closed if the webhook secret is unset — otherwise an empty-key HMAC would be
+        // forgeable by anyone who knows the secret is unconfigured.
+        String secret = properties.getWebhookSecret();
+        if (secret == null || secret.isBlank()) {
             return false;
         }
 
@@ -38,6 +49,17 @@ public class PayMongoWebhookVerifier {
         }
 
         if (timestamp == null) {
+            return false;
+        }
+
+        // Reject stale/future timestamps to bound replay of a captured event.
+        long ts;
+        try {
+            ts = Long.parseLong(timestamp);
+        } catch (NumberFormatException e) {
+            return false;
+        }
+        if (Math.abs(Instant.now().getEpochSecond() - ts) > TOLERANCE_SECONDS) {
             return false;
         }
 

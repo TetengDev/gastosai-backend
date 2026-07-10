@@ -19,7 +19,7 @@ public class PayMongoWebhookController {
     @PostMapping("/paymongo")
     public ResponseEntity<Void> handleWebhook(
             @RequestBody String rawBody,
-            @RequestHeader("Paymongo-Signature") String signature) {
+            @RequestHeader(value = "Paymongo-Signature", required = false) String signature) {
         paymentService.handleWebhook(rawBody, signature);
         return ResponseEntity.ok().build();
     }

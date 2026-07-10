@@ -139,7 +139,7 @@ class PaymentApiIntegrationTest {
                 .build());
 
         String body = buildWebhookBody("cs_test_webhook_456");
-        String timestamp = "1700000001";
+        String timestamp = String.valueOf(java.time.Instant.now().getEpochSecond());
         String sig = computeHmac(timestamp + "." + body, WEBHOOK_SECRET);
         String header = "t=" + timestamp + ",te=" + sig;
 
@@ -174,7 +174,7 @@ class PaymentApiIntegrationTest {
                 .build());
 
         String body = buildWebhookBody("cs_test_idempotent_789");
-        String timestamp = "1700000002";
+        String timestamp = String.valueOf(java.time.Instant.now().getEpochSecond());
         String sig = computeHmac(timestamp + "." + body, WEBHOOK_SECRET);
         String header = "t=" + timestamp + ",te=" + sig;
 
