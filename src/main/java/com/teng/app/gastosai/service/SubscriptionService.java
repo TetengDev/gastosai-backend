@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 /**
  * Mutates subscription state independently of any payment provider. A future
@@ -39,6 +40,11 @@ public class SubscriptionService {
         subscription.setProvider(provider);
         subscription.setProviderRef(providerRef);
         return userSubscriptionRepository.save(subscription);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<UserSubscription> findCurrentSubscription(User user) {
+        return userSubscriptionRepository.findFirstByUserOrderByCreatedAtDesc(user);
     }
 
     @Transactional
