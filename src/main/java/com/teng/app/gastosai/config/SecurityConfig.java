@@ -55,6 +55,8 @@ public class SecurityConfig {
 						.requestMatchers("/actuator/info", "/features", "/error",
 								"/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
 						.requestMatchers(HttpMethod.POST, "/submissions").permitAll()
+						.requestMatchers(HttpMethod.POST, "/webhooks/paymongo").permitAll()
+						.requestMatchers(HttpMethod.GET, "/subscription/pricing").permitAll()
 						.requestMatchers(HttpMethod.GET, "/submissions").hasRole("ADMIN")
 						.requestMatchers("/submissions/**").hasRole("ADMIN")
 						.requestMatchers("/admin/**").hasRole("ADMIN")
