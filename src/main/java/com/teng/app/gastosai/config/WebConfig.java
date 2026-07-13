@@ -19,6 +19,7 @@ public class WebConfig implements WebMvcConfigurer {
 	private final AiKeyContextInterceptor aiKeyContextInterceptor;
 	private final ViewAsInterceptor viewAsInterceptor;
 	private final PublicRateLimitInterceptor publicRateLimitInterceptor;
+	private final AuthenticatedWriteRateLimitInterceptor authenticatedWriteRateLimitInterceptor;
 
 	@Override
 	public void addCorsMappings(CorsRegistry registry) {
@@ -47,6 +48,10 @@ public class WebConfig implements WebMvcConfigurer {
 		// /ai/usage is informational only (no LLM call), so it is exempt from the key and rate-limit gates.
 		registry.addInterceptor(aiKeyContextInterceptor).addPathPatterns("/ai/**", "/expenses/parse").excludePathPatterns("/ai/usage");
 		registry.addInterceptor(aiRateLimitInterceptor).addPathPatterns("/ai/**", "/expenses/parse").excludePathPatterns("/ai/usage");
+		registry.addInterceptor(authenticatedWriteRateLimitInterceptor)
+				.addPathPatterns("/expenses/**", "/categories/**", "/budgets/**", "/recurring/**",
+						"/goals/**", "/alerts/**")
+				.excludePathPatterns("/ai/**", "/auth/**", "/submissions", "/webhooks/**");
 		registry.addInterceptor(featureAccessInterceptor);
 	}
 }

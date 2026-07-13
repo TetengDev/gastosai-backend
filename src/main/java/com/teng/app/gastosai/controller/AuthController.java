@@ -9,6 +9,8 @@ import com.teng.app.gastosai.dto.RegisterRequest;
 import com.teng.app.gastosai.service.AuthService;
 import com.teng.app.gastosai.service.GoogleAuthService;
 import com.teng.app.gastosai.service.MagicLinkService;
+import com.teng.app.gastosai.service.RegistrationGuardService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -28,10 +30,12 @@ public class AuthController {
 	private final AuthService authService;
 	private final MagicLinkService magicLinkService;
 	private final GoogleAuthService googleAuthService;
+	private final RegistrationGuardService registrationGuardService;
 
 	@PostMapping("/register")
 	@ResponseStatus(HttpStatus.CREATED)
-	public AuthResponse register(@Valid @RequestBody RegisterRequest request) {
+	public AuthResponse register(@Valid @RequestBody RegisterRequest request, HttpServletRequest httpRequest) {
+		registrationGuardService.assertRegistrationAllowed(clientIp(httpRequest));
 		return authService.register(request);
 	}
 
@@ -41,8 +45,8 @@ public class AuthController {
 	}
 
 	@PostMapping("/magic-link")
-	public Map<String, Boolean> requestMagicLink(@Valid @RequestBody MagicLinkRequest request) {
-		magicLinkService.requestLink(request.email());
+	public Map<String, Boolean> requestMagicLink(@Valid @RequestBody MagicLinkRequest request, HttpServletRequest httpRequest) {
+		magicLinkService.requestLink(request.email(), clientIp(httpRequest));
 		return Map.of("sent", true);
 	}
 
@@ -54,5 +58,13 @@ public class AuthController {
 	@PostMapping("/google")
 	public AuthResponse google(@Valid @RequestBody GoogleAuthRequest request) {
 		return googleAuthService.loginWithIdToken(request.idToken());
+	}
+
+	private String clientIp(HttpServletRequest request) {
+		String forwarded = request.getHeader("X-Forwarded-For");
+		if (forwarded != null && !forwarded.isBlank()) {
+			return forwarded.split(",")[0].trim();
+		}
+		return request.getRemoteAddr();
 	}
 }

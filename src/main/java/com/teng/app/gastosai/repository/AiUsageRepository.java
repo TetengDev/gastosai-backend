@@ -15,4 +15,6 @@ public interface AiUsageRepository extends JpaRepository<AiUsage, Long> {
     long countByUserIdAndStatusAndFeatureInAndCreatedAtAfter(Long userId, AiUsageStatus status, Collection<AiFeature> features, LocalDateTime after);
 
     long countByUserIdAndFeatureAndStatusAndCreatedAtAfter(Long userId, AiFeature feature, AiUsageStatus status, LocalDateTime after);
+
+    long countByStatusAndCreatedAtAfter(AiUsageStatus status, LocalDateTime after);
 }
