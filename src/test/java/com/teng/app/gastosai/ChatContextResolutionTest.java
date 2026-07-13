@@ -1,6 +1,7 @@
 package com.teng.app.gastosai;
 
 import com.teng.app.gastosai.ai.ChatToolCall;
+import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.dto.ChatResponse;
 import com.teng.app.gastosai.entity.Conversation;
@@ -44,7 +45,7 @@ class ChatContextResolutionTest {
 	@Test
 	void createExpenseTurn_recordsLastEntityOnConversation() {
 		when(sqlGenerator.classifyIntent(anyString()))
-				.thenReturn(new ChatToolCall("create_expense", "{\"amount\": 12.50, \"description\": \"coffee\"}"));
+				.thenReturn(LlmResult.ofValue(new ChatToolCall("create_expense", "{\"amount\": 12.50, \"description\": \"coffee\"}")));
 
 		ChatResponse res = chatActionService.dispatch("add 12.50 coffee", "execute", user, null);
 
@@ -62,7 +63,7 @@ class ChatContextResolutionTest {
 	@Test
 	void secondTurn_reusesSameConversation_andKeepsHistory() {
 		when(sqlGenerator.classifyIntent(anyString()))
-				.thenReturn(new ChatToolCall("text", "Sure!"));
+				.thenReturn(LlmResult.ofValue(new ChatToolCall("text", "Sure!")));
 
 		ChatResponse first = chatActionService.dispatch("hi", "plain", user, null);
 		Long convId = first.conversationId();

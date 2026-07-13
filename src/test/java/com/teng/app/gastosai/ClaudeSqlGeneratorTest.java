@@ -1,6 +1,7 @@
 package com.teng.app.gastosai;
 
 import com.teng.app.gastosai.ai.ClaudeSqlGenerator;
+import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.config.ClaudeProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,12 +29,13 @@ class ClaudeSqlGeneratorTest {
     @InjectMocks
     ClaudeSqlGenerator generator;
 
-    // Claude response format: {"content":[{"text":"..."}]}
     private String claudeResponse(String text) {
-        return "{\"content\":[{\"type\":\"text\",\"text\":\"" + text.replace("\"", "\\\"").replace("\n", "\\n") + "\"}]}";
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"" + text.replace("\"", "\\\"").replace("\n", "\\n") + "\"}],\"usage\":{\"input_tokens\":100,\"output_tokens\":50}}";
     }
 
-    // ── generateSql — API key guard ───────────────────────────────────────────
+    private String claudeResponseNoUsage(String text) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"" + text.replace("\"", "\\\"").replace("\n", "\\n") + "\"}]}";
+    }
 
     @Test
     void generateSql_nullApiKey_throws() {
@@ -53,24 +55,33 @@ class ClaudeSqlGeneratorTest {
                 .hasMessageContaining("CLAUDE_API_KEY");
     }
 
-    // ── generateSql — HTTP path ───────────────────────────────────────────────
-
     @Test
     void generateSql_plainSqlResponse_returned() {
         when(claudeProperties.getApiKey()).thenReturn("sk-ant-test");
         when(claudeProperties.getModel()).thenReturn("claude-3-5-sonnet-20241022");
 
-        when(claudeRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
+        when(claudeRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
                 .thenReturn(claudeResponse("SELECT * FROM expenses WHERE user_id = 1"));
 
-        String result = generator.generateSql("show all my expenses");
+        LlmResult<String> result = generator.generateSql("show all my expenses");
 
-        assertThat(result).isEqualTo("SELECT * FROM expenses WHERE user_id = 1");
+        assertThat(result.value()).isEqualTo("SELECT * FROM expenses WHERE user_id = 1");
+        assertThat(result.usage().inputTokens()).isEqualTo(100);
+        assertThat(result.usage().outputTokens()).isEqualTo(50);
+    }
+
+    @Test
+    void generateSql_usageAbsentWhenMissing() {
+        when(claudeProperties.getApiKey()).thenReturn("sk-ant-test");
+        when(claudeProperties.getModel()).thenReturn("claude-3-5-sonnet-20241022");
+
+        when(claudeRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
+                .thenReturn(claudeResponseNoUsage("SELECT * FROM expenses"));
+
+        LlmResult<String> result = generator.generateSql("show expenses");
+
+        assertThat(result.usage().inputTokens()).isNull();
+        assertThat(result.usage().outputTokens()).isNull();
     }
 
     @Test
@@ -78,18 +89,13 @@ class ClaudeSqlGeneratorTest {
         when(claudeProperties.getApiKey()).thenReturn("sk-ant-test");
         when(claudeProperties.getModel()).thenReturn("claude-3-5-sonnet-20241022");
 
-        String body = "{\"content\":[{\"type\":\"text\",\"text\":\"```sql\\nSELECT id FROM expenses\\n```\"}]}";
-        when(claudeRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
+        String body = "{\"content\":[{\"type\":\"text\",\"text\":\"```sql\\nSELECT id FROM expenses\\n```\"}],\"usage\":{\"input_tokens\":100,\"output_tokens\":50}}";
+        when(claudeRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
                 .thenReturn(body);
 
-        String result = generator.generateSql("list all expenses");
+        LlmResult<String> result = generator.generateSql("list all expenses");
 
-        assertThat(result).isEqualTo("SELECT id FROM expenses");
+        assertThat(result.value()).isEqualTo("SELECT id FROM expenses");
     }
 
     @Test
@@ -97,12 +103,7 @@ class ClaudeSqlGeneratorTest {
         when(claudeProperties.getApiKey()).thenReturn("sk-ant-test");
         when(claudeProperties.getModel()).thenReturn("claude-3-5-sonnet-20241022");
 
-        when(claudeRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
+        when(claudeRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
                 .thenReturn("");
 
         assertThatThrownBy(() -> generator.generateSql("anything"))
@@ -115,12 +116,7 @@ class ClaudeSqlGeneratorTest {
         when(claudeProperties.getApiKey()).thenReturn("sk-ant-test");
         when(claudeProperties.getModel()).thenReturn("claude-3-5-sonnet-20241022");
 
-        when(claudeRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
+        when(claudeRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
                 .thenReturn(null);
 
         assertThatThrownBy(() -> generator.generateSql("anything"))
@@ -128,92 +124,63 @@ class ClaudeSqlGeneratorTest {
                 .hasMessageContaining("Empty response");
     }
 
-    // ── generateSummary — mode routing ───────────────────────────────────────
-
     @Test
     void generateSummary_plainMode_returnsContent() {
         when(claudeProperties.getModel()).thenReturn("claude-3-5-sonnet-20241022");
 
-        when(claudeRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
+        when(claudeRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
                 .thenReturn(claudeResponse("You spent ₱5,000 this month."));
 
-        String result = generator.generateSummary("how much?", "[]", "plain");
+        LlmResult<String> result = generator.generateSummary("how much?", "[]", "plain");
 
-        assertThat(result).isEqualTo("You spent ₱5,000 this month.");
+        assertThat(result.value()).isEqualTo("You spent ₱5,000 this month.");
     }
 
     @Test
     void generateSummary_professionalMode_returnsContent() {
         when(claudeProperties.getModel()).thenReturn("claude-3-5-sonnet-20241022");
 
-        when(claudeRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
+        when(claudeRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
                 .thenReturn(claudeResponse("Your total expenditure was ₱5,000."));
 
-        String result = generator.generateSummary("how much?", "[]", "professional");
+        LlmResult<String> result = generator.generateSummary("how much?", "[]", "professional");
 
-        assertThat(result).isEqualTo("Your total expenditure was ₱5,000.");
+        assertThat(result.value()).isEqualTo("Your total expenditure was ₱5,000.");
     }
 
     @Test
     void generateSummary_genzMode_returnsContent() {
         when(claudeProperties.getModel()).thenReturn("claude-3-5-sonnet-20241022");
 
-        when(claudeRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
+        when(claudeRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
                 .thenReturn(claudeResponse("bestie you spent ₱5k no cap"));
 
-        String result = generator.generateSummary("how much?", "[]", "genz");
+        LlmResult<String> result = generator.generateSummary("how much?", "[]", "genz");
 
-        assertThat(result).isEqualTo("bestie you spent ₱5k no cap");
+        assertThat(result.value()).isEqualTo("bestie you spent ₱5k no cap");
     }
-
-    // ── generateInsightSummary ────────────────────────────────────────────────
 
     @Test
     void generateInsightSummary_summaryType_returnsContent() {
         when(claudeProperties.getModel()).thenReturn("claude-3-5-sonnet-20241022");
 
-        when(claudeRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
+        when(claudeRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
                 .thenReturn(claudeResponse("You spent most on Food this month."));
 
-        String result = generator.generateInsightSummary("{}", "summary", "plain");
+        LlmResult<String> result = generator.generateInsightSummary("{}", "summary", "plain");
 
-        assertThat(result).isEqualTo("You spent most on Food this month.");
+        assertThat(result.value()).isEqualTo("You spent most on Food this month.");
     }
 
     @Test
     void generateInsightSummary_recommendationsType_returnsContent() {
         when(claudeProperties.getModel()).thenReturn("claude-3-5-sonnet-20241022");
 
-        when(claudeRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
+        when(claudeRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
                 .thenReturn(claudeResponse("Reduce Food spending this month."));
 
-        String result = generator.generateInsightSummary("{}", "recommendations", "plain");
+        LlmResult<String> result = generator.generateInsightSummary("{}", "recommendations", "plain");
 
-        assertThat(result).contains("Reduce Food spending");
+        assertThat(result.value()).contains("Reduce Food spending");
     }
 }

@@ -27,7 +27,7 @@ public class OpenAiExpenseParser implements ExpenseParser {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
-    public ParsedExpenseResult parse(String text) {
+    public LlmResult<ParsedExpenseResult> parse(String text) {
         String key = AiKeyContext.openai();
         if (key == null || key.isBlank()) {
             key = openAiProperties.getApiKey();
@@ -58,9 +58,26 @@ public class OpenAiExpenseParser implements ExpenseParser {
         try {
             JsonNode root = objectMapper.readTree(raw);
             String content = root.path("choices").path(0).path("message").path("content").asText("");
-            return parseJson(objectMapper.readTree(content));
+            LlmUsage usage = extractUsage(root);
+            return LlmResult.of(parseJson(objectMapper.readTree(content)), usage);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to parse OpenAI expense response", e);
+        }
+    }
+
+    private static LlmUsage extractUsage(JsonNode root) {
+        try {
+            JsonNode usage = root.path("usage");
+            if (usage.isMissingNode() || usage.isNull()) {
+                return LlmUsage.absent();
+            }
+            JsonNode inputNode = usage.path("prompt_tokens");
+            JsonNode outputNode = usage.path("completion_tokens");
+            Integer input = inputNode.isNumber() ? inputNode.intValue() : null;
+            Integer output = outputNode.isNumber() ? outputNode.intValue() : null;
+            return new LlmUsage(input, output);
+        } catch (Exception e) {
+            return LlmUsage.absent();
         }
     }
 

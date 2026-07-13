@@ -63,12 +63,11 @@ public class AiInsightService {
     public MonthSummaryInsightResponse getMonthSummary(User user, String month) throws Exception {
         String contextJson = buildContext(user, month);
         try {
-            String summary = sqlGenerator.generateInsightSummary(contextJson, "month-summary", "plain");
-            // best-effort: provider usage not surfaced here yet (TODO wire tokens)
+            var result = sqlGenerator.generateInsightSummary(contextJson, "month-summary", "plain");
             aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
                     resolveModel(), AiFeature.MONTHLY_SUMMARY,
-                    null, null, AiUsageStatus.SUCCESS, null);
-            return new MonthSummaryInsightResponse(month, summary);
+                    result.usage().inputTokens(), result.usage().outputTokens(), AiUsageStatus.SUCCESS, null);
+            return new MonthSummaryInsightResponse(month, result.value());
         } catch (Exception e) {
             aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
                     resolveModel(), AiFeature.MONTHLY_SUMMARY,
@@ -82,17 +81,16 @@ public class AiInsightService {
     public RecommendationsInsightResponse getRecommendations(User user, String month) throws Exception {
         String contextJson = buildContext(user, month);
         try {
-            String raw = sqlGenerator.generateInsightSummary(contextJson, "recommendations", "plain");
+            var result = sqlGenerator.generateInsightSummary(contextJson, "recommendations", "plain");
             List<String> recs;
             try {
-                recs = objectMapper.readValue(raw, new TypeReference<List<String>>() {});
+                recs = objectMapper.readValue(result.value(), new TypeReference<List<String>>() {});
             } catch (JsonProcessingException e) {
-                recs = List.of(raw);
+                recs = List.of(result.value());
             }
-            // best-effort: provider usage not surfaced here yet (TODO wire tokens)
             aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
                     resolveModel(), AiFeature.BUDGET_ADVICE,
-                    null, null, AiUsageStatus.SUCCESS, null);
+                    result.usage().inputTokens(), result.usage().outputTokens(), AiUsageStatus.SUCCESS, null);
             return new RecommendationsInsightResponse(month, recs);
         } catch (Exception e) {
             aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
