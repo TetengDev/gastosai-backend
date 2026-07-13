@@ -23,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Environment Setup
 
-Copy `.env.example` to `.env` at the project root and fill in values. The app loads `.env` from the IDE working directory or the `gastosai/` subdirectory automatically at startup.
+Copy the repo-root `.env.example` to `.env` at the **repo root** and fill in values — one env file feeds backend, frontend, and tooling. At startup the app looks for `.env` in the working directory, then the repo root (parent directory), then the `gastosai/` subdirectory; first match wins, so a leftover `backend/.env` still takes precedence when present.
 
 Required env vars: `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `OPENAI_API_KEY` or `CLAUDE_API_KEY`.
 
