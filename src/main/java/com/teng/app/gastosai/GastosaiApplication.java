@@ -16,8 +16,8 @@ public class GastosaiApplication {
 	}
 
 	/**
-	 * Loads {@code .env} from the JVM working directory, or from {@code gastosai/.env} when the IDE
-	 * uses the repo root as cwd.
+	 * Loads {@code .env} from the JVM working directory, the repo root (parent directory, when run
+	 * from {@code backend/}), or {@code gastosai/.env} when the IDE uses the repo root as cwd.
 	 */
 	private static void loadDotenv() {
 		Path envFile = resolveDotenvFile();
@@ -36,6 +36,7 @@ public class GastosaiApplication {
 		String userDir = System.getProperty("user.dir");
 		Path[] candidates = new Path[] {
 				Path.of(userDir, ".env"),
+				Path.of(userDir, "..", ".env").normalize(),
 				Path.of(userDir, "gastosai", ".env"),
 		};
 		for (Path p : candidates) {
