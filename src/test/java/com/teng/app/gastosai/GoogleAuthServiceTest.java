@@ -3,6 +3,7 @@ package com.teng.app.gastosai;
 import com.teng.app.gastosai.service.AuthService;
 import com.teng.app.gastosai.service.CategorySeedService;
 import com.teng.app.gastosai.service.GoogleAuthService;
+import com.teng.app.gastosai.service.RegistrationGuardService;
 import com.teng.app.gastosai.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -20,6 +21,7 @@ class GoogleAuthServiceTest {
                 mock(PasswordEncoder.class),
                 mock(AuthService.class),
                 mock(CategorySeedService.class),
+                mock(RegistrationGuardService.class),
                 clientId);
     }
 
@@ -37,7 +39,7 @@ class GoogleAuthServiceTest {
 
     @Test
     void loginWithIdToken_whenDisabled_throwsServiceUnavailable() {
-        assertThatThrownBy(() -> service("").loginWithIdToken("any-token"))
+        assertThatThrownBy(() -> service("").loginWithIdToken("any-token", "1.2.3.4"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("not configured");
     }

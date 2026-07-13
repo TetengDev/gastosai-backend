@@ -57,7 +57,7 @@ public class AuthController {
 	}
 
 	@PostMapping("/google")
-	public AuthResponse google(@Valid @RequestBody GoogleAuthRequest request) {
-		return googleAuthService.loginWithIdToken(request.idToken());
+	public AuthResponse google(@Valid @RequestBody GoogleAuthRequest request, HttpServletRequest httpRequest) {
+		return googleAuthService.loginWithIdToken(request.idToken(), ClientIps.extract(httpRequest));
 	}
 }

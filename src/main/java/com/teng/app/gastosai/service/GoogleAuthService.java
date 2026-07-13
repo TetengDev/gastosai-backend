@@ -31,6 +31,7 @@ public class GoogleAuthService {
     private final PasswordEncoder passwordEncoder;
     private final AuthService authService;
     private final CategorySeedService categorySeedService;
+    private final RegistrationGuardService registrationGuardService;
     private final RestClient googleClient;
     private final String clientId;
 
@@ -38,11 +39,13 @@ public class GoogleAuthService {
                              PasswordEncoder passwordEncoder,
                              AuthService authService,
                              CategorySeedService categorySeedService,
+                             RegistrationGuardService registrationGuardService,
                              @Value("${gastos.auth.google.client-id:}") String clientId) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.authService = authService;
         this.categorySeedService = categorySeedService;
+        this.registrationGuardService = registrationGuardService;
         this.clientId = clientId;
         this.googleClient = RestClient.create("https://oauth2.googleapis.com");
     }
@@ -52,7 +55,7 @@ public class GoogleAuthService {
     }
 
     @Transactional
-    public AuthResponse loginWithIdToken(String idToken) {
+    public AuthResponse loginWithIdToken(String idToken, String clientIp) {
         if (!isEnabled()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Google sign-in is not configured");
         }
@@ -77,7 +80,10 @@ public class GoogleAuthService {
 
         var email = info.email().trim().toLowerCase();
         var user = userRepository.findByEmail(email)
-                .orElseGet(() -> createGoogleUser(email, info.name()));
+                .orElseGet(() -> {
+                    registrationGuardService.assertRegistrationAllowed(clientIp);
+                    return createGoogleUser(email, info.name());
+                });
         return authService.sessionFor(user, false);
     }
 
