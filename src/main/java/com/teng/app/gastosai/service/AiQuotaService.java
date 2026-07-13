@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.EnumSet;
@@ -32,6 +33,9 @@ public class AiQuotaService {
 
     @Transactional(readOnly = true)
     public void assertWithinQuota(User user, AiFeature feature) {
+        if (!user.isAdmin() && globalDailyUsed() >= managedProps.getGlobalDailyMax()) {
+            throw new AiQuotaExceededException();
+        }
         if (QUOTA_BEARING.contains(feature)) {
             long used = usedThisMonth(user.getId());
             if (used >= managedProps.getAbsoluteMonthlyCap()) {
@@ -91,8 +95,16 @@ public class AiQuotaService {
         };
     }
 
+    public long globalDailyUsed() {
+        return aiUsageRepository.countByStatusAndCreatedAtAfter(AiUsageStatus.SUCCESS, startOfToday());
+    }
+
     private LocalDateTime startOfCurrentMonth() {
         YearMonth ym = YearMonth.now();
         return ym.atDay(1).atStartOfDay();
+    }
+
+    private LocalDateTime startOfToday() {
+        return LocalDate.now().atStartOfDay();
     }
 }

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teng.app.gastosai.ai.AiFeature;
 import com.teng.app.gastosai.ai.ChatTool;
 import com.teng.app.gastosai.ai.ChatToolCall;
+import com.teng.app.gastosai.ai.LlmUsage;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.config.AiManagedProperties;
 import com.teng.app.gastosai.config.AiProviderProperties;
@@ -165,15 +166,16 @@ public class ChatActionService {
 		final String finalMessage = safeMessage;
 		ChatTool resolvedTool = ChatTool.TEXT;
 		try {
-			ChatToolCall call = sqlGenerator.classifyIntent(finalMessage);
+			var intentResult = sqlGenerator.classifyIntent(finalMessage);
+			LlmUsage llmUsage = intentResult.usage();
+			ChatToolCall call = intentResult.value();
 			ChatTool tool = ChatTool.fromKey(call.toolName());
 			resolvedTool = tool;
 
 			if (tool == ChatTool.TEXT) {
-				// best-effort: provider usage not surfaced here yet (TODO wire tokens)
 				aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
 						resolveModel(), AiFeature.CHAT_CRUD_ASSISTANT,
-						null, null, AiUsageStatus.SUCCESS, null);
+						llmUsage.inputTokens(), llmUsage.outputTokens(), AiUsageStatus.SUCCESS, null);
 				chatAuditService.record(user.getId(), conversationId, tool.key(), AiUsageStatus.SUCCESS, null);
 				return new ChatResponse("text", call.paramsJson(), null);
 			}
@@ -186,7 +188,7 @@ public class ChatActionService {
 				previewData.put("params", objectMapper.convertValue(params, Map.class));
 				aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
 						resolveModel(), AiFeature.CHAT_CRUD_ASSISTANT,
-						null, null, AiUsageStatus.SUCCESS, null);
+						llmUsage.inputTokens(), llmUsage.outputTokens(), AiUsageStatus.SUCCESS, null);
 				chatAuditService.record(user.getId(), conversationId, tool.key(), AiUsageStatus.SUCCESS, "preview");
 				return new ChatResponse("preview", buildPreviewMessage(tool, params), previewData);
 			}
@@ -228,7 +230,7 @@ public class ChatActionService {
 			};
 			aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
 					resolveModel(), AiFeature.CHAT_CRUD_ASSISTANT,
-					null, null, AiUsageStatus.SUCCESS, null);
+					llmUsage.inputTokens(), llmUsage.outputTokens(), AiUsageStatus.SUCCESS, null);
 			chatAuditService.record(user.getId(), conversationId, tool.key(), AiUsageStatus.SUCCESS, null);
 			return response;
 		}

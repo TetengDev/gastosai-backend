@@ -1,5 +1,6 @@
 package com.teng.app.gastosai.controller;
 
+import com.teng.app.gastosai.config.ClientIps;
 import com.teng.app.gastosai.dto.AuthResponse;
 import com.teng.app.gastosai.dto.GoogleAuthRequest;
 import com.teng.app.gastosai.dto.LoginRequest;
@@ -9,6 +10,8 @@ import com.teng.app.gastosai.dto.RegisterRequest;
 import com.teng.app.gastosai.service.AuthService;
 import com.teng.app.gastosai.service.GoogleAuthService;
 import com.teng.app.gastosai.service.MagicLinkService;
+import com.teng.app.gastosai.service.RegistrationGuardService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -28,10 +31,12 @@ public class AuthController {
 	private final AuthService authService;
 	private final MagicLinkService magicLinkService;
 	private final GoogleAuthService googleAuthService;
+	private final RegistrationGuardService registrationGuardService;
 
 	@PostMapping("/register")
 	@ResponseStatus(HttpStatus.CREATED)
-	public AuthResponse register(@Valid @RequestBody RegisterRequest request) {
+	public AuthResponse register(@Valid @RequestBody RegisterRequest request, HttpServletRequest httpRequest) {
+		registrationGuardService.assertRegistrationAllowed(ClientIps.extract(httpRequest));
 		return authService.register(request);
 	}
 
@@ -41,8 +46,8 @@ public class AuthController {
 	}
 
 	@PostMapping("/magic-link")
-	public Map<String, Boolean> requestMagicLink(@Valid @RequestBody MagicLinkRequest request) {
-		magicLinkService.requestLink(request.email());
+	public Map<String, Boolean> requestMagicLink(@Valid @RequestBody MagicLinkRequest request, HttpServletRequest httpRequest) {
+		magicLinkService.requestLink(request.email(), ClientIps.extract(httpRequest));
 		return Map.of("sent", true);
 	}
 
@@ -52,7 +57,7 @@ public class AuthController {
 	}
 
 	@PostMapping("/google")
-	public AuthResponse google(@Valid @RequestBody GoogleAuthRequest request) {
-		return googleAuthService.loginWithIdToken(request.idToken());
+	public AuthResponse google(@Valid @RequestBody GoogleAuthRequest request, HttpServletRequest httpRequest) {
+		return googleAuthService.loginWithIdToken(request.idToken(), ClientIps.extract(httpRequest));
 	}
 }

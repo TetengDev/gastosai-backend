@@ -30,7 +30,7 @@ public class ClaudeExpenseParser implements ExpenseParser {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
-    public ParsedExpenseResult parse(String text) {
+    public LlmResult<ParsedExpenseResult> parse(String text) {
         String key = AiKeyContext.claude();
         if (key == null || key.isBlank()) {
             key = claudeProperties.getApiKey();
@@ -60,9 +60,26 @@ public class ClaudeExpenseParser implements ExpenseParser {
             JsonNode root = objectMapper.readTree(raw);
             String content = root.path("content").path(0).path("text").asText("").trim();
             String jsonStr = extractJson(content);
-            return OpenAiExpenseParser.parseJson(objectMapper.readTree(jsonStr));
+            LlmUsage usage = extractUsage(root);
+            return LlmResult.of(OpenAiExpenseParser.parseJson(objectMapper.readTree(jsonStr)), usage);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to parse Claude expense response", e);
+        }
+    }
+
+    private static LlmUsage extractUsage(JsonNode root) {
+        try {
+            JsonNode usage = root.path("usage");
+            if (usage.isMissingNode() || usage.isNull()) {
+                return LlmUsage.absent();
+            }
+            JsonNode inputNode = usage.path("input_tokens");
+            JsonNode outputNode = usage.path("output_tokens");
+            Integer input = inputNode.isNumber() ? inputNode.intValue() : null;
+            Integer output = outputNode.isNumber() ? outputNode.intValue() : null;
+            return new LlmUsage(input, output);
+        } catch (Exception e) {
+            return LlmUsage.absent();
         }
     }
 

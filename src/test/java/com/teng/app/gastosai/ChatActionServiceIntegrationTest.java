@@ -2,6 +2,7 @@ package com.teng.app.gastosai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teng.app.gastosai.ai.ChatToolCall;
+import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.config.JwtUtil;
 import com.teng.app.gastosai.entity.Alert;
@@ -102,7 +103,7 @@ class ChatActionServiceIntegrationTest {
                 .build());
 
         when(sqlGenerator.classifyIntent(anyString()))
-                .thenReturn(new ChatToolCall("list_goals", "{}"));
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("list_goals", "{}")));
 
         mockMvc.perform(post("/ai/chat")
                         .header("Authorization", authHeaderUser1)
@@ -127,7 +128,7 @@ class ChatActionServiceIntegrationTest {
                 .build());
 
         when(sqlGenerator.classifyIntent(anyString()))
-                .thenReturn(new ChatToolCall("list_goals", "{}"));
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("list_goals", "{}")));
 
         mockMvc.perform(post("/ai/chat")
                         .header("Authorization", authHeaderUser1)
@@ -150,7 +151,7 @@ class ChatActionServiceIntegrationTest {
                 .build());
 
         when(sqlGenerator.classifyIntent(anyString()))
-                .thenReturn(new ChatToolCall("list_alerts", "{\"month\":\"2026-06\"}"));
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("list_alerts", "{\"month\":\"2026-06\"}")));
 
         mockMvc.perform(post("/ai/chat")
                         .header("Authorization", authHeaderUser1)
@@ -173,7 +174,7 @@ class ChatActionServiceIntegrationTest {
                 .build());
 
         when(sqlGenerator.classifyIntent(anyString()))
-                .thenReturn(new ChatToolCall("mark_alert_read", "{\"id\":" + saved.getId() + "}"));
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("mark_alert_read", "{\"id\":" + saved.getId() + "}")));
 
         mockMvc.perform(post("/ai/chat")
                         .header("Authorization", authHeaderUser1)
@@ -195,7 +196,7 @@ class ChatActionServiceIntegrationTest {
                 .build());
 
         when(sqlGenerator.classifyIntent(anyString()))
-                .thenReturn(new ChatToolCall("mark_alert_read", "{\"id\":" + saved.getId() + "}"));
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("mark_alert_read", "{\"id\":" + saved.getId() + "}")));
 
         mockMvc.perform(post("/ai/chat")
                         .header("Authorization", authHeaderUser1)
@@ -220,7 +221,7 @@ class ChatActionServiceIntegrationTest {
                 .build());
 
         when(sqlGenerator.classifyIntent(anyString()))
-                .thenReturn(new ChatToolCall("delete_expenses", "{\"ids\":[" + e.getId() + "]}"));
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("delete_expenses", "{\"ids\":[" + e.getId() + "]}")));
 
         mockMvc.perform(post("/ai/chat")
                         .header("Authorization", authHeaderUser1)
@@ -244,7 +245,7 @@ class ChatActionServiceIntegrationTest {
                 .build());
 
         when(sqlGenerator.classifyIntent(anyString()))
-                .thenReturn(new ChatToolCall("delete_expenses", "{\"ids\":[" + e.getId() + "]}"));
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("delete_expenses", "{\"ids\":[" + e.getId() + "]}")));
 
         mockMvc.perform(post("/ai/chat")
                         .header("Authorization", authHeaderUser1)
@@ -269,7 +270,7 @@ class ChatActionServiceIntegrationTest {
                 .build());
 
         when(sqlGenerator.classifyIntent(anyString()))
-                .thenReturn(new ChatToolCall("delete_expenses", "{\"ids\":[" + othersExpense.getId() + "]}"));
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("delete_expenses", "{\"ids\":[" + othersExpense.getId() + "]}")));
 
         mockMvc.perform(post("/ai/chat")
                         .header("Authorization", authHeaderUser1)
@@ -286,7 +287,7 @@ class ChatActionServiceIntegrationTest {
     @Test
     void deleteExpenses_noIdsNoFilters_asksToNarrow() throws Exception {
         when(sqlGenerator.classifyIntent(anyString()))
-                .thenReturn(new ChatToolCall("delete_expenses", "{}"));
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("delete_expenses", "{}")));
 
         mockMvc.perform(post("/ai/chat")
                         .header("Authorization", authHeaderUser1)

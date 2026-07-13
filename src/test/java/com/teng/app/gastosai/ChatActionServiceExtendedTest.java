@@ -2,6 +2,7 @@ package com.teng.app.gastosai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teng.app.gastosai.ai.ChatToolCall;
+import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.config.AiManagedProperties;
 import com.teng.app.gastosai.config.AiProviderProperties;
@@ -119,7 +120,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"name":"Groceries","icon":"shopping-cart"}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("create_category", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("create_category", paramsJson)));
         when(categoryService.create(any(), any())).thenReturn(new CategoryResponse(10L, "Groceries", "shopping-cart", null));
 
         ChatResponse resp = chatActionService.dispatch("Add a Groceries category", "execute", user());
@@ -133,7 +134,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"name":"Groceries"}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("create_category", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("create_category", paramsJson)));
 
         ChatResponse resp = chatActionService.dispatch("Add a Groceries category", null, user());
 
@@ -146,7 +147,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"name":"Food"}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("create_category", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("create_category", paramsJson)));
         when(categoryService.create(any(), any())).thenThrow(new IllegalArgumentException("Category already exists: Food"));
 
         ChatResponse resp = chatActionService.dispatch("Add a Food category", "execute", user());
@@ -160,7 +161,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"currentName":"Food","newName":"Meals"}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("rename_category", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("rename_category", paramsJson)));
         when(categoryService.findAll(any())).thenReturn(List.of(new CategoryResponse(5L, "Food", null, null)));
         when(categoryService.update(eq(5L), any(), any())).thenReturn(new CategoryResponse(5L, "Meals", null, null));
 
@@ -175,7 +176,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"currentName":"Uncategorized","newName":"Other"}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("rename_category", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("rename_category", paramsJson)));
 
         ChatResponse resp = chatActionService.dispatch("Rename uncategorized", null, user());
 
@@ -188,7 +189,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"currentName":"Nonexistent","newName":"Other"}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("rename_category", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("rename_category", paramsJson)));
         when(categoryService.findAll(any())).thenReturn(List.of());
 
         ChatResponse resp = chatActionService.dispatch("Rename nonexistent", null, user());
@@ -202,7 +203,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"name":"Uncategorized"}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("delete_category", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("delete_category", paramsJson)));
 
         ChatResponse resp = chatActionService.dispatch("Delete uncategorized", null, user());
 
@@ -215,7 +216,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"name":"OldCategory"}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("delete_category", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("delete_category", paramsJson)));
         when(categoryService.findAll(any())).thenReturn(List.of(new CategoryResponse(7L, "OldCategory", null, null)));
 
         ChatResponse resp = chatActionService.dispatch("Delete OldCategory", null, user());
@@ -227,7 +228,7 @@ class ChatActionServiceExtendedTest {
     @Test
     void listCategories_returnsActionWithList() {
         String paramsJson = "{}";
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("list_categories", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("list_categories", paramsJson)));
         when(categoryService.findAll(any())).thenReturn(List.of(
                 new CategoryResponse(1L, "Uncategorized", null, null),
                 new CategoryResponse(2L, "Food", "utensils", null)
@@ -247,7 +248,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"id":42,"amountLimit":5000}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("update_budget", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("update_budget", paramsJson)));
         var budget = new com.teng.app.gastosai.entity.Budget();
         budget.setCategory(Category.builder().id(3L).name("Food").build());
         budget.setMonth("2026-06");
@@ -269,7 +270,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"name":"Emergency Fund","targetAmount":20000}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("update_goal", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("update_goal", paramsJson)));
         SavingsGoal existingGoal = SavingsGoal.builder()
                 .id(1L).user(user()).name("Emergency Fund")
                 .targetAmount(new BigDecimal("10000")).savedAmount(BigDecimal.ZERO)
@@ -290,7 +291,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"name":"Ghost Goal","targetAmount":5000}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("update_goal", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("update_goal", paramsJson)));
         when(savingsGoalRepository.findAllByUserOrderByCreatedAtDesc(any())).thenReturn(List.of());
 
         ChatResponse resp = chatActionService.dispatch("Update ghost goal", null, user());
@@ -305,7 +306,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"name":"Netflix","active":false}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("update_recurring", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("update_recurring", paramsJson)));
         Category cat = Category.builder().id(1L).name("Utilities").build();
         RecurringExpense existing = RecurringExpense.builder()
                 .id(10L).user(user()).name("Netflix").amount(new BigDecimal("499"))
@@ -327,7 +328,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"name":"Ghost","amount":100}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("update_recurring", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("update_recurring", paramsJson)));
         when(recurringExpenseRepository.findAllByUser(any())).thenReturn(List.of());
 
         ChatResponse resp = chatActionService.dispatch("Update ghost recurring", null, user());
@@ -342,7 +343,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"name":"Emergency Fund","targetAmount":20000}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("create_goal", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("create_goal", paramsJson)));
         when(savingsGoalService.create(any(), any(), eq(false)))
                 .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "A goal named \"Emergency Fund\" already exists."));
         SavingsGoal existingGoal = SavingsGoal.builder()
@@ -369,7 +370,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"name":"Rent","amount":5000,"frequency":"MONTHLY"}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("create_recurring", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("create_recurring", paramsJson)));
         when(recurringExpenseService.create(any(), any(), eq(false)))
                 .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "A monthly recurring expense named \"Rent\" already exists."));
         Category cat = Category.builder().id(1L).name("Utilities").build();
@@ -395,7 +396,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"name":"New Name","nickname":"newnick"}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("update_profile", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("update_profile", paramsJson)));
         when(userProfileService.updateProfile(anyString(), any())).thenReturn(
                 new UserProfileResponse("u@test.com", "New Name", "newnick", null, null, null));
 
@@ -410,7 +411,7 @@ class ChatActionServiceExtendedTest {
     @Test
     void getSubscription_returnsActionWithPlanData() {
         String paramsJson = "{}";
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("get_subscription", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("get_subscription", paramsJson)));
         when(entitlementService.describe(any())).thenReturn(
                 new EntitlementService.Entitlements(PlanKey.FREE, SubscriptionStatus.INACTIVE, EnumSet.noneOf(com.teng.app.gastosai.entity.FeatureKey.class), false));
 
@@ -431,7 +432,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"amount":500,"description":"Lunch","category":"Food"}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("create_expense", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("create_expense", paramsJson)));
         Expense duplicate = Expense.builder()
                 .id(99L)
                 .description("Lunch")
@@ -452,7 +453,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"amount":500,"description":"Lunch","category":"Food"}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("create_expense", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("create_expense", paramsJson)));
         when(expenseRepository.findByUserAndDateAfterOrderByDateDesc(any(), any())).thenReturn(List.of());
         when(expenseService.create(any(), any())).thenReturn(null);
 
@@ -467,7 +468,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"amount":500,"description":"Lunch","category":"Food"}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("create_expense", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("create_expense", paramsJson)));
         Expense notDupe = Expense.builder()
                 .id(88L)
                 .description("Lunch")
@@ -487,7 +488,7 @@ class ChatActionServiceExtendedTest {
         String paramsJson = """
                 {"amount":500,"description":"Lunch","category":"Food"}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("create_expense", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("create_expense", paramsJson)));
         Expense duplicate = Expense.builder()
                 .id(99L)
                 .description("Lunch")

@@ -53,7 +53,7 @@ class PublicRateLimitInterceptorTest {
     }
 
     @Test
-    void xForwardedFor_usesFirstHop() throws Exception {
+    void xForwardedFor_usesRightmostEntry() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader("X-Forwarded-For", "203.0.113.5, 10.1.1.1");
         request.setRemoteAddr("127.0.0.1");
@@ -65,6 +65,38 @@ class PublicRateLimitInterceptorTest {
         boolean allowed = interceptor.preHandle(request, resp, null);
         assertThat(allowed).isFalse();
         assertThat(resp.getStatus()).isEqualTo(429);
+    }
+
+    @Test
+    void xForwardedFor_spoofedLeftmost_doesNotShareBucketWithRightmost() throws Exception {
+        MockHttpServletRequest spoofed = new MockHttpServletRequest();
+        spoofed.addHeader("X-Forwarded-For", "1.2.3.4, 10.1.1.99");
+        spoofed.setRemoteAddr("127.0.0.1");
+
+        MockHttpServletRequest real = new MockHttpServletRequest();
+        real.addHeader("X-Forwarded-For", "99.99.99.99, 10.1.1.99");
+        real.setRemoteAddr("127.0.0.1");
+
+        for (int i = 0; i < 3; i++) {
+            handle(spoofed);
+        }
+        assertThat(handle(spoofed)).isFalse();
+        assertThat(handle(real)).isFalse();
+    }
+
+    @Test
+    void xForwardedFor_spoofedLeftmost_independentFromDifferentRightmost() throws Exception {
+        MockHttpServletRequest attackerSpoofing = new MockHttpServletRequest();
+        attackerSpoofing.addHeader("X-Forwarded-For", "victim.ip, 10.0.0.5");
+
+        MockHttpServletRequest legitRequest = new MockHttpServletRequest();
+        legitRequest.setRemoteAddr("10.0.0.6");
+
+        for (int i = 0; i < 3; i++) {
+            handle(attackerSpoofing);
+        }
+        assertThat(handle(attackerSpoofing)).isFalse();
+        assertThat(handle(legitRequest)).isTrue();
     }
 
     @Test

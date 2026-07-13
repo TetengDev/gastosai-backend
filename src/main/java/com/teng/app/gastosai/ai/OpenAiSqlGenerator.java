@@ -131,7 +131,8 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 	private final OpenAiProperties openAiProperties;
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
-	public String generateSql(String question) {
+	@Override
+	public LlmResult<String> generateSql(String question) {
 		if (openAiProperties.getApiKey() == null || openAiProperties.getApiKey().isBlank()) {
 			throw new IllegalStateException("OPENAI_API_KEY is not configured");
 		}
@@ -160,7 +161,7 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 		try {
 			JsonNode root = objectMapper.readTree(raw);
 			String content = root.path("choices").path(0).path("message").path("content").asText("");
-			return extractSql(content);
+			return LlmResult.of(extractSql(content), extractUsage(root));
 		}
 		catch (Exception e) {
 			throw new IllegalStateException("Failed to parse OpenAI response", e);
@@ -168,9 +169,9 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 	}
 
 	@Override
-	public String classifyQueryIntentJson(String question) {
+	public LlmResult<String> classifyQueryIntentJson(String question) {
 		if (openAiProperties.getApiKey() == null || openAiProperties.getApiKey().isBlank()) {
-			return null;
+			return LlmResult.ofValue(null);
 		}
 		try {
 			JsonNode tools = objectMapper.readTree(ANALYTICS_TOOL);
@@ -193,17 +194,18 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 					.body(String.class);
 
 			JsonNode root = objectMapper.readTree(raw);
+			LlmUsage usage = extractUsage(root);
 			JsonNode toolCalls = root.path("choices").path(0).path("message").path("tool_calls");
 			if (toolCalls.isArray() && !toolCalls.isEmpty()) {
 				JsonNode fn = toolCalls.get(0).path("function");
 				if (ANALYTICS_TOOL_NAME.equals(fn.path("name").asText())) {
-					return fn.path("arguments").asText();
+					return LlmResult.of(fn.path("arguments").asText(), usage);
 				}
 			}
-			return null;
+			return LlmResult.of(null, usage);
 		}
 		catch (Exception e) {
-			return null;
+			return LlmResult.ofValue(null);
 		}
 	}
 
@@ -216,7 +218,7 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 	}
 
 	@Override
-	public String generateSummary(String question, String dataJson, String mode) {
+	public LlmResult<String> generateSummary(String question, String dataJson, String mode) {
 		ObjectNode body = objectMapper.createObjectNode();
 		body.put("model", openAiProperties.getModel());
 		body.put("max_completion_tokens", 256);
@@ -237,7 +239,8 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 
 		try {
 			JsonNode root = objectMapper.readTree(raw);
-			return root.path("choices").path(0).path("message").path("content").asText("").trim();
+			String content = root.path("choices").path(0).path("message").path("content").asText("").trim();
+			return LlmResult.of(content, extractUsage(root));
 		}
 		catch (Exception e) {
 			throw new IllegalStateException("Failed to parse OpenAI summary response", e);
@@ -245,7 +248,7 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 	}
 
 	@Override
-	public String generateInsightSummary(String contextJson, String insightType, String mode) {
+	public LlmResult<String> generateInsightSummary(String contextJson, String insightType, String mode) {
 		String systemPrompt = "recommendations".equals(insightType) ? RECOMMENDATIONS_PROMPT : INSIGHT_SUMMARY_PROMPT;
 		ObjectNode body = objectMapper.createObjectNode();
 		body.put("model", openAiProperties.getModel());
@@ -267,7 +270,8 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 
 		try {
 			JsonNode root = objectMapper.readTree(raw);
-			return root.path("choices").path(0).path("message").path("content").asText("").trim();
+			String content = root.path("choices").path(0).path("message").path("content").asText("").trim();
+			return LlmResult.of(content, extractUsage(root));
 		}
 		catch (Exception e) {
 			throw new IllegalStateException("Failed to parse OpenAI insight response", e);
@@ -275,7 +279,7 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 	}
 
 	@Override
-	public ChatToolCall classifyIntent(String message) {
+	public LlmResult<ChatToolCall> classifyIntent(String message) {
 		try {
 			JsonNode tools = objectMapper.readTree(TOOL_DEFINITIONS);
 			ObjectNode body = objectMapper.createObjectNode();
@@ -295,13 +299,14 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 					.body(String.class);
 
 			JsonNode root = objectMapper.readTree(raw);
+			LlmUsage usage = extractUsage(root);
 			JsonNode toolCalls = root.path("choices").path(0).path("message").path("tool_calls");
 			if (toolCalls.isArray() && !toolCalls.isEmpty()) {
 				JsonNode fn = toolCalls.get(0).path("function");
-				return new ChatToolCall(fn.path("name").asText(), fn.path("arguments").asText());
+				return LlmResult.of(new ChatToolCall(fn.path("name").asText(), fn.path("arguments").asText()), usage);
 			}
 			String content = root.path("choices").path(0).path("message").path("content").asText("");
-			return new ChatToolCall("text", content);
+			return LlmResult.of(new ChatToolCall("text", content), usage);
 		}
 		catch (Exception e) {
 			throw new IllegalStateException("Failed to classify intent via OpenAI", e);
@@ -318,5 +323,22 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 			return m.group(1).trim();
 		}
 		return t;
+	}
+
+	private static LlmUsage extractUsage(JsonNode root) {
+		try {
+			JsonNode usage = root.path("usage");
+			if (usage.isMissingNode() || usage.isNull()) {
+				return LlmUsage.absent();
+			}
+			JsonNode inputNode = usage.path("prompt_tokens");
+			JsonNode outputNode = usage.path("completion_tokens");
+			Integer input = inputNode.isNumber() ? inputNode.intValue() : null;
+			Integer output = outputNode.isNumber() ? outputNode.intValue() : null;
+			return new LlmUsage(input, output);
+		}
+		catch (Exception e) {
+			return LlmUsage.absent();
+		}
 	}
 }

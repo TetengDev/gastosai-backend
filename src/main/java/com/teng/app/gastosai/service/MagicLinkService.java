@@ -42,6 +42,7 @@ public class MagicLinkService {
     private final EmailSender emailSender;
     private final AuthService authService;
     private final CategorySeedService categorySeedService;
+    private final RegistrationGuardService registrationGuardService;
 
     @Value("${gastos.magiclink.ttl-minutes:15}")
     private int ttlMinutes;
@@ -53,7 +54,7 @@ public class MagicLinkService {
     private int magicLinkDailyMax;
 
     @Transactional
-    public void requestLink(String email) {
+    public void requestLink(String email, String clientIp) {
         var normalised = email.trim().toLowerCase();
 
         if (normalised.chars().anyMatch(c -> c < 0x20 || c == 0x7F)) {
@@ -66,8 +67,14 @@ public class MagicLinkService {
             return;
         }
 
-        var user = userRepository.findByEmail(normalised)
-                .orElseGet(() -> createPasswordlessUser(normalised));
+        var existing = userRepository.findByEmail(normalised);
+        User user;
+        if (existing.isPresent()) {
+            user = existing.get();
+        } else {
+            registrationGuardService.assertRegistrationAllowed(clientIp);
+            user = createPasswordlessUser(normalised);
+        }
 
         var rawToken = generateRawToken();
         var hash = sha256Hex(rawToken);

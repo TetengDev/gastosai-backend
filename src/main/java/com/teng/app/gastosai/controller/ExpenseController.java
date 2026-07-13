@@ -133,7 +133,7 @@ public class ExpenseController {
 	@PostMapping("/parse")
 	public ParsedExpenseResult parse(@Valid @RequestBody ParseExpenseRequest request,
 			@AuthenticationPrincipal User user) {
-		return expenseParser.parse(request.text());
+		return expenseParser.parse(request.text()).value();
 	}
 
 	@GetMapping("/report/monthly")

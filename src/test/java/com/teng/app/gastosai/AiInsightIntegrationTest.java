@@ -1,5 +1,7 @@
 package com.teng.app.gastosai;
 
+import com.teng.app.gastosai.ai.LlmResult;
+import com.teng.app.gastosai.ai.LlmUsage;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.config.JwtUtil;
 import com.teng.app.gastosai.entity.User;
@@ -73,7 +75,7 @@ class AiInsightIntegrationTest {
     @Test
     void monthSummary_returns200() throws Exception {
         when(sqlGenerator.generateInsightSummary(any(), eq("month-summary"), eq("plain")))
-                .thenReturn("You had a quiet month spending-wise.");
+                .thenReturn(LlmResult.of("You had a quiet month spending-wise.", LlmUsage.absent()));
 
         mockMvc.perform(get("/ai/insights/month-summary")
                         .param("month", "2026-06")
@@ -86,7 +88,7 @@ class AiInsightIntegrationTest {
     @Test
     void recommendations_returns200() throws Exception {
         when(sqlGenerator.generateInsightSummary(any(), eq("recommendations"), eq("plain")))
-                .thenReturn("[\"Reduce Food spending.\",\"Track Transport costs.\"]");
+                .thenReturn(LlmResult.of("[\"Reduce Food spending.\",\"Track Transport costs.\"]", LlmUsage.absent()));
 
         mockMvc.perform(get("/ai/insights/recommendations")
                         .param("month", "2026-06")

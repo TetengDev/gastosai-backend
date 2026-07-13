@@ -131,7 +131,7 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	@Override
-	public String generateSql(String question) {
+	public LlmResult<String> generateSql(String question) {
 		if (claudeProperties.getApiKey() == null || claudeProperties.getApiKey().isBlank()) {
 			throw new IllegalStateException("CLAUDE_API_KEY is not configured");
 		}
@@ -158,7 +158,7 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 		try {
 			JsonNode root = objectMapper.readTree(raw);
 			String content = root.path("content").path(0).path("text").asText("");
-			return extractSql(content);
+			return LlmResult.of(extractSql(content), extractUsage(root));
 		}
 		catch (Exception e) {
 			throw new IllegalStateException("Failed to parse Claude response", e);
@@ -166,9 +166,9 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 	}
 
 	@Override
-	public String classifyQueryIntentJson(String question) {
+	public LlmResult<String> classifyQueryIntentJson(String question) {
 		if (claudeProperties.getApiKey() == null || claudeProperties.getApiKey().isBlank()) {
-			return null;
+			return LlmResult.ofValue(null);
 		}
 		try {
 			JsonNode tools = objectMapper.readTree(ANALYTICS_TOOL);
@@ -192,15 +192,16 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 					.body(String.class);
 
 			JsonNode root = objectMapper.readTree(raw);
+			LlmUsage usage = extractUsage(root);
 			for (JsonNode block : root.path("content")) {
 				if ("tool_use".equals(block.path("type").asText()) && ANALYTICS_TOOL_NAME.equals(block.path("name").asText())) {
-					return objectMapper.writeValueAsString(block.path("input"));
+					return LlmResult.of(objectMapper.writeValueAsString(block.path("input")), usage);
 				}
 			}
-			return null;
+			return LlmResult.of(null, usage);
 		}
 		catch (Exception e) {
-			return null;
+			return LlmResult.ofValue(null);
 		}
 	}
 
@@ -213,7 +214,7 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 	}
 
 	@Override
-	public String generateSummary(String question, String dataJson, String mode) {
+	public LlmResult<String> generateSummary(String question, String dataJson, String mode) {
 		ObjectNode body = objectMapper.createObjectNode();
 		body.put("model", claudeProperties.getModel());
 		body.put("max_tokens", 256);
@@ -232,7 +233,8 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 
 		try {
 			JsonNode root = objectMapper.readTree(raw);
-			return root.path("content").path(0).path("text").asText("").trim();
+			String content = root.path("content").path(0).path("text").asText("").trim();
+			return LlmResult.of(content, extractUsage(root));
 		}
 		catch (Exception e) {
 			throw new IllegalStateException("Failed to parse Claude summary response", e);
@@ -240,7 +242,7 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 	}
 
 	@Override
-	public String generateInsightSummary(String contextJson, String insightType, String mode) {
+	public LlmResult<String> generateInsightSummary(String contextJson, String insightType, String mode) {
 		String systemPrompt = "recommendations".equals(insightType) ? RECOMMENDATIONS_PROMPT : INSIGHT_SUMMARY_PROMPT;
 		ObjectNode body = objectMapper.createObjectNode();
 		body.put("model", claudeProperties.getModel());
@@ -260,7 +262,8 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 
 		try {
 			JsonNode root = objectMapper.readTree(raw);
-			return root.path("content").path(0).path("text").asText("").trim();
+			String content = root.path("content").path(0).path("text").asText("").trim();
+			return LlmResult.of(content, extractUsage(root));
 		}
 		catch (Exception e) {
 			throw new IllegalStateException("Failed to parse Claude insight response", e);
@@ -268,7 +271,7 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 	}
 
 	@Override
-	public ChatToolCall classifyIntent(String message) {
+	public LlmResult<ChatToolCall> classifyIntent(String message) {
 		try {
 			JsonNode tools = objectMapper.readTree(TOOL_DEFINITIONS);
 			ObjectNode body = objectMapper.createObjectNode();
@@ -288,17 +291,18 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 					.body(String.class);
 
 			JsonNode root = objectMapper.readTree(raw);
+			LlmUsage usage = extractUsage(root);
 			String stopReason = root.path("stop_reason").asText("");
 			if ("tool_use".equals(stopReason)) {
 				for (JsonNode block : root.path("content")) {
 					if ("tool_use".equals(block.path("type").asText())) {
 						String paramsJson = objectMapper.writeValueAsString(block.path("input"));
-						return new ChatToolCall(block.path("name").asText(), paramsJson);
+						return LlmResult.of(new ChatToolCall(block.path("name").asText(), paramsJson), usage);
 					}
 				}
 			}
 			String text = root.path("content").path(0).path("text").asText("");
-			return new ChatToolCall("text", text);
+			return LlmResult.of(new ChatToolCall("text", text), usage);
 		}
 		catch (Exception e) {
 			throw new IllegalStateException("Failed to classify intent via Claude", e);
@@ -310,5 +314,22 @@ public class ClaudeSqlGenerator implements SqlGenerator {
 		String t = content.trim();
 		Matcher m = SQL_FENCE.matcher(t);
 		return m.find() ? m.group(1).trim() : t;
+	}
+
+	private static LlmUsage extractUsage(JsonNode root) {
+		try {
+			JsonNode usage = root.path("usage");
+			if (usage.isMissingNode() || usage.isNull()) {
+				return LlmUsage.absent();
+			}
+			JsonNode inputNode = usage.path("input_tokens");
+			JsonNode outputNode = usage.path("output_tokens");
+			Integer input = inputNode.isNumber() ? inputNode.intValue() : null;
+			Integer output = outputNode.isNumber() ? outputNode.intValue() : null;
+			return new LlmUsage(input, output);
+		}
+		catch (Exception e) {
+			return LlmUsage.absent();
+		}
 	}
 }
