@@ -31,7 +31,12 @@ services:
     build: ./backend
     ports:
       - "8080:8080"
-    env_file: ./.env
+    env_file:
+      - path: ./.env
+        required: false
+      # Legacy location — kept so pre-consolidation setups still work; later entries win.
+      - path: ./backend/.env
+        required: false
     environment:
       DB_URL: jdbc:postgresql://db:5432/gastos
     depends_on:
