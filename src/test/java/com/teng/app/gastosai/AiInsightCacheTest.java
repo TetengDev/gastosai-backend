@@ -1,5 +1,7 @@
 package com.teng.app.gastosai;
 
+import com.teng.app.gastosai.ai.LlmResult;
+import com.teng.app.gastosai.ai.LlmUsage;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.dto.ExpenseRequest;
 import com.teng.app.gastosai.entity.User;
@@ -49,7 +51,7 @@ class AiInsightCacheTest {
 				.name("Cache User").email("cache@test.com")
 				.password(passwordEncoder.encode("password")).build());
 		when(sqlGenerator.generateInsightSummary(any(), eq("month-summary"), eq("plain")))
-				.thenReturn("A quiet month.");
+				.thenReturn(LlmResult.of("A quiet month.", LlmUsage.absent()));
 	}
 
 	@Test

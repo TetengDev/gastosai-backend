@@ -1,6 +1,7 @@
 package com.teng.app.gastosai;
 
 import com.teng.app.gastosai.ai.ExpenseParser;
+import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.config.JwtUtil;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
 import com.teng.app.gastosai.entity.User;
@@ -75,7 +76,7 @@ class ExpenseParseIntegrationTest {
                 null,
                 null
         );
-        when(expenseParser.parse("spent 250 on lunch at Jollibee")).thenReturn(draft);
+        when(expenseParser.parse("spent 250 on lunch at Jollibee")).thenReturn(LlmResult.ofValue(draft));
 
         mockMvc.perform(post("/expenses/parse")
                         .header("Authorization", authHeader)
@@ -104,7 +105,7 @@ class ExpenseParseIntegrationTest {
                 "Amount or description unclear - please provide more details.",
                 null
         );
-        when(expenseParser.parse("may binayad ako kanina")).thenReturn(vague);
+        when(expenseParser.parse("may binayad ako kanina")).thenReturn(LlmResult.ofValue(vague));
 
         mockMvc.perform(post("/expenses/parse")
                         .header("Authorization", authHeader)

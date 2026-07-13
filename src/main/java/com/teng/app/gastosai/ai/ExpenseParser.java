@@ -5,7 +5,7 @@ import com.teng.app.gastosai.dto.ParsedExpenseResult;
 import java.time.LocalDate;
 
 public interface ExpenseParser {
-    ParsedExpenseResult parse(String text);
+    LlmResult<ParsedExpenseResult> parse(String text);
 
     static String buildSystemPrompt(LocalDate today) {
         LocalDate yesterday = today.minusDays(1);

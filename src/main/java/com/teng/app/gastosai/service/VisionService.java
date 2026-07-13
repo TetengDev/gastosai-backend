@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.teng.app.gastosai.ai.AiFeature;
+import com.teng.app.gastosai.ai.LlmResult;
+import com.teng.app.gastosai.ai.LlmUsage;
 import com.teng.app.gastosai.config.AiManagedProperties;
 import com.teng.app.gastosai.config.AiProviderProperties;
 import com.teng.app.gastosai.config.ClaudeProperties;
@@ -86,16 +88,16 @@ public class VisionService {
 		String systemPrompt = String.format(SYSTEM_PROMPT_TEMPLATE, mode != null ? mode : "plain");
 
 		try {
-			ParsedExpenseResult result = "claude".equalsIgnoreCase(providerProps.getProvider())
+			LlmResult<ParsedExpenseResult> result = "claude".equalsIgnoreCase(providerProps.getProvider())
 					? callClaude(prompt, base64, mediaType, systemPrompt)
 					: callOpenAi(prompt, base64, mediaType, systemPrompt);
 			if (user != null) {
-				// best-effort: provider usage not surfaced here yet (TODO wire tokens)
+				LlmUsage usage = result.usage();
 				aiUsageService.record(user.getId(), providerProps.getProvider(),
 						resolveModel(), AiFeature.RECEIPT_ANALYSIS,
-						null, null, AiUsageStatus.SUCCESS, null);
+						usage.inputTokens(), usage.outputTokens(), AiUsageStatus.SUCCESS, null);
 			}
-			return result;
+			return result.value();
 		} catch (Exception e) {
 			if (user != null) {
 				aiUsageService.record(user.getId(), providerProps.getProvider(),
@@ -112,7 +114,7 @@ public class VisionService {
 				: openAiProperties.getModel();
 	}
 
-	private ParsedExpenseResult callClaude(String prompt, String base64, String mediaType, String systemPrompt) {
+	private LlmResult<ParsedExpenseResult> callClaude(String prompt, String base64, String mediaType, String systemPrompt) {
 		ObjectNode body = objectMapper.createObjectNode();
 		body.put("model", claudeProperties.getModel());
 		body.put("max_tokens", 1024);
@@ -144,13 +146,14 @@ public class VisionService {
 		try {
 			JsonNode root = objectMapper.readTree(raw);
 			String text = root.path("content").path(0).path("text").asText("").trim();
-			return parseResult(text);
+			LlmUsage usage = extractClaudeUsage(root);
+			return LlmResult.of(parseResult(text), usage);
 		} catch (Exception e) {
 			throw new IllegalStateException("Failed to parse Claude vision response", e);
 		}
 	}
 
-	private ParsedExpenseResult callOpenAi(String prompt, String base64, String mediaType, String systemPrompt) {
+	private LlmResult<ParsedExpenseResult> callOpenAi(String prompt, String base64, String mediaType, String systemPrompt) {
 		ObjectNode body = objectMapper.createObjectNode();
 		body.put("model", openAiProperties.getModel());
 		body.put("max_completion_tokens", 1024);
@@ -182,9 +185,34 @@ public class VisionService {
 		try {
 			JsonNode root = objectMapper.readTree(raw);
 			String text = root.path("choices").path(0).path("message").path("content").asText("").trim();
-			return parseResult(text);
+			LlmUsage usage = extractOpenAiUsage(root);
+			return LlmResult.of(parseResult(text), usage);
 		} catch (Exception e) {
 			throw new IllegalStateException("Failed to parse OpenAI vision response", e);
+		}
+	}
+
+	private static LlmUsage extractClaudeUsage(JsonNode root) {
+		try {
+			JsonNode u = root.path("usage");
+			if (u.isMissingNode() || u.isNull()) return LlmUsage.absent();
+			JsonNode in = u.path("input_tokens");
+			JsonNode out = u.path("output_tokens");
+			return new LlmUsage(in.isNumber() ? in.intValue() : null, out.isNumber() ? out.intValue() : null);
+		} catch (Exception e) {
+			return LlmUsage.absent();
+		}
+	}
+
+	private static LlmUsage extractOpenAiUsage(JsonNode root) {
+		try {
+			JsonNode u = root.path("usage");
+			if (u.isMissingNode() || u.isNull()) return LlmUsage.absent();
+			JsonNode in = u.path("prompt_tokens");
+			JsonNode out = u.path("completion_tokens");
+			return new LlmUsage(in.isNumber() ? in.intValue() : null, out.isNumber() ? out.intValue() : null);
+		} catch (Exception e) {
+			return LlmUsage.absent();
 		}
 	}
 
