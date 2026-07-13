@@ -2,6 +2,7 @@ package com.teng.app.gastosai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teng.app.gastosai.ai.ChatToolCall;
+import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.config.AiManagedProperties;
 import com.teng.app.gastosai.config.AiProviderProperties;
@@ -114,7 +115,7 @@ class ChatActionServiceReadToolsTest {
 
     @Test
     void listGoals_returnsActionWithGoalShape() {
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("list_goals", "{}"));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("list_goals", "{}")));
         GoalResponse goal = new GoalResponse(1L, "Emergency Fund", new BigDecimal("10000.00"),
                 new BigDecimal("3000.00"), new BigDecimal("30.00"), null, GoalStatus.ON_TRACK,
                 false, LocalDateTime.now(), "PHP");
@@ -134,7 +135,7 @@ class ChatActionServiceReadToolsTest {
 
     @Test
     void listGoals_emptyList_returnsZeroGoals() {
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("list_goals", "{}"));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("list_goals", "{}")));
         when(savingsGoalService.findAll(any())).thenReturn(List.of());
 
         ChatResponse resp = chatActionService.dispatch("Show my goals", null, user());
@@ -147,7 +148,7 @@ class ChatActionServiceReadToolsTest {
 
     @Test
     void listBudgets_returnsActionWithBudgetSummaryShape() {
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("list_budgets", "{\"month\":\"2026-06\"}"));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("list_budgets", "{\"month\":\"2026-06\"}")));
         BudgetSummaryItem item = new BudgetSummaryItem(1L, "Food", new BigDecimal("5000.00"),
                 new BigDecimal("3000.00"), new BigDecimal("2000.00"), new BigDecimal("60.00"), "ON_TRACK");
         BudgetSummaryResponse summary = new BudgetSummaryResponse("2026-06", List.of(item),
@@ -170,7 +171,7 @@ class ChatActionServiceReadToolsTest {
 
     @Test
     void listAlerts_returnsActionWithAlertShape() {
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("list_alerts", "{\"month\":\"2026-06\"}"));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("list_alerts", "{\"month\":\"2026-06\"}")));
         AlertResponse alert = new AlertResponse(5L, AlertType.BUDGET_WARNING, AlertSeverity.WARNING,
                 "2026-06", "Food", "Approaching budget limit for Food.", false, false, LocalDateTime.now(), null);
         when(alertService.getOrGenerate(any(), anyString())).thenReturn(List.of(alert));
@@ -190,7 +191,7 @@ class ChatActionServiceReadToolsTest {
 
     @Test
     void searchExpenses_noFilters_returnsCappedList() {
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("search_expenses", "{}"));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("search_expenses", "{}")));
         Category food = Category.builder().id(1L).name("Food").build();
         Expense e = Expense.builder().id(10L).amount(new BigDecimal("250"))
                 .category(food).date(LocalDateTime.now()).description("Lunch").build();
@@ -210,7 +211,7 @@ class ChatActionServiceReadToolsTest {
     @Test
     void searchExpenses_categoryFilter_appliesInMemoryFilter() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                new ChatToolCall("search_expenses", "{\"category\":\"Food\"}"));
+                LlmResult.ofValue(new ChatToolCall("search_expenses", "{\"category\":\"Food\"}")));
         Category food = Category.builder().id(1L).name("Food").build();
         Category transport = Category.builder().id(2L).name("Transportation").build();
         Expense e1 = Expense.builder().id(1L).amount(new BigDecimal("100"))
@@ -230,7 +231,7 @@ class ChatActionServiceReadToolsTest {
     @Test
     void searchExpenses_vendorFilter_appliesIgnoreCaseFilter() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                new ChatToolCall("search_expenses", "{\"vendor\":\"jollibee\"}"));
+                LlmResult.ofValue(new ChatToolCall("search_expenses", "{\"vendor\":\"jollibee\"}")));
         Category food = Category.builder().id(1L).name("Food").build();
         Expense e1 = Expense.builder().id(1L).amount(new BigDecimal("200"))
                 .category(food).date(LocalDateTime.now()).description("Jollibee").build();
@@ -249,7 +250,7 @@ class ChatActionServiceReadToolsTest {
     @Test
     void searchExpenses_amountRangeFilter_appliesFilter() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                new ChatToolCall("search_expenses", "{\"minAmount\":100,\"maxAmount\":300}"));
+                LlmResult.ofValue(new ChatToolCall("search_expenses", "{\"minAmount\":100,\"maxAmount\":300}")));
         Category food = Category.builder().id(1L).name("Food").build();
         Expense cheap = Expense.builder().id(1L).amount(new BigDecimal("50"))
                 .category(food).date(LocalDateTime.now()).description("Snack").build();
@@ -272,7 +273,7 @@ class ChatActionServiceReadToolsTest {
     @Test
     void getCategoryTotals_withMonth_callsCategoryReportForMonth() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                new ChatToolCall("get_category_totals", "{\"month\":\"2026-06\"}"));
+                LlmResult.ofValue(new ChatToolCall("get_category_totals", "{\"month\":\"2026-06\"}")));
         when(expenseService.categoryReportForMonth(any(), anyString())).thenReturn(
                 List.of(new CategoryReportItem("Food", new BigDecimal("3000.00"))));
 
@@ -288,7 +289,7 @@ class ChatActionServiceReadToolsTest {
     @Test
     void getCategoryTotals_withoutMonth_callsAllTimeCategoryReport() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                new ChatToolCall("get_category_totals", "{}"));
+                LlmResult.ofValue(new ChatToolCall("get_category_totals", "{}")));
         when(expenseService.categoryReport(any())).thenReturn(
                 List.of(new CategoryReportItem("Food", new BigDecimal("15000.00"))));
 
@@ -303,7 +304,7 @@ class ChatActionServiceReadToolsTest {
     @Test
     void getMonthlyReport_returnsReportShape() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                new ChatToolCall("get_monthly_report", "{\"month\":\"2026-06\"}"));
+                LlmResult.ofValue(new ChatToolCall("get_monthly_report", "{\"month\":\"2026-06\"}")));
         when(expenseService.categoryReportForMonth(any(), anyString())).thenReturn(
                 List.of(new CategoryReportItem("Food", new BigDecimal("3000.00"))));
         Category food = Category.builder().id(1L).name("Food").build();
@@ -331,7 +332,7 @@ class ChatActionServiceReadToolsTest {
     @Test
     void markAlertRead_callsAlertServiceAndReturnsAction() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                new ChatToolCall("mark_alert_read", "{\"id\":5}"));
+                LlmResult.ofValue(new ChatToolCall("mark_alert_read", "{\"id\":5}")));
         AlertResponse alertResp = new AlertResponse(5L, AlertType.BUDGET_WARNING, AlertSeverity.WARNING,
                 "2026-06", "Food", "msg", true, false, LocalDateTime.now(), null);
         when(alertService.markRead(anyLong(), any())).thenReturn(alertResp);
@@ -348,7 +349,7 @@ class ChatActionServiceReadToolsTest {
     @Test
     void dismissAlert_callsAlertServiceAndReturnsAction() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                new ChatToolCall("dismiss_alert", "{\"id\":3}"));
+                LlmResult.ofValue(new ChatToolCall("dismiss_alert", "{\"id\":3}")));
         AlertResponse alertResp = new AlertResponse(3L, AlertType.BUDGET_EXCEEDED, AlertSeverity.CRITICAL,
                 "2026-06", "Food", "msg", false, true, LocalDateTime.now(), null);
         when(alertService.dismiss(anyLong(), any())).thenReturn(alertResp);
@@ -364,7 +365,7 @@ class ChatActionServiceReadToolsTest {
     @Test
     void deleteAlert_callsAlertServiceDeleteAndReturnsAction() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                new ChatToolCall("delete_alert", "{\"id\":7}"));
+                LlmResult.ofValue(new ChatToolCall("delete_alert", "{\"id\":7}")));
 
         ChatResponse resp = chatActionService.dispatch("Delete alert 7", null, user());
 
@@ -377,7 +378,7 @@ class ChatActionServiceReadToolsTest {
     @Test
     void setDefaultCategory_callsProfileUpdateAndReturnsAction() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                new ChatToolCall("set_default_category", "{\"categoryName\":\"Groceries\"}"));
+                LlmResult.ofValue(new ChatToolCall("set_default_category", "{\"categoryName\":\"Groceries\"}")));
         Category cat = Category.builder().id(2L).name("Groceries").build();
         when(categoryService.getOrCreateByName(eq("Groceries"), any())).thenReturn(cat);
 
@@ -393,7 +394,7 @@ class ChatActionServiceReadToolsTest {
     @Test
     void setCategoryIcon_updatesIconAndReturnsAction() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                new ChatToolCall("set_category_icon", "{\"categoryName\":\"Food\",\"icon\":\"utensils\"}"));
+                LlmResult.ofValue(new ChatToolCall("set_category_icon", "{\"categoryName\":\"Food\",\"icon\":\"utensils\"}")));
         when(categoryService.findAll(any())).thenReturn(List.of(new CategoryResponse(1L, "Food", null, null)));
         when(categoryService.update(anyLong(), any(), any())).thenReturn(new CategoryResponse(1L, "Food", "utensils", null));
 
@@ -407,7 +408,7 @@ class ChatActionServiceReadToolsTest {
     @Test
     void setCategoryIcon_categoryNotFound_throwsResourceNotFound() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                new ChatToolCall("set_category_icon", "{\"categoryName\":\"Ghost\",\"icon\":\"x\"}"));
+                LlmResult.ofValue(new ChatToolCall("set_category_icon", "{\"categoryName\":\"Ghost\",\"icon\":\"x\"}")));
         when(categoryService.findAll(any())).thenReturn(List.of());
 
         ChatResponse resp = chatActionService.dispatch("Set ghost icon", null, user());
@@ -421,7 +422,7 @@ class ChatActionServiceReadToolsTest {
     @Test
     void deleteExpenses_withoutExecuteMode_returnsPreview() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                new ChatToolCall("delete_expenses", "{\"ids\":[1,2,3]}"));
+                LlmResult.ofValue(new ChatToolCall("delete_expenses", "{\"ids\":[1,2,3]}")));
 
         ChatResponse resp = chatActionService.dispatch("Delete expenses 1 2 3", null, user());
 
@@ -433,7 +434,7 @@ class ChatActionServiceReadToolsTest {
     @Test
     void deleteExpenses_byIdList_withExecuteMode_deletesAndReturnsCount() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                new ChatToolCall("delete_expenses", "{\"ids\":[10,20]}"));
+                LlmResult.ofValue(new ChatToolCall("delete_expenses", "{\"ids\":[10,20]}")));
 
         ChatResponse resp = chatActionService.dispatch("Delete expenses", "execute", user());
 
@@ -448,7 +449,7 @@ class ChatActionServiceReadToolsTest {
     @Test
     void deleteExpenses_byIdList_notFound_skippedAndCountsSuccessful() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                new ChatToolCall("delete_expenses", "{\"ids\":[10]}"));
+                LlmResult.ofValue(new ChatToolCall("delete_expenses", "{\"ids\":[10]}")));
 
         ChatResponse resp = chatActionService.dispatch("Delete expenses", "execute", user());
 
@@ -462,7 +463,7 @@ class ChatActionServiceReadToolsTest {
     @Test
     void deleteExpenses_byFilter_withExecuteMode_deletesFilteredExpenses() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                new ChatToolCall("delete_expenses", "{\"category\":\"Food\"}"));
+                LlmResult.ofValue(new ChatToolCall("delete_expenses", "{\"category\":\"Food\"}")));
         Category food = Category.builder().id(1L).name("Food").build();
         Expense e = Expense.builder().id(42L).amount(new BigDecimal("100"))
                 .category(food).date(LocalDateTime.now()).description("Lunch").build();
@@ -479,7 +480,7 @@ class ChatActionServiceReadToolsTest {
     @Test
     void recategorizeExpenses_withoutExecuteMode_returnsPreview() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                new ChatToolCall("recategorize_expenses", "{\"fromCategory\":\"Food\",\"toCategory\":\"Meals\"}"));
+                LlmResult.ofValue(new ChatToolCall("recategorize_expenses", "{\"fromCategory\":\"Food\",\"toCategory\":\"Meals\"}")));
 
         ChatResponse resp = chatActionService.dispatch("Move food to meals", null, user());
 
@@ -491,7 +492,7 @@ class ChatActionServiceReadToolsTest {
     @Test
     void recategorizeExpenses_withExecuteMode_updatesAndReturnsCount() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                new ChatToolCall("recategorize_expenses", "{\"fromCategory\":\"Food\",\"toCategory\":\"Meals\"}"));
+                LlmResult.ofValue(new ChatToolCall("recategorize_expenses", "{\"fromCategory\":\"Food\",\"toCategory\":\"Meals\"}")));
         Category food = Category.builder().id(1L).name("Food").build();
         Category meals = Category.builder().id(2L).name("Meals").build();
         Expense e = Expense.builder().id(1L).amount(new BigDecimal("100"))
@@ -512,7 +513,7 @@ class ChatActionServiceReadToolsTest {
 
     @Test
     void listRecurring_returnsItemsAndUpcomingShape() {
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("list_recurring", "{}"));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("list_recurring", "{}")));
         RecurringExpenseResponse r = new RecurringExpenseResponse(1L, "Netflix", new BigDecimal("499.00"),
                 "Entertainment", Frequency.MONTHLY, 15, null, null, true, "PHP", BigDecimal.ONE);
         when(recurringExpenseService.findAll(any())).thenReturn(List.of(r));
@@ -538,7 +539,7 @@ class ChatActionServiceReadToolsTest {
 
     @Test
     void listGoals_onlyReturnsCallerGoals() {
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("list_goals", "{}"));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("list_goals", "{}")));
         User caller = user();
         when(savingsGoalService.findAll(caller)).thenReturn(List.of());
 

@@ -1,6 +1,8 @@
 package com.teng.app.gastosai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.teng.app.gastosai.ai.LlmResult;
+import com.teng.app.gastosai.ai.LlmUsage;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.config.AiProviderProperties;
 import com.teng.app.gastosai.config.ClaudeProperties;
@@ -98,7 +100,7 @@ class AiInsightServiceTest {
         );
         ArgumentCaptor<String> contextCaptor = ArgumentCaptor.forClass(String.class);
         when(sqlGenerator.generateInsightSummary(contextCaptor.capture(), eq("month-summary"), eq("plain")))
-                .thenReturn("You spent ₱1200 in June.");
+                .thenReturn(LlmResult.of("You spent ₱1200 in June.", new LlmUsage(100, 50)));
 
         MonthSummaryInsightResponse result = aiInsightService.getMonthSummary(user, "2026-06");
 
@@ -117,7 +119,7 @@ class AiInsightServiceTest {
                 new MonthlyComparisonResponse("2026-06", new BigDecimal("1200.00"), new BigDecimal("1000.00"), new BigDecimal("20.00"))
         );
         when(sqlGenerator.generateInsightSummary(any(), eq("recommendations"), eq("plain")))
-                .thenReturn("[\"Reduce Food spending.\",\"Set a budget for Transport.\"]");
+                .thenReturn(LlmResult.of("[\"Reduce Food spending.\",\"Set a budget for Transport.\"]", new LlmUsage(80, 40)));
 
         RecommendationsInsightResponse result = aiInsightService.getRecommendations(user, "2026-06");
 

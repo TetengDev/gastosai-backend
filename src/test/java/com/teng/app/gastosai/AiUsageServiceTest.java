@@ -1,14 +1,15 @@
 package com.teng.app.gastosai;
 
 import com.teng.app.gastosai.ai.AiFeature;
+import com.teng.app.gastosai.config.AiCostProperties;
 import com.teng.app.gastosai.entity.AiUsage;
 import com.teng.app.gastosai.entity.AiUsageStatus;
 import com.teng.app.gastosai.repository.AiUsageRepository;
 import com.teng.app.gastosai.service.AiUsageService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -22,7 +23,14 @@ import static org.mockito.Mockito.when;
 class AiUsageServiceTest {
 
     @Mock AiUsageRepository aiUsageRepository;
-    @InjectMocks AiUsageService aiUsageService;
+
+    AiUsageService aiUsageService;
+
+    @BeforeEach
+    void setUp() {
+        AiCostProperties costProperties = new AiCostProperties();
+        aiUsageService = new AiUsageService(aiUsageRepository, costProperties);
+    }
 
     @Test
     void recordsSuccessEntry() {
@@ -58,7 +66,7 @@ class AiUsageServiceTest {
     }
 
     @Test
-    void estimatesCostForGpt4oMiniWhenTokensKnown() {
+    void estimatesCostWhenTokensKnown() {
         when(aiUsageRepository.save(org.mockito.ArgumentMatchers.any())).thenAnswer(i -> i.getArgument(0));
 
         aiUsageService.record(1L, "openai", "gpt-4o-mini", AiFeature.MONTHLY_SUMMARY,
@@ -68,7 +76,6 @@ class AiUsageServiceTest {
         verify(aiUsageRepository).save(captor.capture());
         BigDecimal cost = captor.getValue().getEstimatedCostUsd();
         assertThat(cost).isNotNull();
-        // $0.15 input + $0.60 output = $0.75
         assertThat(cost).isEqualByComparingTo(new BigDecimal("0.750000"));
     }
 
@@ -82,5 +89,23 @@ class AiUsageServiceTest {
         ArgumentCaptor<AiUsage> captor = ArgumentCaptor.forClass(AiUsage.class);
         verify(aiUsageRepository).save(captor.capture());
         assertThat(captor.getValue().getEstimatedCostUsd()).isNull();
+    }
+
+    @Test
+    void customCostRatesApplied() {
+        AiCostProperties custom = new AiCostProperties();
+        custom.setInputPerMtokUsd(0.30);
+        custom.setOutputPerMtokUsd(1.20);
+        AiUsageService svc = new AiUsageService(aiUsageRepository, custom);
+
+        when(aiUsageRepository.save(org.mockito.ArgumentMatchers.any())).thenAnswer(i -> i.getArgument(0));
+
+        svc.record(1L, "openai", "gpt-4o", AiFeature.CHAT_CRUD_ASSISTANT,
+                1_000_000, 1_000_000, AiUsageStatus.SUCCESS, null);
+
+        ArgumentCaptor<AiUsage> captor = ArgumentCaptor.forClass(AiUsage.class);
+        verify(aiUsageRepository).save(captor.capture());
+        assertThat(captor.getValue().getEstimatedCostUsd())
+                .isEqualByComparingTo(new BigDecimal("1.500000"));
     }
 }

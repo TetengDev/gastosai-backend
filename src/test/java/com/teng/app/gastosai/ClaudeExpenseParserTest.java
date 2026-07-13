@@ -1,6 +1,7 @@
 package com.teng.app.gastosai;
 
 import com.teng.app.gastosai.ai.ClaudeExpenseParser;
+import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.config.ClaudeProperties;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
 import org.junit.jupiter.api.Test;
@@ -10,8 +11,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.client.RestClient;
-
-import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -32,18 +31,12 @@ class ClaudeExpenseParserTest {
     ClaudeExpenseParser parser;
 
     private String claudeTextResponse(String text) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"" + text + "\"}],\"usage\":{\"input_tokens\":120,\"output_tokens\":60}}";
+    }
+
+    private String claudeTextResponseNoUsage(String text) {
         return "{\"content\":[{\"type\":\"text\",\"text\":\"" + text + "\"}]}";
     }
-
-    private String expenseJson(String amount, String category, String confidence) {
-        return "{\\\\\"amount\\\\\":\\\\\"" + amount + "\\\\\","
-                + "\\\\\"category\\\\\":\\\\\"" + category + "\\\\\","
-                + "\\\\\"date\\\\\":\\\\\"2026-06-14T12:00:00\\\\\","
-                + "\\\\\"description\\\\\":\\\\\"Test expense\\\\\","
-                + "\\\\\"confidence\\\\\":\\\\\"" + confidence + "\\\\\"}";
-    }
-
-    // ── API key guard ─────────────────────────────────────────────────────────
 
     @Test
     void parse_nullApiKey_throws() {
@@ -63,8 +56,6 @@ class ClaudeExpenseParserTest {
                 .hasMessageContaining("CLAUDE_API_KEY");
     }
 
-    // ── happy path — bare JSON in response text ───────────────────────────────
-
     @Test
     void parse_bareJsonResponse_parsedCorrectly() {
         when(claudeProperties.getApiKey()).thenReturn("sk-ant-test");
@@ -81,15 +72,37 @@ class ClaudeExpenseParserTest {
                 .body(String.class))
                 .thenReturn(claudeTextResponse(expenseObj));
 
-        ParsedExpenseResult result = parser.parse("spent 500 on lunch");
+        LlmResult<ParsedExpenseResult> result = parser.parse("spent 500 on lunch");
 
-        assertThat(result.amount()).isEqualByComparingTo("500.00");
-        assertThat(result.category()).isEqualTo("Food");
-        assertThat(result.confidence()).isEqualTo("HIGH");
-        assertThat(result.saveable()).isTrue();
+        assertThat(result.value().amount()).isEqualByComparingTo("500.00");
+        assertThat(result.value().category()).isEqualTo("Food");
+        assertThat(result.value().confidence()).isEqualTo("HIGH");
+        assertThat(result.value().saveable()).isTrue();
+        assertThat(result.usage().inputTokens()).isEqualTo(120);
+        assertThat(result.usage().outputTokens()).isEqualTo(60);
     }
 
-    // ── happy path — fenced JSON response ─────────────────────────────────────
+    @Test
+    void parse_usageAbsentWhenMissingFromResponse() {
+        when(claudeProperties.getApiKey()).thenReturn("sk-ant-test");
+        when(claudeProperties.getModel()).thenReturn("claude-3-5-sonnet-20241022");
+
+        String expenseObj = "{\\\"amount\\\":\\\"200.00\\\",\\\"category\\\":\\\"Food\\\","
+                + "\\\"date\\\":\\\"2026-06-14T12:00:00\\\",\\\"description\\\":\\\"Lunch\\\","
+                + "\\\"confidence\\\":\\\"HIGH\\\"}";
+        when(claudeRestClient.post()
+                .uri(anyString())
+                .contentType(any())
+                .body(anyString())
+                .retrieve()
+                .body(String.class))
+                .thenReturn(claudeTextResponseNoUsage(expenseObj));
+
+        LlmResult<ParsedExpenseResult> result = parser.parse("200 food");
+
+        assertThat(result.usage().inputTokens()).isNull();
+        assertThat(result.usage().outputTokens()).isNull();
+    }
 
     @Test
     void parse_fencedJsonResponse_extractsAndParses() {
@@ -107,14 +120,12 @@ class ClaudeExpenseParserTest {
                 .body(String.class))
                 .thenReturn(claudeTextResponse(fencedObj));
 
-        ParsedExpenseResult result = parser.parse("300 grab ride");
+        LlmResult<ParsedExpenseResult> result = parser.parse("300 grab ride");
 
-        assertThat(result.amount()).isEqualByComparingTo("300.00");
-        assertThat(result.category()).isEqualTo("Transport");
-        assertThat(result.saveable()).isTrue();
+        assertThat(result.value().amount()).isEqualByComparingTo("300.00");
+        assertThat(result.value().category()).isEqualTo("Transport");
+        assertThat(result.value().saveable()).isTrue();
     }
-
-    // ── low confidence → not saveable ────────────────────────────────────────
 
     @Test
     void parse_lowConfidence_notSaveable() {
@@ -132,13 +143,11 @@ class ClaudeExpenseParserTest {
                 .body(String.class))
                 .thenReturn(claudeTextResponse(expenseObj));
 
-        ParsedExpenseResult result = parser.parse("something");
+        LlmResult<ParsedExpenseResult> result = parser.parse("something");
 
-        assertThat(result.saveable()).isFalse();
-        assertThat(result.hint()).isNotNull();
+        assertThat(result.value().saveable()).isFalse();
+        assertThat(result.value().hint()).isNotNull();
     }
-
-    // ── description field populated ───────────────────────────────────────────
 
     @Test
     void parse_descriptionPopulated() {
@@ -156,8 +165,8 @@ class ClaudeExpenseParserTest {
                 .body(String.class))
                 .thenReturn(claudeTextResponse(expenseObj));
 
-        ParsedExpenseResult result = parser.parse("200 electric bill");
+        LlmResult<ParsedExpenseResult> result = parser.parse("200 electric bill");
 
-        assertThat(result.description()).isEqualTo("Electric bill");
+        assertThat(result.value().description()).isEqualTo("Electric bill");
     }
 }

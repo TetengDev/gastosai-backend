@@ -1,5 +1,6 @@
 package com.teng.app.gastosai;
 
+import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.ai.OpenAiExpenseParser;
 import com.teng.app.gastosai.config.OpenAiProperties;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
@@ -29,8 +30,11 @@ class OpenAiExpenseParserTest {
     @InjectMocks
     OpenAiExpenseParser parser;
 
-    // OpenAI response wraps content in choices[0].message.content as a JSON string
     private String openAiResponse(String innerJson) {
+        return "{\"choices\":[{\"message\":{\"content\":\"" + innerJson + "\"}}],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":50}}";
+    }
+
+    private String openAiResponseNoUsage(String innerJson) {
         return "{\"choices\":[{\"message\":{\"content\":\"" + innerJson + "\"}}]}";
     }
 
@@ -41,8 +45,6 @@ class OpenAiExpenseParserTest {
                 + "\\\"description\\\":\\\"Test\\\","
                 + "\\\"confidence\\\":\\\"" + confidence + "\\\"}";
     }
-
-    // ── API key guard ─────────────────────────────────────────────────────────
 
     @Test
     void parse_nullApiKey_throws() {
@@ -62,8 +64,6 @@ class OpenAiExpenseParserTest {
                 .hasMessageContaining("OPENAI_API_KEY");
     }
 
-    // ── happy path — high confidence ─────────────────────────────────────────
-
     @Test
     void parse_highConfidence_saveableTrue() {
         when(openAiProperties.getApiKey()).thenReturn("sk-test");
@@ -77,16 +77,35 @@ class OpenAiExpenseParserTest {
                 .body(String.class))
                 .thenReturn(openAiResponse(expenseJson("500.00", "Food", "HIGH")));
 
-        ParsedExpenseResult result = parser.parse("500 lunch food");
+        LlmResult<ParsedExpenseResult> result = parser.parse("500 lunch food");
 
-        assertThat(result.amount()).isEqualByComparingTo("500.00");
-        assertThat(result.category()).isEqualTo("Food");
-        assertThat(result.confidence()).isEqualTo("HIGH");
-        assertThat(result.saveable()).isTrue();
-        assertThat(result.hint()).isNull();
+        assertThat(result.value().amount()).isEqualByComparingTo("500.00");
+        assertThat(result.value().category()).isEqualTo("Food");
+        assertThat(result.value().confidence()).isEqualTo("HIGH");
+        assertThat(result.value().saveable()).isTrue();
+        assertThat(result.value().hint()).isNull();
+        assertThat(result.usage().inputTokens()).isEqualTo(100);
+        assertThat(result.usage().outputTokens()).isEqualTo(50);
     }
 
-    // ── low confidence → not saveable ────────────────────────────────────────
+    @Test
+    void parse_usageAbsentWhenMissingFromResponse() {
+        when(openAiProperties.getApiKey()).thenReturn("sk-test");
+        when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
+
+        when(openAiRestClient.post()
+                .uri(anyString())
+                .contentType(any())
+                .body(anyString())
+                .retrieve()
+                .body(String.class))
+                .thenReturn(openAiResponseNoUsage(expenseJson("200.00", "Food", "HIGH")));
+
+        LlmResult<ParsedExpenseResult> result = parser.parse("200 food");
+
+        assertThat(result.usage().inputTokens()).isNull();
+        assertThat(result.usage().outputTokens()).isNull();
+    }
 
     @Test
     void parse_lowConfidence_notSaveable() {
@@ -101,13 +120,11 @@ class OpenAiExpenseParserTest {
                 .body(String.class))
                 .thenReturn(openAiResponse(expenseJson("100.00", "Food", "LOW")));
 
-        ParsedExpenseResult result = parser.parse("something unclear");
+        LlmResult<ParsedExpenseResult> result = parser.parse("something unclear");
 
-        assertThat(result.saveable()).isFalse();
-        assertThat(result.hint()).isNotNull();
+        assertThat(result.value().saveable()).isFalse();
+        assertThat(result.value().hint()).isNotNull();
     }
-
-    // ── zero amount → not saveable ────────────────────────────────────────────
 
     @Test
     void parse_zeroAmount_notSaveable() {
@@ -122,12 +139,10 @@ class OpenAiExpenseParserTest {
                 .body(String.class))
                 .thenReturn(openAiResponse(expenseJson("0", "Food", "HIGH")));
 
-        ParsedExpenseResult result = parser.parse("free food");
+        LlmResult<ParsedExpenseResult> result = parser.parse("free food");
 
-        assertThat(result.saveable()).isFalse();
+        assertThat(result.value().saveable()).isFalse();
     }
-
-    // ── description and category fields ──────────────────────────────────────
 
     @Test
     void parse_descriptionAndCategoryPopulated() {
@@ -147,13 +162,11 @@ class OpenAiExpenseParserTest {
                 .body(String.class))
                 .thenReturn(openAiResponse(innerJson));
 
-        ParsedExpenseResult result = parser.parse("150 jeep");
+        LlmResult<ParsedExpenseResult> result = parser.parse("150 jeep");
 
-        assertThat(result.category()).isEqualTo("Transport");
-        assertThat(result.description()).isEqualTo("Morning jeep ride");
+        assertThat(result.value().category()).isEqualTo("Transport");
+        assertThat(result.value().description()).isEqualTo("Morning jeep ride");
     }
-
-    // ── missing category defaults to Uncategorized ────────────────────────────
 
     @Test
     void parse_missingCategory_defaultsToUncategorized() {
@@ -173,12 +186,10 @@ class OpenAiExpenseParserTest {
                 .body(String.class))
                 .thenReturn(openAiResponse(innerJson));
 
-        ParsedExpenseResult result = parser.parse("200 something");
+        LlmResult<ParsedExpenseResult> result = parser.parse("200 something");
 
-        assertThat(result.category()).isEqualTo("Uncategorized");
+        assertThat(result.value().category()).isEqualTo("Uncategorized");
     }
-
-    // ── date field populated ──────────────────────────────────────────────────
 
     @Test
     void parse_validDate_populatedInResult() {
@@ -193,9 +204,9 @@ class OpenAiExpenseParserTest {
                 .body(String.class))
                 .thenReturn(openAiResponse(expenseJson("250.00", "Groceries", "HIGH")));
 
-        ParsedExpenseResult result = parser.parse("250 groceries");
+        LlmResult<ParsedExpenseResult> result = parser.parse("250 groceries");
 
-        assertThat(result.date()).isNotNull();
-        assertThat(result.date().getYear()).isEqualTo(2026);
+        assertThat(result.value().date()).isNotNull();
+        assertThat(result.value().date().getYear()).isEqualTo(2026);
     }
 }

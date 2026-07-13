@@ -3,6 +3,7 @@ package com.teng.app.gastosai.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teng.app.gastosai.ai.AiFeature;
+import com.teng.app.gastosai.ai.LlmUsage;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.ai.SqlGuard;
 import com.teng.app.gastosai.ai.query.AnalyticsQueryPlan;
@@ -60,18 +61,19 @@ public class AiQueryService {
 		String safeQuestion = truncate(aiRedactionService.redact(question));
 		String resolvedMode = (mode != null && !mode.isBlank()) ? mode : DEFAULT_MODE;
 
+		LlmUsage[] usageHolder = { LlmUsage.absent() };
 		try {
-			List<Map<String, Object>> rows = runStructuredQuery(safeQuestion, user);
+			List<Map<String, Object>> rows = runStructuredQuery(safeQuestion, user, usageHolder);
 			if (rows == null) {
-				rows = runGeneratedSql(safeQuestion, user);
+				rows = runGeneratedSql(safeQuestion, user, usageHolder);
 			}
 			AiQueryResponse response = rows == null
 					? new AiQueryResponse(EXECUTION_FAILURE_MESSAGE)
-					: summarize(safeQuestion, rows, resolvedMode);
-			// best-effort: provider usage not surfaced here yet (TODO wire tokens)
+					: summarize(safeQuestion, rows, resolvedMode, usageHolder);
+			LlmUsage u = usageHolder[0];
 			aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
 					resolveModel(), AiFeature.CHAT_CONTEXT_RESOLUTION,
-					null, null, AiUsageStatus.SUCCESS, null);
+					u.inputTokens(), u.outputTokens(), AiUsageStatus.SUCCESS, null);
 			return response;
 		} catch (Exception e) {
 			aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
@@ -87,11 +89,13 @@ public class AiQueryService {
 	 * or execution fails, signalling the caller to fall back to the guarded NL-to-SQL path.
 	 * Admins keep the legacy unscoped path so cross-user analytics still works for them.
 	 */
-	private List<Map<String, Object>> runStructuredQuery(String question, User user) {
+	private List<Map<String, Object>> runStructuredQuery(String question, User user, LlmUsage[] usageHolder) {
 		if (user.getId() == null) {
 			return null;
 		}
-		String intentJson = sqlGenerator.classifyQueryIntentJson(question);
+		var intentResult = sqlGenerator.classifyQueryIntentJson(question);
+		accumulate(usageHolder, intentResult.usage());
+		String intentJson = intentResult.value();
 		if (intentJson == null || intentJson.isBlank()) {
 			return null;
 		}
@@ -111,11 +115,13 @@ public class AiQueryService {
 	}
 
 	/** Fallback path: AI-authored SQL validated by {@link SqlGuard} and always user-scoped before execution. */
-	private List<Map<String, Object>> runGeneratedSql(String question, User user) {
+	private List<Map<String, Object>> runGeneratedSql(String question, User user, LlmUsage[] usageHolder) {
 		if (user.getId() == null) {
 			return null;
 		}
-		String rawSql = sqlGenerator.generateSql(question);
+		var sqlResult = sqlGenerator.generateSql(question);
+		accumulate(usageHolder, sqlResult.usage());
+		String rawSql = sqlResult.value();
 		String sql = SqlGuard.validateAndNormalize(rawSql);
 		// Always scope to the requesting user — including admins. Running unscoped AI-authored SQL for
 		// admins would expose every user's financial data; cross-user analytics, if ever needed, must be
@@ -132,12 +138,13 @@ public class AiQueryService {
 		}
 	}
 
-	private AiQueryResponse summarize(String question, List<Map<String, Object>> rows, String mode) {
+	private AiQueryResponse summarize(String question, List<Map<String, Object>> rows, String mode, LlmUsage[] usageHolder) {
 		Object normalizedData = normalizeAnswer(rows);
 		try {
 			String dataJson = objectMapper.writeValueAsString(normalizedData);
-			String summary = sqlGenerator.generateSummary(question, dataJson, mode);
-			return new AiQueryResponse(summary);
+			var summaryResult = sqlGenerator.generateSummary(question, dataJson, mode);
+			accumulate(usageHolder, summaryResult.usage());
+			return new AiQueryResponse(summaryResult.value());
 		}
 		catch (JsonProcessingException e) {
 			log.warn("Failed to serialize query results for summary, returning raw data", e);
@@ -147,6 +154,21 @@ public class AiQueryService {
 			log.warn("Summary generation failed, returning raw data: {}", e.getMessage());
 			return new AiQueryResponse(normalizedData);
 		}
+	}
+
+	private static void accumulate(LlmUsage[] holder, LlmUsage usage) {
+		if (usage == null || (usage.inputTokens() == null && usage.outputTokens() == null)) {
+			return;
+		}
+		LlmUsage current = holder[0];
+		Integer in = add(current.inputTokens(), usage.inputTokens());
+		Integer out = add(current.outputTokens(), usage.outputTokens());
+		holder[0] = new LlmUsage(in, out);
+	}
+
+	private static Integer add(Integer a, Integer b) {
+		if (a == null && b == null) return null;
+		return (a != null ? a : 0) + (b != null ? b : 0);
 	}
 
 	private String resolveModel() {

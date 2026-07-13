@@ -1,5 +1,6 @@
 package com.teng.app.gastosai;
 
+import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.dto.AiQueryResponse;
 import com.teng.app.gastosai.entity.Expense;
@@ -54,10 +55,10 @@ class AiQueryFallbackTenantIsolationTest {
         saveExpense(bob, "99.99");
 
         // Skip the structured path → exercise the guarded fallback.
-        lenient().when(sqlGenerator.classifyQueryIntentJson(anyString())).thenReturn(null);
+        lenient().when(sqlGenerator.classifyQueryIntentJson(anyString())).thenReturn(LlmResult.ofValue(null));
         // Summary echoes the serialized rows so the response carries the data we assert on.
         lenient().when(sqlGenerator.generateSummary(anyString(), anyString(), anyString()))
-                .thenAnswer(i -> i.getArgument(1));
+                .thenAnswer(i -> LlmResult.ofValue(i.getArgument(1)));
     }
 
     private void saveExpense(User user, String amount) {
@@ -73,7 +74,7 @@ class AiQueryFallbackTenantIsolationTest {
     @Test
     void flatSelectAcrossAllUsers_returnsOnlyQueryingUserRows() {
         when(sqlGenerator.generateSql(anyString()))
-                .thenReturn("SELECT amount FROM expenses ORDER BY amount DESC");
+                .thenReturn(LlmResult.ofValue("SELECT amount FROM expenses ORDER BY amount DESC"));
 
         AiQueryResponse r = aiQueryService.runNaturalLanguageQuery("everything", "plain", alice);
         String answer = String.valueOf(r.answer());
@@ -85,7 +86,7 @@ class AiQueryFallbackTenantIsolationTest {
     @Test
     void groupByAcrossAllUsers_aggregatesOnlyQueryingUserRows() {
         when(sqlGenerator.generateSql(anyString()))
-                .thenReturn("SELECT category_id, SUM(amount) AS total FROM expenses GROUP BY category_id");
+                .thenReturn(LlmResult.ofValue("SELECT category_id, SUM(amount) AS total FROM expenses GROUP BY category_id"));
 
         AiQueryResponse r = aiQueryService.runNaturalLanguageQuery("totals", "plain", alice);
         String answer = String.valueOf(r.answer());

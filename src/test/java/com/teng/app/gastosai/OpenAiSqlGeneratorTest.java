@@ -1,6 +1,7 @@
 package com.teng.app.gastosai;
 
 import com.teng.app.gastosai.ai.ChatToolCall;
+import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.ai.OpenAiSqlGenerator;
 import com.teng.app.gastosai.config.OpenAiProperties;
 import org.junit.jupiter.api.Test;
@@ -29,27 +30,43 @@ class OpenAiSqlGeneratorTest {
     @InjectMocks
     OpenAiSqlGenerator generator;
 
-    // ── generateSql — SQL fence extraction via HTTP ──────────────────────────
+    private String apiResponse(String content) {
+        return "{\"choices\":[{\"message\":{\"content\":\"" + content + "\"}}],\"usage\":{\"prompt_tokens\":80,\"completion_tokens\":40}}";
+    }
+
+    private String apiResponseNoUsage(String content) {
+        return "{\"choices\":[{\"message\":{\"content\":\"" + content + "\"}}]}";
+    }
 
     @Test
     void generateSql_fencedSqlResponse_extractsSql() {
         when(openAiProperties.getApiKey()).thenReturn("sk-test");
         when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
 
-        String apiResponse = """
-                {"choices":[{"message":{"content":"```sql\\nSELECT id FROM expenses\\n```"}}]}
-                """;
-        when(openAiRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
-                .thenReturn(apiResponse);
+        String raw = "{\"choices\":[{\"message\":{\"content\":\"```sql\\nSELECT id FROM expenses\\n```\"}}],\"usage\":{\"prompt_tokens\":80,\"completion_tokens\":40}}";
+        when(openAiRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
+                .thenReturn(raw);
 
-        String result = generator.generateSql("list all expenses");
+        LlmResult<String> result = generator.generateSql("list all expenses");
 
-        assertThat(result).isEqualTo("SELECT id FROM expenses");
+        assertThat(result.value()).isEqualTo("SELECT id FROM expenses");
+        assertThat(result.usage().inputTokens()).isEqualTo(80);
+        assertThat(result.usage().outputTokens()).isEqualTo(40);
+    }
+
+    @Test
+    void generateSql_usageAbsentWhenMissing() {
+        when(openAiProperties.getApiKey()).thenReturn("sk-test");
+        when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
+
+        String raw = "{\"choices\":[{\"message\":{\"content\":\"SELECT id FROM expenses\"}}]}";
+        when(openAiRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
+                .thenReturn(raw);
+
+        LlmResult<String> result = generator.generateSql("list all expenses");
+
+        assertThat(result.usage().inputTokens()).isNull();
+        assertThat(result.usage().outputTokens()).isNull();
     }
 
     @Test
@@ -57,23 +74,14 @@ class OpenAiSqlGeneratorTest {
         when(openAiProperties.getApiKey()).thenReturn("sk-test");
         when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
 
-        String apiResponse = """
-                {"choices":[{"message":{"content":"```\\nSELECT amount FROM expenses\\n```"}}]}
-                """;
-        when(openAiRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
-                .thenReturn(apiResponse);
+        String raw = "{\"choices\":[{\"message\":{\"content\":\"```\\nSELECT amount FROM expenses\\n```\"}}],\"usage\":{\"prompt_tokens\":80,\"completion_tokens\":40}}";
+        when(openAiRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
+                .thenReturn(raw);
 
-        String result = generator.generateSql("list amounts");
+        LlmResult<String> result = generator.generateSql("list amounts");
 
-        assertThat(result).isEqualTo("SELECT amount FROM expenses");
+        assertThat(result.value()).isEqualTo("SELECT amount FROM expenses");
     }
-
-    // ── generateSql — missing API key ─────────────────────────────────────────
 
     @Test
     void generateSql_missingApiKey_throws() {
@@ -93,27 +101,18 @@ class OpenAiSqlGeneratorTest {
                 .hasMessageContaining("OPENAI_API_KEY");
     }
 
-    // ── generateSql — HTTP path ───────────────────────────────────────────────
-
     @Test
     void generateSql_validResponse_returnsExtractedSql() {
         when(openAiProperties.getApiKey()).thenReturn("sk-test");
         when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
 
-        String apiResponse = """
-                {"choices":[{"message":{"content":"SELECT * FROM expenses WHERE user_id = 1"}}]}
-                """;
-        when(openAiRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
-                .thenReturn(apiResponse);
+        String raw = "{\"choices\":[{\"message\":{\"content\":\"SELECT * FROM expenses WHERE user_id = 1\"}}],\"usage\":{\"prompt_tokens\":80,\"completion_tokens\":40}}";
+        when(openAiRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
+                .thenReturn(raw);
 
-        String result = generator.generateSql("show all expenses");
+        LlmResult<String> result = generator.generateSql("show all expenses");
 
-        assertThat(result).isEqualTo("SELECT * FROM expenses WHERE user_id = 1");
+        assertThat(result.value()).isEqualTo("SELECT * FROM expenses WHERE user_id = 1");
     }
 
     @Test
@@ -121,12 +120,7 @@ class OpenAiSqlGeneratorTest {
         when(openAiProperties.getApiKey()).thenReturn("sk-test");
         when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
 
-        when(openAiRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
+        when(openAiRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
                 .thenReturn("");
 
         assertThatThrownBy(() -> generator.generateSql("anything"))
@@ -139,12 +133,7 @@ class OpenAiSqlGeneratorTest {
         when(openAiProperties.getApiKey()).thenReturn("sk-test");
         when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
 
-        when(openAiRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
+        when(openAiRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
                 .thenReturn(null);
 
         assertThatThrownBy(() -> generator.generateSql("anything"))
@@ -152,152 +141,94 @@ class OpenAiSqlGeneratorTest {
                 .hasMessageContaining("Empty response");
     }
 
-    // ── generateSummary — mode routing ───────────────────────────────────────
-
     @Test
     void generateSummary_plainMode_returnsContent() {
         when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
 
-        String apiResponse = """
-                {"choices":[{"message":{"content":"You spent ₱5,000 this month."}}]}
-                """;
-        when(openAiRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
-                .thenReturn(apiResponse);
+        when(openAiRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
+                .thenReturn(apiResponse("You spent ₱5,000 this month."));
 
-        String result = generator.generateSummary("how much?", "[]", "plain");
+        LlmResult<String> result = generator.generateSummary("how much?", "[]", "plain");
 
-        assertThat(result).isEqualTo("You spent ₱5,000 this month.");
+        assertThat(result.value()).isEqualTo("You spent ₱5,000 this month.");
     }
 
     @Test
     void generateSummary_professionalMode_returnsContent() {
         when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
 
-        String apiResponse = """
-                {"choices":[{"message":{"content":"Your total expenditure was ₱5,000."}}]}
-                """;
-        when(openAiRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
-                .thenReturn(apiResponse);
+        when(openAiRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
+                .thenReturn(apiResponse("Your total expenditure was ₱5,000."));
 
-        String result = generator.generateSummary("how much?", "[]", "professional");
+        LlmResult<String> result = generator.generateSummary("how much?", "[]", "professional");
 
-        assertThat(result).isEqualTo("Your total expenditure was ₱5,000.");
+        assertThat(result.value()).isEqualTo("Your total expenditure was ₱5,000.");
     }
 
     @Test
     void generateSummary_genzMode_returnsContent() {
         when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
 
-        String apiResponse = """
-                {"choices":[{"message":{"content":"bestie you spent ₱5k no cap 💸"}}]}
-                """;
-        when(openAiRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
-                .thenReturn(apiResponse);
+        when(openAiRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
+                .thenReturn(apiResponse("bestie you spent ₱5k no cap"));
 
-        String result = generator.generateSummary("how much?", "[]", "genz");
+        LlmResult<String> result = generator.generateSummary("how much?", "[]", "genz");
 
-        assertThat(result).isEqualTo("bestie you spent ₱5k no cap 💸");
+        assertThat(result.value()).isEqualTo("bestie you spent ₱5k no cap");
     }
-
-    // ── generateInsightSummary ────────────────────────────────────────────────
 
     @Test
     void generateInsightSummary_summaryType_returnsSummary() {
         when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
 
-        String apiResponse = """
-                {"choices":[{"message":{"content":"You spent most on Food this month."}}]}
-                """;
-        when(openAiRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
-                .thenReturn(apiResponse);
+        when(openAiRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
+                .thenReturn(apiResponse("You spent most on Food this month."));
 
-        String result = generator.generateInsightSummary("{}", "summary", "plain");
+        LlmResult<String> result = generator.generateInsightSummary("{}", "summary", "plain");
 
-        assertThat(result).isEqualTo("You spent most on Food this month.");
+        assertThat(result.value()).isEqualTo("You spent most on Food this month.");
     }
 
     @Test
     void generateInsightSummary_recommendationsType_usesRecommendationsPrompt() {
         when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
 
-        String apiResponse = """
-                {"choices":[{"message":{"content":"[\\"Reduce Food spending.\\"]"}}]}
-                """;
-        when(openAiRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
-                .thenReturn(apiResponse);
+        String raw = "{\"choices\":[{\"message\":{\"content\":\"[\\\"Reduce Food spending.\\\"]\"}}],\"usage\":{\"prompt_tokens\":80,\"completion_tokens\":40}}";
+        when(openAiRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
+                .thenReturn(raw);
 
-        String result = generator.generateInsightSummary("{}", "recommendations", "plain");
+        LlmResult<String> result = generator.generateInsightSummary("{}", "recommendations", "plain");
 
-        assertThat(result).contains("Reduce Food spending");
+        assertThat(result.value()).contains("Reduce Food spending");
     }
-
-    // ── classifyIntent — tool_call response ──────────────────────────────────
 
     @Test
     void classifyIntent_toolCallResponse_returnsToolCall() {
         when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
 
-        String apiResponse = """
-                {"choices":[{"message":{"tool_calls":[{"function":{"name":"create_expense","arguments":"{\\"amount\\":500,\\"description\\":\\"Lunch\\"}"}}]}}]}
-                """;
-        when(openAiRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
-                .thenReturn(apiResponse);
+        String raw = "{\"choices\":[{\"message\":{\"tool_calls\":[{\"function\":{\"name\":\"create_expense\",\"arguments\":\"{\\\"amount\\\":500,\\\"description\\\":\\\"Lunch\\\"}\"}}]}}],\"usage\":{\"prompt_tokens\":80,\"completion_tokens\":40}}";
+        when(openAiRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
+                .thenReturn(raw);
 
-        ChatToolCall result = generator.classifyIntent("Add lunch for 500");
+        LlmResult<ChatToolCall> result = generator.classifyIntent("Add lunch for 500");
 
-        assertThat(result.toolName()).isEqualTo("create_expense");
-        assertThat(result.paramsJson()).contains("amount");
-        assertThat(result.paramsJson()).contains("500");
+        assertThat(result.value().toolName()).isEqualTo("create_expense");
+        assertThat(result.value().paramsJson()).contains("amount");
+        assertThat(result.value().paramsJson()).contains("500");
+        assertThat(result.usage().inputTokens()).isEqualTo(80);
     }
 
     @Test
     void classifyIntent_textResponse_returnsTextToolCall() {
         when(openAiProperties.getModel()).thenReturn("gpt-4o-mini");
 
-        String apiResponse = """
-                {"choices":[{"message":{"tool_calls":[],"content":"I cannot do that."}}]}
-                """;
-        when(openAiRestClient.post()
-                .uri(anyString())
-                .contentType(any())
-                .body(anyString())
-                .retrieve()
-                .body(String.class))
-                .thenReturn(apiResponse);
+        String raw = "{\"choices\":[{\"message\":{\"tool_calls\":[],\"content\":\"I cannot do that.\"}}],\"usage\":{\"prompt_tokens\":80,\"completion_tokens\":40}}";
+        when(openAiRestClient.post().uri(anyString()).contentType(any()).body(anyString()).retrieve().body(String.class))
+                .thenReturn(raw);
 
-        ChatToolCall result = generator.classifyIntent("Tell me a joke");
+        LlmResult<ChatToolCall> result = generator.classifyIntent("Tell me a joke");
 
-        assertThat(result.toolName()).isEqualTo("text");
-        assertThat(result.paramsJson()).isEqualTo("I cannot do that.");
+        assertThat(result.value().toolName()).isEqualTo("text");
+        assertThat(result.value().paramsJson()).isEqualTo("I cannot do that.");
     }
 }

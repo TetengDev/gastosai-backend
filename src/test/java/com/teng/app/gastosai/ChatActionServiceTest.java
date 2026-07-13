@@ -2,6 +2,7 @@ package com.teng.app.gastosai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teng.app.gastosai.ai.ChatToolCall;
+import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.config.AiManagedProperties;
 import com.teng.app.gastosai.config.AiProviderProperties;
@@ -98,7 +99,7 @@ class ChatActionServiceTest {
         String paramsJson = """
                 {"amount":500,"description":"Lunch","category":"Food"}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("create_expense", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("create_expense", paramsJson)));
 
         ChatResponse response = chatActionService.dispatch("Add lunch ₱500", null, user());
 
@@ -112,7 +113,7 @@ class ChatActionServiceTest {
         String paramsJson = """
                 {"amount":500,"description":"Lunch","category":"Food"}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("create_expense", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("create_expense", paramsJson)));
 
         ExpenseResponse mockResult = new ExpenseResponse(
                 1L, new BigDecimal("500.00"), "Food",
@@ -131,7 +132,7 @@ class ChatActionServiceTest {
 
     @Test
     void dispatch_textFallback_returnsTextResponse() {
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("text", "Hello there!"));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("text", "Hello there!")));
 
         ChatResponse response = chatActionService.dispatch("Hi", null, user());
 
@@ -145,7 +146,7 @@ class ChatActionServiceTest {
         String paramsJson = """
                 {"id":999}
                 """;
-        when(sqlGenerator.classifyIntent(any())).thenReturn(new ChatToolCall("delete_expense", paramsJson));
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("delete_expense", paramsJson)));
         doThrow(new ResourceNotFoundException("Expense not found: 999")).when(expenseService).delete(eq(999L), any());
 
         ChatResponse response = chatActionService.dispatch("Delete expense 999", null, user());
