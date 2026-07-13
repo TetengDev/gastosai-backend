@@ -40,7 +40,7 @@ public class AuthenticatedWriteRateLimitInterceptor implements HandlerIntercepto
         }
         response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.getWriter().write("{\"title\":\"Too Many Requests\",\"detail\":\"Write rate limit exceeded. Please slow down.\"}");
+        response.getWriter().write("{\"status\":429,\"title\":\"Too Many Requests\",\"detail\":\"Write rate limit exceeded. Please slow down.\"}");
         return false;
     }
 }

@@ -1,5 +1,6 @@
 package com.teng.app.gastosai.controller;
 
+import com.teng.app.gastosai.config.ClientIps;
 import com.teng.app.gastosai.dto.AuthResponse;
 import com.teng.app.gastosai.dto.GoogleAuthRequest;
 import com.teng.app.gastosai.dto.LoginRequest;
@@ -35,7 +36,7 @@ public class AuthController {
 	@PostMapping("/register")
 	@ResponseStatus(HttpStatus.CREATED)
 	public AuthResponse register(@Valid @RequestBody RegisterRequest request, HttpServletRequest httpRequest) {
-		registrationGuardService.assertRegistrationAllowed(clientIp(httpRequest));
+		registrationGuardService.assertRegistrationAllowed(ClientIps.extract(httpRequest));
 		return authService.register(request);
 	}
 
@@ -46,7 +47,7 @@ public class AuthController {
 
 	@PostMapping("/magic-link")
 	public Map<String, Boolean> requestMagicLink(@Valid @RequestBody MagicLinkRequest request, HttpServletRequest httpRequest) {
-		magicLinkService.requestLink(request.email(), clientIp(httpRequest));
+		magicLinkService.requestLink(request.email(), ClientIps.extract(httpRequest));
 		return Map.of("sent", true);
 	}
 
@@ -58,13 +59,5 @@ public class AuthController {
 	@PostMapping("/google")
 	public AuthResponse google(@Valid @RequestBody GoogleAuthRequest request) {
 		return googleAuthService.loginWithIdToken(request.idToken());
-	}
-
-	private String clientIp(HttpServletRequest request) {
-		String forwarded = request.getHeader("X-Forwarded-For");
-		if (forwarded != null && !forwarded.isBlank()) {
-			return forwarded.split(",")[0].trim();
-		}
-		return request.getRemoteAddr();
 	}
 }

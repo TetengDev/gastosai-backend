@@ -50,8 +50,7 @@ public class WebConfig implements WebMvcConfigurer {
 		registry.addInterceptor(aiRateLimitInterceptor).addPathPatterns("/ai/**", "/expenses/parse").excludePathPatterns("/ai/usage");
 		registry.addInterceptor(authenticatedWriteRateLimitInterceptor)
 				.addPathPatterns("/expenses/**", "/categories/**", "/budgets/**", "/recurring/**",
-						"/goals/**", "/alerts/**")
-				.excludePathPatterns("/ai/**", "/auth/**", "/submissions", "/webhooks/**");
+						"/goals/**", "/alerts/**");
 		registry.addInterceptor(featureAccessInterceptor);
 	}
 }

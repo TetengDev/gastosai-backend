@@ -95,7 +95,6 @@ public class AiQuotaService {
         };
     }
 
-    @Transactional(readOnly = true)
     public long globalDailyUsed() {
         return aiUsageRepository.countByStatusAndCreatedAtAfter(AiUsageStatus.SUCCESS, startOfToday());
     }

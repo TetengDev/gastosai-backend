@@ -39,27 +39,29 @@ public class RegistrationGuardService {
 
     private void assertIpQuota(String ip) {
         LocalDate today = LocalDate.now();
-        IpBucket bucket = ipBuckets.compute(ip, (k, existing) -> {
+        if (ipBuckets.size() > 10_000) {
+            ipBuckets.entrySet().removeIf(e -> !e.getValue().date.equals(today));
+        }
+        boolean[] exceeded = {false};
+        ipBuckets.compute(ip, (k, existing) -> {
             if (existing == null || !existing.date.equals(today)) {
-                return new IpBucket(today, 0);
+                return new IpBucket(today, 1);
             }
+            if (existing.count >= ipDailyMax) {
+                exceeded[0] = true;
+                return existing;
+            }
+            existing.count++;
             return existing;
         });
-        synchronized (bucket) {
-            if (!bucket.date.equals(today)) {
-                bucket.date = today;
-                bucket.count = 0;
-            }
-            if (bucket.count >= ipDailyMax) {
-                throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
-                        "Too many registrations from this address. Try again tomorrow.");
-            }
-            bucket.count++;
+        if (exceeded[0]) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Too many registrations from this address. Try again tomorrow.");
         }
     }
 
     @Transactional(readOnly = true)
-    public void assertGlobalQuota() {
+    void assertGlobalQuota() {
         LocalDateTime startOfDay = LocalDate.now().atStartOfDay();
         long todayCount = userRepository.countByCreatedAtAfter(startOfDay);
         if (todayCount >= globalDailyMax) {
