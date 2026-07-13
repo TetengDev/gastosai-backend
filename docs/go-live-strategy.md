@@ -1,6 +1,6 @@
 # Go-Live & Pricing-Enablement Strategy
 
-_Last updated: 2026-07-06 · Status: advisory (no code changes in this doc)_
+_Last updated: 2026-07-13 · Status: advisory (no code changes in this doc)_
 
 This document answers one question: **what has to happen before GastosAI can charge money?**
 It maps the current state, the blockers, and a sequenced path from today's alpha/beta
@@ -131,6 +131,68 @@ always-on infra is a hard prerequisite for charging.
 - **Refunds / disputes / invoicing** — not yet designed; needed before scale, not before first sale.
 - **Tax/receipts (BIR)** — selling in PH eventually needs official receipts; out of scope for MVP but
   flag for legal before meaningful revenue.
+
+---
+
+## 6. PayMongo setup runbook (post-v0.59.0)
+
+As of v0.59.0 the code side of Phase 2 is done: `PayMongoProvider` (Checkout Sessions),
+`POST /subscription/checkout`, signature-verified `POST /webhooks/paymongo`, pricing +
+billing UI. What remains is account wiring and deployment — all owner-side steps.
+
+### 6.1 Create API keys
+
+1. Sign up / log in at <https://dashboard.paymongo.com>.
+2. **Developers → API Keys** → copy the **secret key** (`sk_test_...` while in test mode).
+3. Keep test mode until section 6.4 passes; swap to `sk_live_...` only at real launch
+   (live keys require completed PayMongo business activation).
+
+### 6.2 Deploy the backend on a public URL
+
+PayMongo webhooks cannot reach `localhost` — the backend must be publicly reachable first.
+
+- Production: Oracle Always Free per `docs/deploy-oracle.md` (`backend/compose.prod.yml` + Caddy auto-HTTPS).
+- Quick local test: an ngrok tunnel (`ngrok http 8080`) works for a one-off verification.
+
+### 6.3 Register the webhook
+
+1. **Developers → Webhooks → Create** (or via API).
+2. URL: `https://<backend-host>/webhooks/paymongo`
+3. Event: `checkout_session.payment.paid`
+4. Copy the webhook **signing secret** (`whsec_...`).
+
+### 6.4 Set environment variables (host env / `.env` on the VM — never committed)
+
+| Variable | Value |
+|---|---|
+| `PAYMONGO_SECRET_KEY` | `sk_test_...` / `sk_live_...` from 6.1 |
+| `PAYMONGO_WEBHOOK_SECRET` | `whsec_...` from 6.3 |
+| `FRONTEND_BASE_URL` | Frontend origin, e.g. `https://gastosai.vercel.app` (checkout success/cancel redirect to `/billing/return`) |
+
+Plus the standard prod prerequisites (fail-fast enforced at startup): `JWT_SECRET`,
+`AI_KEY_ENCRYPTION_SECRET` (both non-default), `DB_URL`/`DB_USERNAME`/`DB_PASSWORD`,
+`CORS_ALLOWED_ORIGINS`, an AI key (or `AI_ALLOW_SHARED_KEY=false`), `RESEND_API_KEY`.
+Full checklist: `backend/.env.prod.example`.
+
+The webhook verifier fails closed: if `PAYMONGO_WEBHOOK_SECRET` is unset, every webhook
+is rejected with 401 — payments will never activate silently on a misconfigured box.
+
+### 6.5 Test-mode purchase (end-to-end verification)
+
+1. Log in as a FREE user → **Pricing** → Upgrade (monthly).
+2. On the PayMongo checkout page pay with a test card: `4343 4343 4343 4345`,
+   any future expiry, any CVC (test GCash/Maya flows are simulated in test mode).
+3. Expect: redirect to `/billing/return?status=success` → entitlements refresh →
+   Settings → Billing shows **PREMIUM ACTIVE** with the correct period end.
+4. Cross-check: PayMongo dashboard shows the payment; webhook deliveries show `200`.
+   A `401` delivery means the signing secret doesn't match; a `5xx` is retried by
+   PayMongo automatically — check backend logs.
+
+### 6.6 Flip enforcement (last step)
+
+Set `MONETIZATION_ENFORCE=true` only after 6.5 passes against production config.
+One line, fully reversible. Until then, features stay open and paying simply records
+PREMIUM.
 
 ---
 
