@@ -8,8 +8,10 @@ import com.teng.app.gastosai.entity.PaymentCheckout;
 import com.teng.app.gastosai.entity.PlanKey;
 import com.teng.app.gastosai.entity.SubscriptionStatus;
 import com.teng.app.gastosai.entity.User;
+import com.teng.app.gastosai.entity.UserSubscription;
 import com.teng.app.gastosai.payment.PaymentProvider;
 import com.teng.app.gastosai.repository.PaymentCheckoutRepository;
+import com.teng.app.gastosai.repository.SubscriptionPlanRepository;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.repository.UserSubscriptionRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,7 +32,10 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
 
+import org.springframework.dao.DataIntegrityViolationException;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -52,6 +57,7 @@ class PaymentApiIntegrationTest {
     @Autowired UserRepository userRepository;
     @Autowired PaymentCheckoutRepository checkoutRepository;
     @Autowired UserSubscriptionRepository subscriptionRepository;
+    @Autowired SubscriptionPlanRepository planRepository;
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired JwtUtil jwtUtil;
     @Autowired ObjectMapper objectMapper;
@@ -217,6 +223,32 @@ class PaymentApiIntegrationTest {
                 .andExpect(jsonPath("$.plan").value("FREE"))
                 .andExpect(jsonPath("$.status").value("INACTIVE"));
         // currentPeriodEnd and billingPeriod are null for a free user — not asserting the null literal
+    }
+
+    @Test
+    void duplicateProviderRefForSameUserIsRejected() {
+        var plan = planRepository.findByPlanKey(PlanKey.PREMIUM).orElseThrow();
+
+        subscriptionRepository.saveAndFlush(UserSubscription.builder()
+                .user(testUser)
+                .plan(plan)
+                .status(SubscriptionStatus.ACTIVE)
+                .startedAt(LocalDateTime.now())
+                .currentPeriodEnd(LocalDateTime.now().plusMonths(1))
+                .provider("paymongo")
+                .providerRef("cs_duplicate_delivery")
+                .build());
+
+        assertThatThrownBy(() -> subscriptionRepository.saveAndFlush(UserSubscription.builder()
+                .user(testUser)
+                .plan(plan)
+                .status(SubscriptionStatus.ACTIVE)
+                .startedAt(LocalDateTime.now())
+                .currentPeriodEnd(LocalDateTime.now().plusMonths(1))
+                .provider("paymongo")
+                .providerRef("cs_duplicate_delivery")
+                .build()))
+                .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     private String buildWebhookBody(String sessionId) {
