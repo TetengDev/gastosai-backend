@@ -24,21 +24,13 @@ public class PublicRateLimitInterceptor implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
             throws java.io.IOException {
-        String ip = clientIp(request);
+        String ip = ClientIps.extract(request);
         if (store.tryAcquire("pub:" + ip, requestsPerMinute)) {
             return true;
         }
         response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.getWriter().write("{\"title\":\"Too Many Requests\",\"detail\":\"Rate limit exceeded. Please slow down.\"}");
+        response.getWriter().write("{\"status\":429,\"title\":\"Too Many Requests\",\"detail\":\"Rate limit exceeded. Please slow down.\"}");
         return false;
-    }
-
-    private String clientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
     }
 }

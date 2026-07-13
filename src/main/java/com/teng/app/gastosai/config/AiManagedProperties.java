@@ -23,4 +23,6 @@ public class AiManagedProperties {
     private int visionTrial = 10;
 
     private int absoluteMonthlyCap = 1000;
+
+    private int globalDailyMax = 2000;
 }

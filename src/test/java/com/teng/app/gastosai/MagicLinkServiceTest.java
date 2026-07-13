@@ -10,6 +10,7 @@ import com.teng.app.gastosai.service.AuthService;
 import com.teng.app.gastosai.service.CategorySeedService;
 import com.teng.app.gastosai.service.EmailSender;
 import com.teng.app.gastosai.service.MagicLinkService;
+import com.teng.app.gastosai.service.RegistrationGuardService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -43,6 +44,7 @@ class MagicLinkServiceTest {
     @Mock EmailSender emailSender;
     @Mock AuthService authService;
     @Mock CategorySeedService categorySeedService;
+    @Mock RegistrationGuardService registrationGuardService;
     @InjectMocks MagicLinkService magicLinkService;
 
     @BeforeEach
@@ -59,7 +61,7 @@ class MagicLinkServiceTest {
         when(tokenRepository.countUnusedSince(anyString(), any())).thenReturn(0L);
         when(tokenRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
-        magicLinkService.requestLink("alice@example.com");
+        magicLinkService.requestLink("alice@example.com", "1.2.3.4");
 
         var captor = ArgumentCaptor.forClass(MagicLinkToken.class);
         verify(tokenRepository).save(captor.capture());
@@ -77,7 +79,7 @@ class MagicLinkServiceTest {
         when(userRepository.save(any())).thenAnswer(i -> i.getArgument(0));
         when(tokenRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
-        magicLinkService.requestLink("new@example.com");
+        magicLinkService.requestLink("new@example.com", "1.2.3.4");
 
         var userCaptor = ArgumentCaptor.forClass(User.class);
         verify(userRepository).save(userCaptor.capture());
@@ -95,7 +97,7 @@ class MagicLinkServiceTest {
         when(userRepository.save(any())).thenAnswer(i -> i.getArgument(0));
         when(tokenRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
-        magicLinkService.requestLink("  ALICE@EXAMPLE.COM  ");
+        magicLinkService.requestLink("  ALICE@EXAMPLE.COM  ", "1.2.3.4");
 
         var captor = ArgumentCaptor.forClass(MagicLinkToken.class);
         verify(tokenRepository).save(captor.capture());
@@ -106,7 +108,7 @@ class MagicLinkServiceTest {
     void requestLink_abovAbuseLimit_skipsEmail() {
         when(tokenRepository.countUnusedSince(anyString(), any())).thenReturn(5L);
 
-        magicLinkService.requestLink("abuser@example.com");
+        magicLinkService.requestLink("abuser@example.com", "1.2.3.4");
 
         verify(emailSender, never()).sendMagicLink(anyString(), anyString());
         verify(tokenRepository, never()).save(any());
@@ -208,7 +210,7 @@ class MagicLinkServiceTest {
         when(tokenRepository.countUnusedSince(anyString(), any())).thenReturn(0L);
         when(tokenRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
-        magicLinkService.requestLink("a@example.com");
+        magicLinkService.requestLink("a@example.com", "1.2.3.4");
 
         verify(emailSender).sendMagicLink(anyString(), anyString());
 
@@ -216,7 +218,7 @@ class MagicLinkServiceTest {
                 User.builder().email("b@example.com").name("b").role(Role.USER).password("hashed").build()));
         when(tokenRepository.countUnusedSince(eq("b@example.com"), any())).thenReturn(0L);
 
-        magicLinkService.requestLink("b@example.com");
+        magicLinkService.requestLink("b@example.com", "1.2.3.4");
 
         verify(emailSender).sendMagicLink(anyString(), anyString());
     }
