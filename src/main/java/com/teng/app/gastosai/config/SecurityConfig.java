@@ -52,7 +52,7 @@ public class SecurityConfig {
 				.authorizeHttpRequests(auth -> auth
 						.requestMatchers(HttpMethod.POST, "/auth/register", "/auth/login", "/auth/magic-link", "/auth/magic-link/verify", "/auth/google").permitAll()
 						.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-						.requestMatchers("/actuator/info", "/features", "/error",
+						.requestMatchers("/actuator/info", "/actuator/health", "/features", "/error",
 								"/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
 						.requestMatchers(HttpMethod.POST, "/submissions").permitAll()
 						.requestMatchers(HttpMethod.POST, "/webhooks/paymongo").permitAll()

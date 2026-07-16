@@ -30,10 +30,13 @@ public class AiQuotaService {
     private final AiManagedProperties managedProps;
     private final AiUsageRepository aiUsageRepository;
     private final EntitlementService entitlementService;
+    private final AppEventService appEventService;
 
     @Transactional(readOnly = true)
     public void assertWithinQuota(User user, AiFeature feature) {
         if (!user.isAdmin() && globalDailyUsed() >= managedProps.getGlobalDailyMax()) {
+            appEventService.recordAbuseTrip("AI_GLOBAL_CAP", user.getId(), "/ai",
+                    "Global daily AI request cap reached");
             throw new AiQuotaExceededException();
         }
         if (QUOTA_BEARING.contains(feature)) {

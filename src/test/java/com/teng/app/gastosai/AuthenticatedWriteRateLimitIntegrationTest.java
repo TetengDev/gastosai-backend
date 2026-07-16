@@ -2,6 +2,7 @@ package com.teng.app.gastosai;
 
 import com.teng.app.gastosai.config.JwtUtil;
 import com.teng.app.gastosai.entity.User;
+import com.teng.app.gastosai.repository.AppEventRepository;
 import com.teng.app.gastosai.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -13,6 +14,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.context.WebApplicationContext;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -27,6 +29,7 @@ class AuthenticatedWriteRateLimitIntegrationTest {
     @Autowired UserRepository userRepository;
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired JwtUtil jwtUtil;
+    @Autowired AppEventRepository appEventRepository;
 
     MockMvc mockMvc;
     String authHeader;
@@ -34,6 +37,7 @@ class AuthenticatedWriteRateLimitIntegrationTest {
     @BeforeEach
     void setUp() {
         mockMvc = webAppContextSetup(webApplicationContext).apply(springSecurity()).build();
+        appEventRepository.deleteAll();
         userRepository.deleteAll();
         User user = userRepository.save(User.builder()
                 .name("Write User").email("write@test.com")
@@ -54,6 +58,17 @@ class AuthenticatedWriteRateLimitIntegrationTest {
             mockMvc.perform(createExpense());
         }
         mockMvc.perform(createExpense()).andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void rateLimitBreach_recordsAppEvent() throws Exception {
+        for (int i = 0; i < 4; i++) {
+            mockMvc.perform(createExpense());
+        }
+        assertThat(appEventRepository.findAll())
+                .anyMatch(e -> "WRITE_RATE_LIMIT".equals(e.getEventType())
+                        && "WARN".equals(e.getSeverity())
+                        && e.getHttpStatus() == 429);
     }
 
     @Test
