@@ -63,3 +63,70 @@ take its token, and point the host drain at its ingest endpoint.
 > approach keeps the app host-agnostic. If a direct push appender is ever wanted,
 > add an env-gated `logback-spring.xml` appender (e.g. `loki4j`) enabled only when
 > `LOKI_URL`/token env vars are set.
+
+---
+
+# Admin dashboard — `/admin/observability`
+
+Admin-only (JWT with `ROLE_ADMIN`). Aggregates the operational picture in-app so you
+don't need an external tool for day-to-day checks. Four sections:
+
+- **System** — database up/down, running version, uptime.
+- **Users & activity** — total users, signups (today / 7d / 30d), active users (24h / 7d),
+  top users by AI request count.
+- **AI cost** — today's estimated USD spend, month-to-date by feature + model, success/failure counts.
+- **Operational events** — server errors (5xx) and abuse-guard trips, read from the
+  `app_event` table (persisted, so they survive Render free-tier sleep/restart). The raw
+  exception `detail` is deliberately not surfaced in the UI.
+
+Backing endpoints (all under `/admin/**`, admin-gated):
+`GET /admin/observability/{summary,cost,events,health}`.
+
+---
+
+# Alerts
+
+## In-app cost/abuse alerts (Telegram)
+
+A scheduler evaluates thresholds every `ALERT_INTERVAL_MS` (default 15 min) and posts a
+Telegram message when one is breached. Each condition is de-duplicated to a time window
+(day or hour) so a sustained breach alerts once, not every tick.
+
+| Condition | Default threshold | Window |
+|---|---|---|
+| Daily AI spend over budget | `ALERT_DAILY_COST_USD` = 5.00 | once/day |
+| Global daily AI cap approaching | `ALERT_GLOBAL_CAP_FRACTION` = 0.9 of `AI_GLOBAL_DAILY_MAX` | once/day |
+| Server-error spike | `ALERT_ERROR_RATE` = 20 errors/hour | once/hour |
+
+**Disabled by default.** Alerts only fire when `ALERTS_ENABLED=true` **and** both
+`TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set (the same bot used by the tooling
+scripts). With any of those missing the scheduler is a no-op.
+
+> **Caveat:** these checks run only while the instance is awake. On the Render free tier
+> the backend sleeps after ~15 min idle, so this is **not** a downtime detector — cost and
+> abuse accrue during active use, which is when the scheduler is running anyway. Use the
+> external pinger below for uptime.
+
+## External uptime — UptimeRobot (free)
+
+1. Create a free account at <https://uptimerobot.com>.
+2. Add a new **HTTP(s)** monitor:
+   - URL: `https://<your-render-app>/actuator/health`
+   - Interval: 5 minutes
+3. Set an alert contact (email, or Telegram via UptimeRobot's integration).
+
+`/actuator/health` is public and returns `{"status":"UP"}` when the app + database are
+healthy (mail/Redis excluded so a best-effort dependency can't trigger a false alarm).
+The 5-minute ping also keeps the free instance warm, cutting cold-start latency for real users.
+
+## Alert environment variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ALERTS_ENABLED` | `false` | Master switch for in-app Telegram alerts |
+| `TELEGRAM_BOT_TOKEN` | — | Bot token (shared with tooling scripts) |
+| `TELEGRAM_CHAT_ID` | — | Destination chat id |
+| `ALERT_INTERVAL_MS` | `900000` | Scheduler evaluation interval (ms) |
+| `ALERT_DAILY_COST_USD` | `5.00` | Daily AI-spend alert threshold (USD) |
+| `ALERT_ERROR_RATE` | `20` | Server errors/hour before alerting |
+| `ALERT_GLOBAL_CAP_FRACTION` | `0.9` | Fraction of `AI_GLOBAL_DAILY_MAX` before alerting |
