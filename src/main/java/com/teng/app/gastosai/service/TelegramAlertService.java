@@ -1,8 +1,8 @@
 package com.teng.app.gastosai.service;
 
 import com.teng.app.gastosai.config.AlertProperties;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -15,11 +15,21 @@ import java.util.Map;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class TelegramAlertService {
 
     private final AlertProperties props;
-    private final RestClient client = RestClient.create("https://api.telegram.org");
+    private final RestClient client;
+
+    @Autowired
+    public TelegramAlertService(AlertProperties props) {
+        this(props, RestClient.create("https://api.telegram.org"));
+    }
+
+    // Lets tests inject a RestClient bound to MockRestServiceServer.
+    public TelegramAlertService(AlertProperties props, RestClient client) {
+        this.props = props;
+        this.client = client;
+    }
 
     public void send(String text) {
         if (!props.isActive()) {

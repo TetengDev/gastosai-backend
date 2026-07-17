@@ -114,4 +114,23 @@ class AlertSchedulerTest {
 
         verify(telegram, never()).send(contains("global daily AI usage"));
     }
+
+    @Test
+    void globalCapDisabled_whenMaxIsZero_noAlert() {
+        managedProps.setGlobalDailyMax(0);
+
+        scheduler.runChecks();
+
+        verify(telegram, never()).send(contains("global daily AI usage"));
+    }
+
+    @Test
+    void errorSpike_deDupesWithinWindow() {
+        when(appEventRepository.countBySeverityAndCreatedAtAfter(anyString(), any())).thenReturn(9L);
+
+        scheduler.runChecks();
+        scheduler.runChecks(); // same hour -> de-duped
+
+        verify(telegram, times(1)).send(contains("server errors"));
+    }
 }

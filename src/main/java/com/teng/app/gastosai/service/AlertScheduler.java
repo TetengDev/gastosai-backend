@@ -49,9 +49,8 @@ public class AlertScheduler {
     }
 
     private void checkDailyCost() {
-        LocalDateTime startOfToday = LocalDate.now().atStartOfDay();
-        BigDecimal spend = aiUsageRepository.sumEstimatedCostSince(startOfToday);
-        if (spend != null && spend.compareTo(props.getDailyCostUsd()) > 0) {
+        BigDecimal spend = aiUsageRepository.sumEstimatedCostSince(LocalDate.now().atStartOfDay());
+        if (spend.compareTo(props.getDailyCostUsd()) > 0) {
             fireOnce("daily-cost", today(), () ->
                     "GastosAI alert: today's estimated AI spend is $" + spend.toPlainString()
                             + " (threshold $" + props.getDailyCostUsd().toPlainString() + ").");
@@ -59,21 +58,28 @@ public class AlertScheduler {
     }
 
     private void checkGlobalCap() {
+        int max = managedProps.getGlobalDailyMax();
+        if (max <= 0) {
+            return;
+        }
         long used = aiUsageRepository.countByStatusAndCreatedAtAfter(AiUsageStatus.SUCCESS,
                 LocalDate.now().atStartOfDay());
-        long threshold = Math.round(managedProps.getGlobalDailyMax() * props.getGlobalCapWarnFraction());
+        long threshold = Math.round(max * props.getGlobalCapWarnFraction());
         if (used >= threshold) {
             fireOnce("global-cap", today(), () ->
-                    "GastosAI alert: global daily AI usage at " + used + "/" + managedProps.getGlobalDailyMax()
+                    "GastosAI alert: global daily AI usage at " + used + "/" + max
                             + " requests (" + Math.round(props.getGlobalCapWarnFraction() * 100) + "% warn threshold).");
         }
     }
 
     private void checkErrorSpike() {
+        LocalDateTime now = LocalDateTime.now();
         long errors = appEventRepository.countBySeverityAndCreatedAtAfter(
-                AppEventService.SEVERITY_ERROR, LocalDateTime.now().minusHours(1));
+                AppEventService.SEVERITY_ERROR, now.minusHours(1));
         if (errors > props.getErrorRatePerHour()) {
-            fireOnce("error-spike", LocalDateTime.now().format(HOUR), () ->
+            // Same `now` for query window and de-dup key so a tick straddling an hour
+            // boundary can't mark the new hour before its data has accumulated.
+            fireOnce("error-spike", now.format(HOUR), () ->
                     "GastosAI alert: " + errors + " server errors in the last hour (threshold "
                             + props.getErrorRatePerHour() + ").");
         }

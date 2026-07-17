@@ -15,22 +15,12 @@ import java.math.BigDecimal;
 @Setter
 public class AlertProperties {
 
-    /** Master switch. When false the scheduler and sender do nothing. */
     private boolean enabled = false;
-
     private String botToken = "";
     private String chatId = "";
-
-    /** How often the scheduler evaluates thresholds. */
-    private long intervalMs = 900_000; // 15 min
-
-    /** Alert once/day when today's estimated AI spend exceeds this many USD. */
+    private long intervalMs = 900_000;
     private BigDecimal dailyCostUsd = new BigDecimal("5.00");
-
-    /** Alert once/hour when server-error events in the last hour exceed this count. */
     private int errorRatePerHour = 20;
-
-    /** Alert once/day when today's AI requests reach this fraction of the global daily cap. */
     private double globalCapWarnFraction = 0.9;
 
     public boolean isActive() {
