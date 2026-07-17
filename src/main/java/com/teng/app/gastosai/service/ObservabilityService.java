@@ -45,7 +45,7 @@ public class ObservabilityService {
                 .topUsersByRequests(last30d, PageRequest.of(0, TOP_USERS)).stream()
                 .map(row -> new ObservabilitySummary.TopUserItem(
                         row[0] != null ? ((Number) row[0]).longValue() : null,
-                        ((Number) row[1]).longValue()))
+                        row[1] != null ? ((Number) row[1]).longValue() : 0L))
                 .toList();
 
         return new ObservabilitySummary(
@@ -78,7 +78,8 @@ public class ObservabilityService {
         return rows.stream().map(AppEventDto::from).toList();
     }
 
-    @Transactional(readOnly = true)
+    // No @Transactional: this is a point-in-time liveness probe that catches its own
+    // DB error and reports dbUp=false — a surrounding read-only tx would add nothing.
     public ObservabilityHealth health() {
         boolean dbUp;
         try {
