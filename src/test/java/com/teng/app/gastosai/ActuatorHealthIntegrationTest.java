@@ -29,6 +29,9 @@ class ActuatorHealthIntegrationTest {
     void health_isPublicAndReportsUp() throws Exception {
         mockMvc.perform(get("/actuator/health"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("UP"));
+                .andExpect(jsonPath("$.status").value("UP"))
+                // show-details=when-authorized: anonymous callers must not see component
+                // detail (DB/connection internals). Lock that against config regressions.
+                .andExpect(jsonPath("$.components").doesNotExist());
     }
 }

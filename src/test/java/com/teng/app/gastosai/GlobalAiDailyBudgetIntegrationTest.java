@@ -7,6 +7,7 @@ import com.teng.app.gastosai.entity.Role;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.exception.AiQuotaExceededException;
 import com.teng.app.gastosai.repository.AiUsageRepository;
+import com.teng.app.gastosai.repository.AppEventRepository;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.service.AiQuotaService;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,6 +20,7 @@ import org.springframework.test.context.TestPropertySource;
 
 import java.time.LocalDateTime;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -32,6 +34,7 @@ class GlobalAiDailyBudgetIntegrationTest {
 
     @Autowired UserRepository userRepository;
     @Autowired AiUsageRepository aiUsageRepository;
+    @Autowired AppEventRepository appEventRepository;
     @Autowired AiQuotaService aiQuotaService;
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired JdbcTemplate jdbcTemplate;
@@ -41,6 +44,7 @@ class GlobalAiDailyBudgetIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        appEventRepository.deleteAll();
         aiUsageRepository.deleteAll();
         userRepository.deleteAll();
 
@@ -87,6 +91,11 @@ class GlobalAiDailyBudgetIntegrationTest {
 
         assertThatThrownBy(() -> aiQuotaService.assertWithinQuota(regularUser, AiFeature.CHAT_CRUD_ASSISTANT))
                 .isInstanceOf(AiQuotaExceededException.class);
+
+        assertThat(appEventRepository.findAll())
+                .anyMatch(e -> "AI_GLOBAL_CAP".equals(e.getEventType())
+                        && "WARN".equals(e.getSeverity())
+                        && regularUser.getId().equals(e.getUserId()));
     }
 
     @Test
