@@ -28,39 +28,54 @@ public class AppEventService {
     public static final String SEVERITY_ERROR = "ERROR";
     public static final String SEVERITY_WARN = "WARN";
 
+    private static final int PATH_MAX = 200;
     private static final int MESSAGE_MAX = 500;
     private static final int DETAIL_MAX = 20_000;
 
     private final AppEventRepository appEventRepository;
 
+    // REQUIRES_NEW must sit on the public entry points, not on a shared helper: the caller
+    // is often mid-transaction (e.g. AiQuotaService throwing on the global-cap path), and a
+    // self-invoked @Transactional method would be bypassed by the proxy, letting the event
+    // roll back with the caller. Isolating each entry in its own transaction keeps the record.
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(String eventType, String severity, Long userId, String path,
                        Integer httpStatus, String message, String detail) {
-        AppEvent event = AppEvent.builder()
+        persist(build(eventType, severity, userId, path, httpStatus, message, detail));
+    }
+
+    /** Unhandled server error (5xx). {@code detail} carries the exception class + message. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordError(String path, Integer httpStatus, String message, String detail) {
+        persist(build("SERVER_ERROR", SEVERITY_ERROR, currentUserId(), path, httpStatus, message, detail));
+    }
+
+    /** An abuse guard rejected a request (rate limit, signup cap, global AI budget). */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordAbuseTrip(String eventType, Long userId, String path, String message) {
+        persist(build(eventType, SEVERITY_WARN, userId, path, 429, message, null));
+    }
+
+    private AppEvent build(String eventType, String severity, Long userId, String path,
+                           Integer httpStatus, String message, String detail) {
+        return AppEvent.builder()
                 .eventType(eventType)
                 .severity(severity)
                 .requestId(MDC.get("requestId"))
                 .userId(userId)
-                .path(path)
+                .path(truncate(path, PATH_MAX))
                 .httpStatus(httpStatus)
                 .message(truncate(message, MESSAGE_MAX))
                 .detail(truncate(detail, DETAIL_MAX))
                 .build();
+    }
+
+    private void persist(AppEvent event) {
         try {
             appEventRepository.save(event);
         } catch (Exception e) {
-            log.warn("Failed to record app_event {}: {}", eventType, e.getMessage());
+            log.warn("Failed to record app_event {}: {}", event.getEventType(), e.getMessage());
         }
-    }
-
-    /** Unhandled server error (5xx). {@code detail} carries the exception class + message. */
-    public void recordError(String path, Integer httpStatus, String message, String detail) {
-        record("SERVER_ERROR", SEVERITY_ERROR, currentUserId(), path, httpStatus, message, detail);
-    }
-
-    /** An abuse guard rejected a request (rate limit, signup cap, global AI budget). */
-    public void recordAbuseTrip(String eventType, Long userId, String path, String message) {
-        record(eventType, SEVERITY_WARN, userId, path, 429, message, null);
     }
 
     private Long currentUserId() {

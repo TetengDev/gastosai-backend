@@ -32,7 +32,9 @@ public class AiQuotaService {
     private final EntitlementService entitlementService;
     private final AppEventService appEventService;
 
-    @Transactional(readOnly = true)
+    // Not readOnly: on the global-cap path this records an abuse-trip event. The method is
+    // otherwise read-only, but marking it so is misleading now that it has a write side-effect.
+    @Transactional
     public void assertWithinQuota(User user, AiFeature feature) {
         if (!user.isAdmin() && globalDailyUsed() >= managedProps.getGlobalDailyMax()) {
             appEventService.recordAbuseTrip("AI_GLOBAL_CAP", user.getId(), "/ai",

@@ -60,6 +60,16 @@ class AppEventServiceTest {
     }
 
     @Test
+    void record_truncatesOverlongPath() {
+        String longPath = "/" + "a".repeat(300);
+        service.record("SERVER_ERROR", AppEventService.SEVERITY_ERROR, null, longPath, 500, "m", null);
+
+        ArgumentCaptor<AppEvent> captor = ArgumentCaptor.forClass(AppEvent.class);
+        verify(repository).save(captor.capture());
+        assertThat(captor.getValue().getPath()).hasSize(200);
+    }
+
+    @Test
     void record_swallowsRepositoryFailure() {
         when(repository.save(any())).thenThrow(new RuntimeException("db down"));
         assertThatCode(() ->
