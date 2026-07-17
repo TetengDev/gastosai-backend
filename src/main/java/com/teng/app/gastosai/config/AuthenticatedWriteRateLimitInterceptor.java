@@ -1,6 +1,7 @@
 package com.teng.app.gastosai.config;
 
 import com.teng.app.gastosai.entity.User;
+import com.teng.app.gastosai.service.AppEventService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,12 +17,15 @@ public class AuthenticatedWriteRateLimitInterceptor implements HandlerIntercepto
 
     private final int requestsPerMinute;
     private final RateLimiterStore store;
+    private final AppEventService appEventService;
 
     public AuthenticatedWriteRateLimitInterceptor(
             @Value("${gastos.ratelimit.write-per-minute:60}") int requestsPerMinute,
-            RateLimiterStore store) {
+            RateLimiterStore store,
+            AppEventService appEventService) {
         this.requestsPerMinute = requestsPerMinute;
         this.store = store;
+        this.appEventService = appEventService;
     }
 
     @Override
@@ -38,6 +42,8 @@ public class AuthenticatedWriteRateLimitInterceptor implements HandlerIntercepto
         if (store.tryAcquire("write:" + user.getId(), requestsPerMinute)) {
             return true;
         }
+        appEventService.recordAbuseTrip("WRITE_RATE_LIMIT", user.getId(), request.getRequestURI(),
+                "Authenticated write rate limit exceeded");
         response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.getWriter().write("{\"status\":429,\"title\":\"Too Many Requests\",\"detail\":\"Write rate limit exceeded. Please slow down.\"}");

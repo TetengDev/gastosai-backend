@@ -1,5 +1,7 @@
 package com.teng.app.gastosai.exception;
 
+import com.teng.app.gastosai.service.AppEventService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -20,6 +22,12 @@ import java.util.stream.Collectors;
 public class GlobalExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+	private final AppEventService appEventService;
+
+	public GlobalExceptionHandler(AppEventService appEventService) {
+		this.appEventService = appEventService;
+	}
 
 	@ExceptionHandler(ResourceNotFoundException.class)
 	public ResponseEntity<ProblemDetail> notFound(ResourceNotFoundException ex) {
@@ -101,5 +109,22 @@ public class GlobalExceptionHandler {
 		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
 		pd.setTitle("Validation Failed");
 		return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd);
+	}
+
+	/**
+	 * Catch-all for otherwise-unhandled exceptions. Records the failure to app_event and
+	 * logs the full stack (JSON-structured in prod), then returns a generic 500 without
+	 * leaking internals. More specific handlers above take precedence over this one.
+	 */
+	@ExceptionHandler(Exception.class)
+	public ResponseEntity<ProblemDetail> unhandled(Exception ex, HttpServletRequest request) {
+		String path = request.getRequestURI();
+		log.error("Unhandled error on {} {}: {}", request.getMethod(), path, ex.getMessage(), ex);
+		appEventService.recordError(path, HttpStatus.INTERNAL_SERVER_ERROR.value(),
+				ex.getMessage(), ex.getClass().getName() + ": " + ex.getMessage());
+		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR,
+				"An unexpected error occurred.");
+		pd.setTitle("Internal Server Error");
+		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(pd);
 	}
 }

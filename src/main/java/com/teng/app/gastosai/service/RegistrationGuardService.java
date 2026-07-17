@@ -23,6 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class RegistrationGuardService {
 
     private final UserRepository userRepository;
+    private final AppEventService appEventService;
 
     @Value("${gastos.security.register-ip-daily-max:5}")
     private int ipDailyMax;
@@ -55,6 +56,8 @@ public class RegistrationGuardService {
             return existing;
         });
         if (exceeded[0]) {
+            appEventService.recordAbuseTrip("REGISTER_IP_CAP", null, "/auth/register",
+                    "Per-IP daily registration cap reached");
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                     "Too many registrations from this address. Try again tomorrow.");
         }
@@ -65,6 +68,8 @@ public class RegistrationGuardService {
         LocalDateTime startOfDay = LocalDate.now().atStartOfDay();
         long todayCount = userRepository.countByCreatedAtAfter(startOfDay);
         if (todayCount >= globalDailyMax) {
+            appEventService.recordAbuseTrip("REGISTER_DAILY_CAP", null, "/auth/register",
+                    "Global daily registration cap reached");
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                     "Registration is temporarily unavailable. Please try again later.");
         }
