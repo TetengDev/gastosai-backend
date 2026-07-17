@@ -11,6 +11,7 @@ import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.exception.AiQuotaExceededException;
 import com.teng.app.gastosai.repository.AiUsageRepository;
 import com.teng.app.gastosai.service.AiQuotaService;
+import com.teng.app.gastosai.service.AppEventService;
 import com.teng.app.gastosai.service.EntitlementService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,7 @@ class AiQuotaServiceTest {
 
     @Mock AiUsageRepository aiUsageRepository;
     @Mock EntitlementService entitlementService;
+    @Mock AppEventService appEventService;
 
     AiManagedProperties managedProps;
     AiQuotaService aiQuotaService;
@@ -45,7 +47,7 @@ class AiQuotaServiceTest {
     @BeforeEach
     void setUp() {
         managedProps = new AiManagedProperties();
-        aiQuotaService = new AiQuotaService(managedProps, aiUsageRepository, entitlementService);
+        aiQuotaService = new AiQuotaService(managedProps, aiUsageRepository, entitlementService, appEventService);
     }
 
     private User user(boolean admin) {

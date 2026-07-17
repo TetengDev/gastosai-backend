@@ -1,6 +1,7 @@
 package com.teng.app.gastosai;
 
 import com.teng.app.gastosai.repository.UserRepository;
+import com.teng.app.gastosai.service.AppEventService;
 import com.teng.app.gastosai.service.RegistrationGuardService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,7 +26,7 @@ class RegistrationGuardServiceUnitTest {
     void setUp() {
         userRepository = mock(UserRepository.class);
         when(userRepository.countByCreatedAtAfter(any())).thenReturn(0L);
-        service = new RegistrationGuardService(userRepository);
+        service = new RegistrationGuardService(userRepository, mock(AppEventService.class));
         ReflectionTestUtils.setField(service, "ipDailyMax", 3);
         ReflectionTestUtils.setField(service, "globalDailyMax", 100);
     }
