@@ -108,7 +108,18 @@ nothing outward and defines ports that adapters implement.
 
 ---
 
-## 7. Definition of done
+## 7. Before opening a PR
+
+Run the gate in `ai/skills/shared/pre-pr-checklist.md`, or the `pre-pr` agent
+(`.claude/agents/pre-pr.md`) which executes it and reports a table.
+
+The item that is not automatable and is skipped most often: **§6, runtime execution.** A green
+test suite is not evidence that the code was run. State in the PR body what you executed and
+what you observed.
+
+---
+
+## 8. Definition of done
 
 1. `mvnw test` passes; migrations apply clean on empty Postgres.
 2. Spec regenerates and `contract/openapi.json` is committed; if the surface changed, publish a
@@ -120,7 +131,7 @@ nothing outward and defines ports that adapters implement.
 
 ---
 
-## 8. Working agreement
+## 9. Working agreement
 
 **Do without asking:** add non-breaking endpoints, tests, expand migrations, refactor
 within a layer, improve logging.
@@ -135,7 +146,7 @@ change outside a migration, provider SDK type in domain, key reachable by a clie
 
 ---
 
-## 9. Commands
+## 10. Commands
 
 ```bash
 docker compose up -d                # local Postgres :5433
