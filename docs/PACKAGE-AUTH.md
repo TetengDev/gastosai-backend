@@ -134,8 +134,23 @@ access, no publish rights, no ability to alter a released contract.
 ## Why not other approaches
 
 - **`GITHUB_TOKEN` for Vercel** — impossible; it exists only inside a GitHub Actions run.
-- **Making the package public** — would remove the need for any install token, but publishes
-  the full API surface, including internal and admin endpoint shapes. Not worth it.
+- **Making the package public** — would remove the install token everywhere, and is the one
+  option worth arguing about. Rejected anyway.
+
+  The spec itself is no longer the issue: both repos are public, so `contract/openapi.json` is
+  already readable by anyone. The objection is to *packaging* it for public consumption. This
+  package is an internal coupling mechanism between two repos we own — not a library. Publishing
+  it makes it discoverable and effectively permanent: others can depend on it, and renaming or
+  unpublishing later stops being purely our decision. In exchange it removes a `read:packages`
+  token, which is deliberately the weakest credential in the system — it cannot publish, cannot
+  read source, expires in 90 days, and rotating it is a calendar reminder rather than an outage.
+
+  A permanent public artifact is a poor trade for removing the cheapest possible secret. If the
+  token is the real irritant, do Step 1 instead: it removes the secret from CI while the package
+  stays private.
+
+  (`TetengDev` also disables public-package visibility at the org level. That is a policy an org
+  admin can lift — but the reasoning above is why it should stay as it is.)
 - **Committing `openapi.json` into the web repo** — recreates the shared-file coupling the
   polyrepo split exists to remove. The pinned package version is the whole mechanism.
 - **A fine-grained PAT** — see Step 2; the registry rejects them.
