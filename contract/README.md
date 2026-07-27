@@ -49,9 +49,14 @@ stays live until analytics show those versions have drained — not until web ha
 
 ## Publishing
 
-Automatic. `.github/workflows/publish-contract.yml` runs on a `v*` tag: it boots the app
-against a Postgres service container, generates the spec, sets this package's version from
-the tag, and publishes to GitHub Packages using `PACKAGE_TOKEN`.
+Automatic. `.github/workflows/publish-contract.yml` runs on a `contract-v*` tag: it runs the
+suite, re-verifies the spec is current, sets this package's version from the tag, and
+publishes to GitHub Packages.
+
+Publishing authenticates with the workflow's built-in `GITHUB_TOKEN` (`packages: write`), not
+a stored PAT — it is scoped to a single run and needs no rotation. That works because the
+package and this repo share the `TetengDev` owner. **Consumers** still need a token with
+`read:packages`, because they install from a different repo.
 
 Never `npm publish` by hand — a spec that did not come from a tagged build has no
 corresponding deployed backend.

@@ -29,6 +29,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # Publishing uses the built-in GITHUB_TOKEN rather than a stored PAT: it is scoped to
+      # this single run, expires with it, and needs no rotation. Sufficient here because the
+      # @tetengdev package and this repo share the TetengDev owner.
+      packages: write
 
     steps:
       - uses: actions/checkout@v4
@@ -91,8 +95,7 @@ jobs:
       - name: Publish to GitHub Packages
         working-directory: contract
         env:
-          PACKAGE_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm publish
 
       - name: Summary
