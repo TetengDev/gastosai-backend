@@ -1,0 +1,40 @@
+version: 2
+# Split from the monorepo config: the npm/frontend ecosystem moved to gastosai-web, and the
+# maven directory is now the repo root. Grouped updates so all maven bumps land in ONE PR
+# rather than a PR per dependency; both version- and security-updates are grouped. Dependabot's
+# smallest interval is weekly (no native biweekly); the biweekly vulnerability *report* is
+# produced separately by .github/workflows/security-scan.yml.
+updates:
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Manila"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "backend"
+    groups:
+      backend-version-updates:
+        applies-to: version-updates
+        patterns: ["*"]
+      backend-security-updates:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Manila"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "ci"
+    groups:
+      actions-updates:
+        patterns: ["*"]

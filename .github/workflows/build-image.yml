@@ -1,0 +1,73 @@
+name: Build image
+
+# Publishes the production container to GHCR, tagged with the application version AND the git
+# SHA. Never :latest — compose.prod.yml pins IMAGE_TAG, so a rollback is "set IMAGE_TAG to the
+# previous version and `docker compose up -d`" with no rebuild and no ambiguity about what is
+# actually running.
+#
+# The image is private (this repo is private): the Oracle VM needs `docker login ghcr.io` once
+# with a token that has read:packages. See docs/deploy-oracle.md.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    name: Build and push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        run: |
+          set -euo pipefail
+          echo "version=$(scripts/project-version.sh)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # linux/arm64 because production is an Oracle Cloud Always Free Ampere A1 (ARM64).
+      # amd64 is built too so the image can run on a developer machine or an x86 runner.
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          {
+            echo "### Image pushed"
+            echo ""
+            echo '```'
+            echo "IMAGE_TAG=${{ steps.version.outputs.version }}"
+            echo '```'
+            echo ""
+            echo "Deploy: set \`IMAGE_TAG\` in \`.env.prod\` on the VM and run"
+            echo "\`docker compose -f compose.prod.yml --env-file .env.prod up -d\`."
+            echo "Rollback: set \`IMAGE_TAG\` to the previous version and run the same command."
+          } >> "$GITHUB_STEP_SUMMARY"

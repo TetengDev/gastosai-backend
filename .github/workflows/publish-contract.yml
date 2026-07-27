@@ -1,0 +1,106 @@
+name: Publish API contract
+
+# Publishes @tetengdev/gastosai-api-contract to GitHub Packages.
+#
+# Triggered by a `contract-v*` tag, NOT by the app's own `v*` release tags. The contract
+# version is a statement about API compatibility (CONTRACT.md), which moves independently of
+# the application version — the app is on 0.x while the contract starts at 1.0.0, and most app
+# releases do not change the API surface at all. Republishing an unchanged spec under a new
+# number would make the pin meaningless.
+#
+#   git tag contract-v1.1.0 && git push origin contract-v1.1.0
+#
+# Bump rule: non-breaking -> minor; breaking -> major AND a new /api/v2 path with /api/v1 kept
+# live until installed mobile clients have drained. See contract/README.md.
+
+on:
+  push:
+    tags:
+      - 'contract-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Contract semver to publish (e.g. 1.1.0)'
+        required: true
+
+jobs:
+  publish:
+    name: Generate spec and publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve contract version
+        id: version
+        env:
+          REF: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="${REF#contract-v}"
+          fi
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$VERSION' is not a semver version. Tag as contract-vX.Y.Z."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@tetengdev'
+
+      # Full suite: a tagged contract must come from a build that is green end to end.
+      # OpenApiContractTest regenerates contract/openapi.json as part of this run.
+      - name: Run tests and regenerate the spec
+        run: ./mvnw --batch-mode test
+
+      - name: Verify the spec is complete and current
+        run: |
+          set -euo pipefail
+          test -s contract/openapi.json
+          COUNT=$(jq '.paths | length' contract/openapi.json)
+          echo "Spec documents $COUNT paths."
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::Generated spec documents no paths."
+            exit 1
+          fi
+          if ! git diff --quiet -- contract/openapi.json; then
+            echo "::error::The tagged commit's contract/openapi.json is stale versus the code. Regenerate and commit before tagging."
+            git --no-pager diff --stat -- contract/openapi.json
+            exit 1
+          fi
+
+      - name: Set package version
+        working-directory: contract
+        run: npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Publish to GitHub Packages
+        working-directory: contract
+        env:
+          PACKAGE_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
+        run: npm publish
+
+      - name: Summary
+        run: |
+          {
+            echo "### Contract published"
+            echo ""
+            echo "\`@tetengdev/gastosai-api-contract@${{ steps.version.outputs.version }}\`"
+            echo ""
+            echo "Clients must pin this **exact** version, run \`gen:api\`, and commit the regenerated output."
+          } >> "$GITHUB_STEP_SUMMARY"

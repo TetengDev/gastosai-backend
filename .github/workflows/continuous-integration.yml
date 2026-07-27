@@ -1,0 +1,116 @@
+name: Continuous Integration
+
+# Carried over from the monorepo, rewritten to run at repo root (this whole repo is the
+# backend now — no `backend/` prefix, no path filters). The frontend jobs moved to
+# gastosai-web. Job names are unchanged where the check is the same, because they are
+# referenced by the branch ruleset's required status checks.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main, release/**]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  validate-release-branch:
+    name: Validate release branch
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce main merge policy
+        env:
+          HEAD: ${{ github.head_ref }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+
+          # release/* is the only path for application changes and version bumps; auto-release.yml tags it.
+          if [[ "$HEAD" == release/* ]]; then
+            echo "Branch '$HEAD' is a release branch — allowed."
+            exit 0
+          fi
+
+          # meta/* and dependabot/* are non-application lanes: CI/workflows, repo docs,
+          # .gitignore (meta), or dependency-only bumps (dependabot). Both are subject to the
+          # guards below. Everything else must go through release/*.
+          if [[ "$HEAD" != meta/* && "$HEAD" != dependabot/* ]]; then
+            echo "::error::PRs to main must come from release/* (application changes + version bumps), meta/* (non-application changes), or dependabot/* (dependency updates). Got: $HEAD"
+            exit 1
+          fi
+
+          git fetch origin "$BASE" --depth=1
+
+          # Guard 1: a non-application PR must not change the project's own version
+          # (that belongs on release/*). Dependabot bumps dependency versions, not the
+          # top-level project version, so this stays green for legitimate dep updates.
+          #
+          git show "origin/$BASE:pom.xml" > "$RUNNER_TEMP/base-pom.xml"
+          base_ver=$(scripts/project-version.sh "$RUNNER_TEMP/base-pom.xml")
+          head_ver=$(scripts/project-version.sh)
+          if [[ "$base_ver" != "$head_ver" ]]; then
+            echo "::error::$HEAD must not change the project version ($base_ver -> $head_ver). Version bumps belong on release/*."
+            exit 1
+          fi
+
+          # Guard 2: a non-application PR must not touch application source.
+          app_changes=$(git diff --name-only "origin/$BASE" -- src)
+          if [[ -n "$app_changes" ]]; then
+            echo "::error::$HEAD must not modify application source. Route these through release/*:"
+            echo "$app_changes" | sed 's/^/  - /'
+            exit 1
+          fi
+
+          echo "Branch '$HEAD' is a non-application lane ($HEAD) — no version change, no app-source changes — allowed."
+
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+
+      # OpenApiContractTest runs here and rewrites contract/openapi.json as a side effect.
+      - name: Run tests
+        run: ./mvnw --batch-mode test
+
+      # The committed contract must always match what the code produces — it is the artifact
+      # published to clients (CONTRACT.md). A controller or DTO change that was not accompanied
+      # by a regenerated spec fails here, on the PR, rather than shipping a contract that
+      # describes an API the backend no longer serves.
+      - name: Committed contract matches the code
+        run: |
+          if ! git diff --quiet -- contract/openapi.json; then
+            echo "::error::contract/openapi.json is stale. Run './mvnw test' and commit the regenerated spec."
+            echo "The API surface changed — publish a new contract version per CONTRACT.md:"
+            echo "  non-breaking -> minor; breaking -> major AND a new /api/v2 path with /api/v1 kept live."
+            git --no-pager diff -- contract/openapi.json
+            exit 1
+          fi
+          echo "Committed contract matches the generated spec ($(jq '.paths | length' contract/openapi.json) paths)."
+
+  security-scan:
+    name: Dependency vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Report-only (exit-code 0): surfaces vulnerable dependencies without blocking the build.
+      # Promote to --exit-code 1 once the baseline is clean. Uses the official installer to avoid
+      # pinning a marketplace action version.
+      - name: Trivy filesystem scan
+        continue-on-error: true
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b "$RUNNER_TEMP/bin"
+          "$RUNNER_TEMP/bin/trivy" fs --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --offline-scan --exit-code 0 .

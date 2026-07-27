@@ -1,0 +1,18 @@
+{
+  "name": "@tetengdev/gastosai-api-contract",
+  "version": "1.0.0",
+  "description": "Published OpenAPI contract for the gastosai backend. Clients pin an exact version and generate their typed client from it.",
+  "license": "UNLICENSED",
+  "private": false,
+  "files": [
+    "openapi.json"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TetengDev/gastosai-backend.git",
+    "directory": "contract"
+  }
+}

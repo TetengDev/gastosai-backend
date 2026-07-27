@@ -12,7 +12,11 @@
 # at the VM's public IP, with ports 80 + 443 open in the OCI security list.
 services:
   api:
-    build: .
+    # Pinned tag, never :latest — IMAGE_TAG names exactly one build, so what is running is
+    # never in doubt and a rollback is "set IMAGE_TAG to the previous version, up -d" with no
+    # rebuild on the VM. Images are pushed by .github/workflows/build-image.yml.
+    # Requires `docker login ghcr.io` on the VM (private repo, needs read:packages).
+    image: ghcr.io/tetengdev/gastosai-backend:${IMAGE_TAG:?set IMAGE_TAG in .env.prod to the version being deployed}
     restart: unless-stopped
     env_file: .env.prod
     environment:

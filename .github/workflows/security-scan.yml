@@ -1,0 +1,80 @@
+name: Security Scan
+
+# Biweekly consolidated vulnerability scan, carried over from the monorepo. The npm-audit half
+# applied to the frontend and moved to gastosai-web; this repo scans the Maven dependency tree
+# with Trivy only, so build-vuln-report.mjs is given a non-existent npm-audit path (it tolerates
+# a missing input and reports zero npm findings).
+#
+# Findings are compiled into ONE tracking issue (label: security-report) and pinged to Telegram.
+# Fixes are NOT opened here — they arrive as grouped Dependabot PRs (see .github/dependabot.yml).
+# Run on demand via the "Run workflow" button (workflow_dispatch).
+on:
+  schedule:
+    # 1st and 15th at 22:00 UTC == 06:00 Asia/Manila next day (approx. biweekly).
+    - cron: "0 22 1,15 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  scan:
+    name: Compile vulnerability report
+    runs-on: ubuntu-latest
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Trivy filesystem scan
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b "$RUNNER_TEMP/bin"
+          "$RUNNER_TEMP/bin/trivy" fs \
+            --scanners vuln \
+            --severity LOW,MEDIUM,HIGH,CRITICAL \
+            --ignore-unfixed \
+            --offline-scan \
+            --format json \
+            --output "$RUNNER_TEMP/trivy.json" . || true
+
+      - name: Build consolidated report
+        run: |
+          node .github/scripts/build-vuln-report.mjs \
+            "$RUNNER_TEMP/no-npm-audit.json" "$RUNNER_TEMP/trivy.json" > "$RUNNER_TEMP/report.md"
+          cat "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upsert tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create security-report --color B60205 \
+            --description "Consolidated vulnerability report" 2>/dev/null || true
+          existing=$(gh issue list --label security-report --state open \
+            --json number --jq '.[0].number')
+          title="Security: vulnerability report"
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body-file "$RUNNER_TEMP/report.md"
+            echo "issue_url=$(gh issue view "$existing" --json url --jq .url)" >> "$GITHUB_OUTPUT"
+          else
+            url=$(gh issue create --title "$title" --label security-report \
+              --body-file "$RUNNER_TEMP/report.md")
+            echo "issue_url=$url" >> "$GITHUB_OUTPUT"
+          fi
+        id: issue
+
+      - name: Notify Telegram
+        if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' }}
+        run: |
+          summary=$(grep -oP 'VULN_SUMMARY \K[^|]+' "$RUNNER_TEMP/report.md" || echo "see report")
+          total=$(grep -oP 'TOTAL \K[0-9]+' "$RUNNER_TEMP/report.md" || echo "?")
+          text="gastosai-backend security scan: ${total} finding(s). ${summary}. Report: ${{ steps.issue.outputs.issue_url }} . Fixes arrive as grouped Dependabot PRs."
+          curl -sS --max-time 30 \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${text}" >/dev/null
