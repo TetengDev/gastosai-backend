@@ -1,6 +1,6 @@
 {
   "name": "@tetengdev/gastosai-api-contract",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Published OpenAPI contract for the gastosai backend. Clients pin an exact version and generate their typed client from it.",
   "license": "UNLICENSED",
   "private": false,

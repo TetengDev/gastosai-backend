@@ -8,7 +8,6 @@ import com.teng.app.gastosai.service.RecurringExpenseService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -62,13 +61,24 @@ public class RecurringExpenseController {
 		recurringExpenseService.deleteAll(user);
 	}
 
+	/**
+	 * Declares {@code List<UpcomingBillResponse>} rather than {@code ResponseEntity<?>}.
+	 *
+	 * The wildcard erased the payload type, so springdoc could only describe this response as a
+	 * bare {@code object} — leaving the published contract unable to tell a client what comes
+	 * back, and a generated client with nothing to generate. The JSON on the wire is unchanged;
+	 * only the spec gains the shape it always had.
+	 *
+	 * The bad-month case now throws, which the global handler renders as a 400 ProblemDetail —
+	 * the same shape every other validation failure returns, instead of the bare string this
+	 * previously produced.
+	 */
 	@GetMapping("/upcoming")
-	public ResponseEntity<?> getUpcoming(@RequestParam String month,
+	public List<UpcomingBillResponse> getUpcoming(@RequestParam String month,
 			@AuthenticationPrincipal User user) {
 		if (!month.matches("\\d{4}-\\d{2}")) {
-			return ResponseEntity.badRequest().body("Invalid month format. Expected YYYY-MM.");
+			throw new IllegalArgumentException("Invalid month format. Expected YYYY-MM.");
 		}
-		List<UpcomingBillResponse> results = recurringExpenseService.getUpcoming(month, user);
-		return ResponseEntity.ok(results);
+		return recurringExpenseService.getUpcoming(month, user);
 	}
 }

@@ -1325,6 +1325,34 @@
         },
         "type" : "object"
       },
+      "UpcomingBillResponse" : {
+        "properties" : {
+          "amount" : {
+            "type" : "number"
+          },
+          "categoryName" : {
+            "type" : "string"
+          },
+          "currency" : {
+            "type" : "string"
+          },
+          "dueDate" : {
+            "type" : "string"
+          },
+          "frequency" : {
+            "enum" : [ "MONTHLY", "WEEKLY", "YEARLY" ],
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "name" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "UpdateProfileResponse" : {
         "properties" : {
           "avatar" : {
@@ -3199,7 +3227,10 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "type" : "object"
+                  "items" : {
+                    "$ref" : "#/components/schemas/UpcomingBillResponse"
+                  },
+                  "type" : "array"
                 }
               }
             },
