@@ -91,6 +91,44 @@ class GoalApiIntegrationTest {
 				.andExpect(jsonPath("$[0].name").value("Emergency Fund"));
 	}
 
+	/**
+	 * The published contract marks {@code paused} optional, so a client is entitled to leave it out.
+	 *
+	 * It used to be a primitive {@code boolean} on a record, which has no field default for Jackson
+	 * to fall back on — an absent value was bound as null and the request died with a 500. Goal
+	 * creation was impossible for any client that trusted the spec, and every test here happened to
+	 * send {@code "paused": false} explicitly, so nothing caught it.
+	 *
+	 * This body is deliberately minimal: only the three properties the contract actually requires.
+	 */
+	@Test
+	void createGoal_succeedsWhenOptionalPausedIsOmitted() throws Exception {
+		mockMvc.perform(post("/goals")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"name": "New Laptop", "targetAmount": 60000.00, "savedAmount": 0.00}
+								"""))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.name").value("New Laptop"))
+				// Absent must mean "not paused": a goal you just created is active.
+				.andExpect(jsonPath("$.paused").value(false))
+				.andExpect(jsonPath("$.status").value("ON_TRACK"));
+	}
+
+	/** Explicit null is the other shape a client can produce, and must behave the same way. */
+	@Test
+	void createGoal_succeedsWhenPausedIsExplicitNull() throws Exception {
+		mockMvc.perform(post("/goals")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"name": "Travel Fund", "targetAmount": 20000.00, "savedAmount": 0.00, "paused": null}
+								"""))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.paused").value(false));
+	}
+
 	@Test
 	void goalStatus_completedWhenSavedReachesTarget() throws Exception {
 		mockMvc.perform(post("/goals")

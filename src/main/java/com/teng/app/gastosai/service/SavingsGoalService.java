@@ -45,7 +45,7 @@ public class SavingsGoalService {
 				.targetAmount(request.targetAmount())
 				.savedAmount(request.savedAmount())
 				.targetDate(request.targetDate())
-				.paused(request.paused())
+				.paused(request.isPaused())
 				.currency(request.currency() != null ? request.currency() : "PHP")
 				.build());
 		return toResponse(goal);
@@ -73,7 +73,7 @@ public class SavingsGoalService {
 		goal.setTargetAmount(request.targetAmount());
 		goal.setSavedAmount(request.savedAmount());
 		goal.setTargetDate(request.targetDate());
-		goal.setPaused(request.paused());
+		goal.setPaused(request.isPaused());
 		goal.setCurrency(request.currency() != null ? request.currency() : "PHP");
 		return toResponse(savingsGoalRepository.save(goal));
 	}
