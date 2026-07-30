@@ -1,0 +1,131 @@
+name: Keep Alive
+
+# Keeps the Render free instance awake, and doubles as the uptime monitor.
+#
+# Render free sleeps after ~15 minutes idle, and this is a JVM whose cold boot is around three
+# minutes (see `render.yaml`). A user opening the app after lunch would wait that out, and the mobile
+# client gives a chat call 90 seconds before it aborts — so the sleep is not a slow first request, it
+# is a failed one.
+#
+# ── The honest caveat ────────────────────────────────────────────────────────────────────────────
+#
+# **GitHub's scheduled workflows are best-effort, not punctual.** Under load they are routinely
+# delayed well past their cron, and a delay past 15 minutes lets the instance sleep anyway. `*/5` is
+# a hedge, not a guarantee: three chances inside each 15-minute window. Free for a public repo, so
+# the only cost of the hedge is log noise.
+#
+# If sleeping is still observed, the fix is an external pinger (cron-job.org, UptimeRobot) which
+# fires on time. This workflow is then still worth keeping for the incident tracking below.
+#
+# ── Why it does not page you every five minutes ──────────────────────────────────────────────────
+#
+# A monitor that alerts on every failed poll teaches you to mute it, and a muted monitor is worse
+# than none. So: three attempts before anything is called down; the first confirmed failure opens an
+# incident issue and sends one Telegram message; subsequent failures comment on that issue silently.
+# Recovery closes it and says so. One message per incident, one per recovery.
+#
+# Set the repo variable API_HEALTH_URL (Settings -> Variables) to
+# `https://<service>.onrender.com/actuator/health`. Until it is set this workflow no-ops rather than
+# failing every five minutes over a URL nobody has created yet.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  # A delayed run must not overlap the next one and race the incident bookkeeping.
+  group: keep-alive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    name: Ping health and track incidents
+    runs-on: ubuntu-latest
+    env:
+      HEALTH_URL: ${{ vars.API_HEALTH_URL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      LABEL: uptime-incident
+    steps:
+      - name: Skip if no URL configured
+        if: ${{ env.HEALTH_URL == '' }}
+        run: |
+          echo "API_HEALTH_URL is not set — nothing to ping." >> "$GITHUB_STEP_SUMMARY"
+          echo "Set it under Settings -> Variables once the Render service exists." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Ping
+        if: ${{ env.HEALTH_URL != '' }}
+        id: ping
+        run: |
+          # Generous timeout on purpose: a cold boot is slow, and calling that "down" would open an
+          # incident for the exact situation this workflow exists to prevent. Three attempts spaced
+          # wide enough to cover a boot in progress.
+          status="down"
+          for attempt in 1 2 3; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 240 "$HEALTH_URL" || echo 000)
+            echo "attempt $attempt: HTTP $code"
+            if [ "$code" = "200" ]; then
+              status="up"
+              break
+            fi
+            [ "$attempt" -lt 3 ] && sleep 30
+          done
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "Health: **$status**" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open or update incident
+        if: ${{ env.HEALTH_URL != '' && steps.ping.outputs.status == 'down' }}
+        run: |
+          gh label create "$LABEL" --color B60205 \
+            --description "Backend health check failing" 2>/dev/null || true
+          existing=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number')
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          if [ -n "$existing" ]; then
+            # Already alerted for this incident. Record the continuation, stay quiet.
+            gh issue comment "$existing" --body "Still failing as of $(date -u '+%Y-%m-%d %H:%M UTC'). [Run]($run_url)"
+            echo "notify=false" >> "$GITHUB_ENV"
+          else
+            url=$(gh issue create --title "Uptime: backend health check failing" --label "$LABEL" \
+              --body "$(printf '%s\n' \
+                "\`$HEALTH_URL\` did not return 200 across three attempts." \
+                "" \
+                "First detected: $(date -u '+%Y-%m-%d %H:%M UTC')" \
+                "Run: $run_url" \
+                "" \
+                "This issue closes itself when a later run sees a healthy response." \
+                "A cold boot takes about three minutes and each attempt waits up to four, so this is" \
+                "unlikely to be a slow start — check the Render dashboard, then Supabase (the free" \
+                "database pauses after about a week idle).")")
+            echo "Opened $url"
+            echo "notify=true" >> "$GITHUB_ENV"
+            echo "incident_url=$url" >> "$GITHUB_ENV"
+          fi
+
+      - name: Close incident on recovery
+        if: ${{ env.HEALTH_URL != '' && steps.ping.outputs.status == 'up' }}
+        run: |
+          existing=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -n "$existing" ]; then
+            gh issue close "$existing" --comment "Recovered — health returned 200 at $(date -u '+%Y-%m-%d %H:%M UTC')."
+            echo "notify=true" >> "$GITHUB_ENV"
+            echo "recovered=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Notify Telegram
+        if: ${{ env.notify == 'true' && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' }}
+        run: |
+          if [ "${recovered:-}" = "true" ]; then
+            text="✅ gastosai-api is back up. Health returned 200; the uptime incident is closed."
+          else
+            text="🔴 gastosai-api health check is failing — three attempts, no 200. Incident: ${incident_url}"
+          fi
+          curl -sS --max-time 30 \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${text}" >/dev/null
