@@ -1,0 +1,118 @@
+# Render Blueprint — gastosai backend.
+#
+# render.com -> New -> Blueprint -> pick this repo. Then set every `sync: false` key in the
+# dashboard. Frontend is on Vercel, database on Supabase; see `docs/deploy-testing-guide.md` for the
+# full walkthrough and the order the three have to be wired in.
+#
+# Ported from the pre-split monorepo, where this file lived at the repo root and pointed at
+# `rootDir: backend`. The backend is now its own repository and its own root, so that key is gone —
+# leaving it in makes Render look for `backend/Dockerfile` and fail the build with a path error that
+# does not mention the cause.
+#
+# ── Two decisions here that look like omissions ──────────────────────────────────────────────────
+#
+# **No `healthCheckPath`.** This is a JVM on a free instance and its cold boot is around three
+# minutes — slower than Render's health-check deploy window, which put the deploy into a restart
+# loop. Render marks the service live on port detection (8080) instead. `/actuator/health` is still
+# served and is what the keep-alive workflow and any manual check use; it is simply not the gate.
+#
+# **`RESEND_API_KEY`, and SMTP left as a stub.** Render's free tier blocks outbound SMTP ports, so
+# Gmail and friends time out rather than fail cleanly. The mail adapter prefers Resend's HTTP API
+# whenever `RESEND_API_KEY` is set. The `MAIL_*` keys stay declared for paid tiers and other hosts.
+#
+# ── Free tier, and the thing to know about it ────────────────────────────────────────────────────
+#
+# A free service sleeps after ~15 minutes idle, and waking it pays that three-minute boot again. A
+# user opening the app after lunch would wait it out, and the mobile client's 90s chat timeout would
+# expire first. `.github/workflows/keep-alive.yml` pings this service to stop that happening. If the
+# ping is ever removed, the sleep comes back — they are one mechanism, not two.
+services:
+  - type: web
+    name: gastosai-api
+    runtime: docker
+    repo: https://github.com/TetengDev/gastosai-backend
+    branch: main
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: singapore
+    envVars:
+      # Render routes to this port; the app binds 8080, so no code change is needed.
+      - key: PORT
+        value: "8080"
+      # The prod profile exposes /actuator/health and tunes the connection pool.
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      # Flyway owns the schema. `validate` means a drifted schema fails startup loudly instead of
+      # Hibernate quietly "fixing" production.
+      - key: SPRING_JPA_HIBERNATE_DDL_AUTO
+        value: validate
+      - key: GASTOS_SEED_SAMPLE_DATA
+        value: "false"
+      - key: GASTOS_AI_PROVIDER
+        value: openai
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: AI_RATE_LIMIT_PER_MINUTE
+        value: "10"
+      # Managed AI: one server-side key serves every user, metered by the per-plan quotas that
+      # already exist. The alternative — the `false` default — asks each user to paste their own
+      # OpenAI key, which no ordinary consumer will do.
+      #
+      # This bills to the account behind OPENAI_API_KEY. `AI_RATE_LIMIT_PER_MINUTE` caps *rate*, not
+      # spend, so set a hard monthly limit on the OpenAI account itself before this serves traffic.
+      # `AiStartupValidator` refuses to boot in managed mode without a usable provider key.
+      - key: AI_ALLOW_SHARED_KEY
+        value: "true"
+      # Launching free: the entitlement and quota system is built and tested but stays inert until
+      # there is a way to pay. See `docs/go-live-strategy.md` — payments are the one real blocker,
+      # and enforcing tiers before checkout exists would only lock features nobody can buy.
+      - key: MONETIZATION_ENFORCE
+        value: "false"
+
+      # ── Secrets: set in the Render dashboard, never committed ──────────────────────────────────
+      # Database (Supabase)
+      - key: DB_URL
+        sync: false
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      # Security. JWT_SECRET must be >= 32 random characters.
+      - key: JWT_SECRET
+        sync: false
+      # Encrypts any user-supplied AI key at rest. Still required in managed mode: a user may add
+      # their own key to bypass the shared quota.
+      - key: AI_KEY_ENCRYPTION_SECRET
+        sync: false
+      # The key managed mode bills. Not optional now that AI_ALLOW_SHARED_KEY is true.
+      - key: OPENAI_API_KEY
+        sync: false
+      # Set only AFTER the Vercel URL exists, then redeploy. The origin cannot be allow-listed
+      # before it has been created, so this is genuinely a second pass, not an oversight.
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      # Web origin used to build the magic-link URL in outgoing email.
+      - key: FRONTEND_BASE_URL
+        sync: false
+
+      # Email — Resend HTTP API. Takes priority over SMTP whenever it is set.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      # SMTP fallback. Declared for paid tiers and other hosts; will not work on Render free.
+      - key: MAIL_HOST
+        sync: false
+      - key: MAIL_PORT
+        value: "587"
+      - key: MAIL_USERNAME
+        sync: false
+      - key: MAIL_PASSWORD
+        sync: false
+      # Where contact and feedback submissions are emailed.
+      - key: CONTACT_NOTIFICATION_EMAIL
+        sync: false
+      # Google sign-in, optional. Set to the OAuth client id to enable "Continue with Google"; web
+      # must set VITE_GOOGLE_CLIENT_ID to the same value. Leave unset to keep it off.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
