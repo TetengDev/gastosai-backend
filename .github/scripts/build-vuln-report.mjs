@@ -118,7 +118,7 @@ if (trivy.length) {
   lines.push("");
 }
 
-// Machine-readable counts for downstream steps (Telegram summary).
+// Machine-readable counts, rendered into the tracking issue for an at-a-glance total.
 const summary = SEV_ORDER.map(
   (s) => `${s[0].toUpperCase()}:${nt[s] + tt[s]}`
 ).join(" ");
