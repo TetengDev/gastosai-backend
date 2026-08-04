@@ -4,7 +4,7 @@ _Last updated: 2026-08-04 · App version 0.65.1 · API contract 1.1.0_
 
 A consolidated, plain-language map of what GastosAI does today, how the subscription tiers
 divide access, where the current limits are, and what is planned next. For the engineering
-domain model see `ai/skills/project-context.md`; for pricing rationale see
+domain model see `docs/ARCHITECTURE.md`; for pricing rationale see
 `docs/pricing/pricing-memo-2026-06-19.md`.
 
 ---
@@ -119,6 +119,8 @@ endpoint or service implements it. Entries that only exist as a reserved `Featur
 - Receipt vault (store images, statuses PENDING / CONFIRMED / REJECTED) — no image is persisted
   anywhere today.
 - AI anomaly explanations — `ANOMALY_DETECTION` is a `FeatureKey` with no detector behind it.
+- Budget forecasting — `BUDGET_FORECASTING` is a `FeatureKey` with no forecasting logic behind it;
+  the reports endpoints only look backwards.
 - Category aliases & merchant→category rules — no merchant or alias concept exists in the schema.
 - Project/client tagging for freelancers/business — no tag column or table.
 - PDF export — `EXPORT_PDF` is a `FeatureKey`; only CSV export is implemented.
@@ -131,4 +133,5 @@ endpoint or service implements it. Entries that only exist as a reserved `Featur
 
 ---
 
-_For shipping status of each item see `../gastosai-app/docs/ROADMAP.md` and `CHANGELOG.md`._
+_Engineering-side gaps and their targets are in `KNOWN-GAPS.md`; per-item shipping status is
+tracked as Linear issues on the GastosAI project._
