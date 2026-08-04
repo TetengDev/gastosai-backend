@@ -21,7 +21,7 @@ name: Keep Alive
 #
 # A monitor that alerts on every failed poll teaches you to mute it, and a muted monitor is worse
 # than none. So: three attempts before anything is called down; the first confirmed failure opens an
-# incident issue and sends one Telegram message; subsequent failures comment on that issue silently.
+# incident issue — which is what notifies you — and subsequent failures comment on it silently.
 # Recovery closes it and says so. One message per incident, one per recovery.
 #
 # Set the repo variable API_HEALTH_URL (Settings -> Variables) to
@@ -48,8 +48,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       HEALTH_URL: ${{ vars.API_HEALTH_URL }}
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       LABEL: uptime-incident
     steps:
@@ -89,7 +87,6 @@ jobs:
           if [ -n "$existing" ]; then
             # Already alerted for this incident. Record the continuation, stay quiet.
             gh issue comment "$existing" --body "Still failing as of $(date -u '+%Y-%m-%d %H:%M UTC'). [Run]($run_url)"
-            echo "notify=false" >> "$GITHUB_ENV"
           else
             url=$(gh issue create --title "Uptime: backend health check failing" --label "$LABEL" \
               --body "$(printf '%s\n' \
@@ -103,8 +100,6 @@ jobs:
                 "unlikely to be a slow start — check the Render dashboard, then Supabase (the free" \
                 "database pauses after about a week idle).")")
             echo "Opened $url"
-            echo "notify=true" >> "$GITHUB_ENV"
-            echo "incident_url=$url" >> "$GITHUB_ENV"
           fi
 
       - name: Close incident on recovery
@@ -113,19 +108,8 @@ jobs:
           existing=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number' 2>/dev/null || true)
           if [ -n "$existing" ]; then
             gh issue close "$existing" --comment "Recovered — health returned 200 at $(date -u '+%Y-%m-%d %H:%M UTC')."
-            echo "notify=true" >> "$GITHUB_ENV"
-            echo "recovered=true" >> "$GITHUB_ENV"
           fi
 
-      - name: Notify Telegram
-        if: ${{ env.notify == 'true' && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' }}
-        run: |
-          if [ "${recovered:-}" = "true" ]; then
-            text="✅ gastosai-api is back up. Health returned 200; the uptime incident is closed."
-          else
-            text="🔴 gastosai-api health check is failing — three attempts, no 200. Incident: ${incident_url}"
-          fi
-          curl -sS --max-time 30 \
-            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-            --data-urlencode "text=${text}" >/dev/null
+# The issue opening and closing *is* the notification — GitHub mails everyone watching the repo,
+# once per incident and once per recovery, which is the cadence this workflow was already aiming
+# for. There is no second channel to keep in sync.

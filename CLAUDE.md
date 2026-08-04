@@ -144,6 +144,33 @@ provider/quota model or auth, anything touching deploy/rollback.
 change outside a migration, provider SDK type in domain, key reachable by a client,
 `:latest` in prod compose, publish a breaking contract before clients can migrate.
 
+### Tracking
+
+Work is tracked as Linear issues in the **GastosAI** project (team `TEN`). The backlog and the
+cross-repo roadmap live in the `gastosai-app` workspace beside this repo — see its
+`docs/ROADMAP.md` and `docs/ownership.toml`.
+
+- Assign the issue to its human owner and move it to `In Progress` when you start.
+- **Only write the files your issue's `Owns` block lists.** They are also in `ownership.toml`.
+- **An issue that authors a migration is never `parallel-safe`.** The Flyway chain has one head;
+  two agents branching from the same head produce two. `check_ownership.py` enforces this.
+- Attach the PR to its issue before review; `In Review` when the PR opens, `Done` only after merge.
+- A finding too large to fix in the PR becomes a new Linear issue, related to the current one and
+  mentioned in a PR comment.
+- **Finish with `/ship <ISSUE>`.** It runs `pre-pr`, opens the PR, links it to the issue, then puts
+  the diff through an independent `pr-reviewer` → `pr-review-auditor` pass, iterating on findings
+  until the verdict is `APPROVE` or three passes have gone by. Rules:
+  `../gastosai-app/docs/ship-loop.md`. Never merge — a human does that.
+- Evidence goes on the Linear issue via `../gastosai-app/scripts/attach_evidence.py`. GitHub
+  carries the conversation, Linear carries the artifacts; there is no third channel.
+- **Deployment is deferred.** Verify locally against Docker Postgres. Render deploys are
+  milestone `M1`/`M5` work and are not part of ordinary verification.
+
+### Generated, do not hand-edit
+
+`.agentic-team/` and the agent and command files under `.claude/` come from the `agentic-team`
+CLI. Regenerate through it; never edit them in place.
+
 ---
 
 ## 10. Commands
