@@ -50,18 +50,7 @@ for the fast unit-ish slices if desired. Assert `V1..Vn` applies to an empty dat
 
 ---
 
-## 3. `docs/` was carried into the backend wholesale
-
-`docs/` contains material that is not backend-specific (brand assets, pricing, go-live
-strategy, some frontend-facing guides). The split gave the whole directory to the backend
-because that is where the deployment and observability docs live.
-
-**Fix:** move the frontend- and product-facing documents to `gastosai-web` or a separate docs
-location, and leave `docs/` here as backend architecture + operations only.
-
----
-
-## 4. Files intentionally dropped in the split
+## 3. Files intentionally dropped in the split
 
 The following existed at the monorepo root and were **not** carried into either repo:
 `CHANGELOG.md`, `LICENSE`, `AGENTS.md`, `.githooks/`, `ai/`, `brand/`, `qa-csv/`,
@@ -80,7 +69,7 @@ Consequences **not** handled — decide deliberately:
 
 ---
 
-## 5. Branch protection is not enabled (blocked by plan/visibility)
+## 4. Branch protection is not enabled (blocked by plan/visibility)
 
 The monorepo had two active rulesets — `Protect master` (block deletion and force-push,
 require a PR, and require `Backend tests` / `Frontend audit & lint` / `Validate release branch`
