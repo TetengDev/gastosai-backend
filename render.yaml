@@ -63,9 +63,9 @@ services:
       # `AiStartupValidator` refuses to boot in managed mode without a usable provider key.
       - key: AI_ALLOW_SHARED_KEY
         value: "true"
-      # Launching free: the entitlement and quota system is built and tested but stays inert until
-      # there is a way to pay. See `docs/go-live-strategy.md` — payments are the one real blocker,
-      # and enforcing tiers before checkout exists would only lock features nobody can buy.
+      # Launching free: the entitlement and quota system is built and tested but stays inert here.
+      # PayMongo checkout, webhooks and pricing have shipped, so this is no longer gated on "no way
+      # to pay" — flipping it to enforce is a deliberate go-live decision, not a blocker being lifted.
       - key: MONETIZATION_ENFORCE
         value: "false"
 
