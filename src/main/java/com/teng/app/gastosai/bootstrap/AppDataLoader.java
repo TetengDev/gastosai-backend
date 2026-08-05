@@ -46,7 +46,13 @@ public class AppDataLoader implements ApplicationRunner {
 
 	private static final java.time.ZoneId APP_ZONE = JacksonTimeConfig.APP_ZONE;
 
-	/** Budgets are seeded for the current month and the two before it. */
+	/**
+	 * Budgets are seeded for the current month and the two before it.
+	 *
+	 * <p>Deliberately a subset of {@code ExpenseSampleData.MONTHS_OF_HISTORY} (6): every month with
+	 * a budget must also have expenses, or the budget view opens showing nothing spent against it.
+	 * Raising this above that constant breaks that, so the two move together.
+	 */
 	private static final int BUDGET_MONTHS = 3;
 
 	private final ExpenseRepository expenseRepository;
