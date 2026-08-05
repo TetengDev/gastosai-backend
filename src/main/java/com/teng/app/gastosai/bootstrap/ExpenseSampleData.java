@@ -4,7 +4,6 @@ import com.teng.app.gastosai.config.JacksonTimeConfig;
 import com.teng.app.gastosai.entity.ExpenseType;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -26,8 +25,9 @@ import java.util.List;
  * comparison needs them to differ) and cover the shapes the clients must render: business and
  * reimbursable expenses, and foreign-currency rows with an exchange rate.
  *
- * <p>Nothing is dated in the future. The current month is truncated at today, so a database seeded
- * on the 1st gets the day-1 cluster and a database seeded on the 25th gets most of the month.
+ * <p>Nothing is dated in the future: the current month is truncated at the moment of seeding, so a
+ * database seeded on the 1st gets the day-1 cluster and one seeded on the 25th gets most of the
+ * month. The current month is never left empty, whatever the hour.
  */
 public final class ExpenseSampleData {
 
@@ -47,6 +47,11 @@ public final class ExpenseSampleData {
 		public SampleExpense(BigDecimal amount, String categoryName, LocalDateTime date, String description,
 				ExpenseType expenseType, boolean reimbursable) {
 			this(amount, categoryName, date, description, expenseType, reimbursable, "PHP", BigDecimal.ONE);
+		}
+
+		SampleExpense withDate(LocalDateTime newDate) {
+			return new SampleExpense(amount, categoryName, newDate, description, expenseType, reimbursable,
+					currency, exchangeRate);
 		}
 	}
 
@@ -110,6 +115,10 @@ public final class ExpenseSampleData {
 			new Entry(27, 15,  0,  "310.00", "Cleaning Essentials", "Cleaning supplies"),
 			new Entry(28, 16,  0, "1500.00", "Family Contributions", "Monthly family allowance"));
 
+	/** The fallback row for a month whose templated entries are all still ahead of the clock. */
+	private static final Entry FIRST_ROW_OF_THE_DAY =
+			new Entry(1, 7, 45, "90.00", "Transportation", "Commute fare");
+
 	/** The electricity bill, varied per month so the utilities line is not perfectly flat. */
 	private static final String[] ELECTRICITY_BY_MONTHS_AGO = {
 			"543.00", "560.00", "530.00", "495.00", "512.00", "548.00" };
@@ -152,33 +161,46 @@ public final class ExpenseSampleData {
 		};
 	}
 
-	/** The demo set as of today in the application's zone. */
+	/** The demo set as of now in the application's zone. */
 	public static List<SampleExpense> samples() {
-		return samples(LocalDate.now(JacksonTimeConfig.APP_ZONE));
+		return samples(LocalDateTime.now(JacksonTimeConfig.APP_ZONE));
 	}
 
 	/**
-	 * The demo set as of {@code today}: {@link #MONTHS_OF_HISTORY} months ending with the month
-	 * containing {@code today}, with that last month truncated so no expense is dated in the future.
+	 * The demo set as of {@code now}: {@link #MONTHS_OF_HISTORY} months ending with the month
+	 * containing {@code now}, with that last month truncated so no expense is dated in the future.
+	 *
+	 * <p>The cut is on the full timestamp, not the day: seeding at 08:00 on the 5th must not
+	 * produce that afternoon's rows, or the dashboard opens showing spending that has not
+	 * happened yet.
 	 */
-	public static List<SampleExpense> samples(LocalDate today) {
-		YearMonth currentMonth = YearMonth.from(today);
+	public static List<SampleExpense> samples(LocalDateTime now) {
+		YearMonth currentMonth = YearMonth.from(now);
 		List<SampleExpense> samples = new ArrayList<>();
 
 		for (int monthsAgo = MONTHS_OF_HISTORY - 1; monthsAgo >= 0; monthsAgo--) {
 			YearMonth month = currentMonth.minusMonths(monthsAgo);
-			int lastDay = (monthsAgo == 0) ? today.getDayOfMonth() : month.lengthOfMonth();
+			boolean isCurrentMonth = monthsAgo == 0;
 
 			List<Entry> entries = new ArrayList<>(MONTHLY_BACKBONE);
 			entries.add(new Entry(5, 10, 0, electricityFor(monthsAgo), "Monthly Utilities", "Electricity bill"));
 			entries.addAll(highlightsFor(monthsAgo));
 
+			List<SampleExpense> monthSamples = new ArrayList<>();
 			entries.stream()
-					.filter(entry -> entry.day() <= lastDay)
-					.sorted(java.util.Comparator.comparingInt(Entry::day).thenComparingInt(Entry::hour)
-							.thenComparingInt(Entry::minute))
+					.filter(entry -> entry.day() <= month.lengthOfMonth())
 					.map(entry -> entry.at(month))
-					.forEach(samples::add);
+					.filter(sample -> !isCurrentMonth || !sample.date().isAfter(now))
+					.sorted(java.util.Comparator.comparing(SampleExpense::date))
+					.forEach(monthSamples::add);
+
+			if (isCurrentMonth && monthSamples.isEmpty()) {
+				// Seeded in the small hours of the 1st: every templated row is still ahead of the
+				// clock. The current month must never be empty — that is the whole point of the
+				// seed — so the day's first row moves to now rather than being dropped.
+				monthSamples.add(FIRST_ROW_OF_THE_DAY.at(currentMonth).withDate(now));
+			}
+			samples.addAll(monthSamples);
 		}
 		return List.copyOf(samples);
 	}
