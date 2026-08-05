@@ -1,6 +1,7 @@
 package com.teng.app.gastosai;
 
 import com.teng.app.gastosai.bootstrap.AppDataLoader;
+import com.teng.app.gastosai.bootstrap.ExpenseSampleData;
 import com.teng.app.gastosai.config.JacksonTimeConfig;
 import com.teng.app.gastosai.entity.PlanKey;
 import com.teng.app.gastosai.entity.SubscriptionStatus;
@@ -228,5 +229,96 @@ class AppDataLoaderIntegrationTest {
         assertThat(savingsGoalRepository.findAllByUserOrderByCreatedAtDesc(demoUser)).hasSize(goalsBefore);
         assertThat(categoryRepository.count()).isEqualTo(categoriesBefore);
         assertThat(userSubscriptionRepository.findFirstByUserOrderByCreatedAtDesc(demoUser)).isPresent();
+    }
+
+    /**
+     * The calendar arithmetic, pinned against a <em>fixed</em> {@code now}.
+     *
+     * <p>The tests above run against the real clock, so they only ever exercise whichever branch of
+     * the generator today happens to fall into: the truncation filter and the small-hours fallback
+     * are reachable at particular moments of a month and nowhere else. Bound to the real clock they
+     * would be verified by accident, on the days CI happened to run — which for the fallback means
+     * roughly never. {@link ExpenseSampleData#samples(LocalDateTime)} takes an explicit clock
+     * precisely so these branches can be reached on purpose.
+     */
+    @org.junit.jupiter.api.Nested
+    class RelativeDateGeneration {
+
+        private java.util.List<ExpenseSampleData.SampleExpense> inMonth(
+                java.util.List<ExpenseSampleData.SampleExpense> samples, YearMonth month) {
+            return samples.stream().filter(s -> YearMonth.from(s.date()).equals(month)).toList();
+        }
+
+        /**
+         * The cut is on the full timestamp, not the day, and it is inclusive: seeding at 09:00 on
+         * the 1st gets the three rows dated 07:45, 08:30 and 09:00 and nothing later.
+         */
+        @Test
+        void currentMonthIsTruncatedAtTheMomentOfSeedingNotTheDay() {
+            LocalDateTime now = LocalDateTime.of(2026, 3, 1, 9, 0);
+
+            var currentMonth = inMonth(ExpenseSampleData.samples(now), YearMonth.of(2026, 3));
+
+            assertThat(currentMonth)
+                    .as("day-1 rows at or before 09:00 — the boundary row itself is kept")
+                    .hasSize(3);
+            assertThat(currentMonth).allSatisfy(s -> assertThat(s.date()).isBeforeOrEqualTo(now));
+            assertThat(currentMonth).anySatisfy(s -> {
+                assertThat(s.date()).isEqualTo(now);
+                assertThat(s.description()).isEqualTo("Rent");
+            });
+        }
+
+        /**
+         * Seeded in the small hours of the 1st, every templated row is still ahead of the clock.
+         * The current month must never come back empty — that is the whole point of the seed.
+         */
+        @Test
+        void currentMonthFallsBackToOneRowWhenEveryTemplatedRowIsStillAhead() {
+            LocalDateTime now = LocalDateTime.of(2026, 3, 1, 0, 0, 30);
+
+            var currentMonth = inMonth(ExpenseSampleData.samples(now), YearMonth.of(2026, 3));
+
+            assertThat(currentMonth).hasSize(1);
+            assertThat(currentMonth.getFirst().date())
+                    .as("the fallback row moves to now rather than being dropped")
+                    .isEqualTo(now);
+            assertThat(currentMonth.getFirst().categoryName()).isEqualTo("Transportation");
+        }
+
+        /** Truncation applies to the current month only — earlier months keep their full template. */
+        @Test
+        void earlierMonthsAreNotTruncated() {
+            var samples = ExpenseSampleData.samples(LocalDateTime.of(2026, 3, 3, 12, 0));
+
+            assertThat(inMonth(samples, YearMonth.of(2026, 2)))
+                    .as("February keeps its day-28 row; truncation would have removed it")
+                    .anySatisfy(s -> assertThat(s.date().getDayOfMonth()).isEqualTo(28));
+        }
+
+        /** Nothing is templated past day 28, so February needs no special handling — leap or not. */
+        @ParameterizedTest
+        @CsvSource({ "2026-02-20T12:00", "2024-02-29T12:00", "2025-03-31T23:59" })
+        void awkwardMonthsGenerateWithoutOverflowing(String nowText) {
+            LocalDateTime now = LocalDateTime.parse(nowText);
+
+            var samples = ExpenseSampleData.samples(now);
+
+            assertThat(inMonth(samples, YearMonth.from(now))).isNotEmpty();
+            assertThat(samples).allSatisfy(s -> assertThat(s.date()).isBeforeOrEqualTo(now));
+        }
+
+        /** Six months ending with the month containing {@code now} — the trend line needs the span. */
+        @Test
+        void coversSixMonthsEndingWithTheCurrentOne() {
+            LocalDateTime now = LocalDateTime.of(2026, 3, 15, 12, 0);
+
+            Set<YearMonth> months = ExpenseSampleData.samples(now).stream()
+                    .map(s -> YearMonth.from(s.date()))
+                    .collect(Collectors.toSet());
+
+            assertThat(months).hasSize(6);
+            assertThat(months).contains(YearMonth.of(2026, 3), YearMonth.of(2025, 10));
+        }
     }
 }
