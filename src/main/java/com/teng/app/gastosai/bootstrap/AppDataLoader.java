@@ -1,5 +1,6 @@
 package com.teng.app.gastosai.bootstrap;
 
+import com.teng.app.gastosai.config.JacksonTimeConfig;
 import com.teng.app.gastosai.entity.Budget;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
@@ -42,6 +43,11 @@ import java.util.Map;
 public class AppDataLoader implements ApplicationRunner {
 
 	private static final Logger log = LoggerFactory.getLogger(AppDataLoader.class);
+
+	private static final java.time.ZoneId APP_ZONE = JacksonTimeConfig.APP_ZONE;
+
+	/** Budgets are seeded for the current month and the two before it. */
+	private static final int BUDGET_MONTHS = 3;
 
 	private final ExpenseRepository expenseRepository;
 	private final CategoryService categoryService;
@@ -154,6 +160,13 @@ public class AppDataLoader implements ApplicationRunner {
 	}
 
 	private void seedExpensesIfEmpty(User demoUser) {
+		long expenseCount = expenseRepository.findAllByUserOrderByDateDesc(demoUser).size();
+		if (expenseCount > 0) {
+			log.info("Skipping sample expense seed: {} row(s) already exist for {}",
+					expenseCount, demoUser.getEmail());
+			return;
+		}
+
 		Map<String, Category> byName = new HashMap<>();
 		List<ExpenseSampleData.SampleExpense> samples = ExpenseSampleData.samples();
 
@@ -162,12 +175,6 @@ public class AppDataLoader implements ApplicationRunner {
 			byName.computeIfAbsent(trimmed, k ->
 					categoryService.getOrCreateByName(trimmed, demoUser));
 		});
-
-		long expenseCount = expenseRepository.findAllByUserOrderByDateDesc(demoUser).size();
-		if (expenseCount > 0) {
-			log.info("Skipping sample expense seed: {} row(s) already exist for demo user", expenseCount);
-			return;
-		}
 
 		var expensesToSave = samples.stream()
 				.map(sample -> {
@@ -192,13 +199,22 @@ public class AppDataLoader implements ApplicationRunner {
 				.toList();
 
 		expenseRepository.saveAll(expensesToSave);
-		log.info("Loaded {} sample expenses for demo user", expensesToSave.size());
+		log.info("Loaded {} sample expenses for {}", expensesToSave.size(), demoUser.getEmail());
 	}
 
 	private void seedBudgetsIfEmpty(User user) {
-		String currentMonth = YearMonth.now().toString();
-		if (!budgetRepository.findAllByUserAndMonth(user, currentMonth).isEmpty()) {
-			log.info("Skipping budget seed: budgets already exist for demo user ({})", currentMonth);
+		// The sample expenses now span several months, so seed the same months' budgets — a budget
+		// for the current month only leaves every earlier month's budget view empty.
+		YearMonth currentMonth = YearMonth.from(LocalDate.now(APP_ZONE));
+		for (int monthsAgo = BUDGET_MONTHS - 1; monthsAgo >= 0; monthsAgo--) {
+			seedBudgetsForMonth(user, currentMonth.minusMonths(monthsAgo));
+		}
+	}
+
+	private void seedBudgetsForMonth(User user, YearMonth month) {
+		String monthKey = month.toString();
+		if (!budgetRepository.findAllByUserAndMonth(user, monthKey).isEmpty()) {
+			log.info("Skipping budget seed: budgets already exist for {} ({})", user.getEmail(), monthKey);
 			return;
 		}
 
@@ -217,26 +233,29 @@ public class AppDataLoader implements ApplicationRunner {
 			budgetRepository.save(Budget.builder()
 					.user(user)
 					.category(cat)
-					.month(currentMonth)
+					.month(monthKey)
 					.amountLimit(new BigDecimal(seed.amount()))
 					.amountLimitInBaseCurrency(new BigDecimal(seed.amount()))
 					.build());
 			count++;
 		}
-		log.info("Loaded {} sample budgets for demo user ({})", count, currentMonth);
+		log.info("Loaded {} sample budgets for {} ({})", count, user.getEmail(), monthKey);
 	}
 
 	private void seedGoalsIfEmpty(User user) {
 		if (!savingsGoalRepository.findAllByUserOrderByCreatedAtDesc(user).isEmpty()) {
-			log.info("Skipping goal seed: goals already exist for demo user");
+			log.info("Skipping goal seed: goals already exist for {}", user.getEmail());
 			return;
 		}
 
+		// Target dates are relative: a goal seeded with a fixed date silently becomes an overdue
+		// goal once the calendar passes it, which is not the state a demo should open in.
+		LocalDate today = LocalDate.now(APP_ZONE);
 		record GoalSeed(String name, String target, String saved, LocalDate targetDate) {}
 		List<GoalSeed> seeds = List.of(
-				new GoalSeed("Emergency Fund",   "50000.00", "12500.00", LocalDate.of(2026, 12, 31)),
-				new GoalSeed("New Laptop",       "45000.00",  "9000.00", LocalDate.of(2026, 9,  30)),
-				new GoalSeed("Vacation — Cebu",  "20000.00",  "5000.00", LocalDate.of(2026, 8,  15))
+				new GoalSeed("Emergency Fund",   "50000.00", "12500.00", today.plusMonths(10)),
+				new GoalSeed("New Laptop",       "45000.00",  "9000.00", today.plusMonths(4)),
+				new GoalSeed("Vacation — Cebu",  "20000.00",  "5000.00", today.plusMonths(2))
 		);
 
 		for (GoalSeed seed : seeds) {
@@ -249,12 +268,12 @@ public class AppDataLoader implements ApplicationRunner {
 					.paused(false)
 					.build());
 		}
-		log.info("Loaded {} sample goals for demo user", seeds.size());
+		log.info("Loaded {} sample goals for {}", seeds.size(), user.getEmail());
 	}
 
 	private void seedRecurringIfEmpty(User user) {
 		if (!recurringExpenseRepository.findAllByUser(user).isEmpty()) {
-			log.info("Skipping recurring seed: recurring expenses already exist for demo user");
+			log.info("Skipping recurring seed: recurring expenses already exist for {}", user.getEmail());
 			return;
 		}
 
@@ -283,6 +302,6 @@ public class AppDataLoader implements ApplicationRunner {
 					.build());
 			count++;
 		}
-		log.info("Loaded {} sample recurring expenses for demo user", count);
+		log.info("Loaded {} sample recurring expenses for {}", count, user.getEmail());
 	}
 }
