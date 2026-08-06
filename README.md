@@ -25,6 +25,7 @@ copy .env.example .env
 | `DB_URL` | No | JDBC URL — defaults to `jdbc:postgresql://localhost:5433/gastos` |
 | `DB_USERNAME` | No | Database user — defaults to `postgres` |
 | `DB_PASSWORD` | No | Database password — defaults to `dev` |
+| `DB_HOST_PORT` | No | Host port `docker-compose.yaml` publishes the database on — defaults to `5433` |
 | `OPENAI_API_KEY` | One of these | OpenAI API key |
 | `CLAUDE_API_KEY` | One of these | Anthropic API key |
 | `GASTOS_AI_PROVIDER` | No | `openai` (default) or `claude` |
@@ -35,18 +36,56 @@ with user `postgres` / password `dev`, so the local loop needs no `.env` at all.
 when pointing at another database.
 
 > The database must be running before starting the backend.
-> Start it with `docker compose up -d` from the repo root.
+> Start it with `docker compose up -d --force-recreate` from the repo root.
 
 ---
 
 ## Running
 
 ```powershell
-docker compose up -d
+docker compose up -d --force-recreate
 .\mvnw.cmd spring-boot:run
 ```
 
 No `DB_URL` override is needed — the default already points at the port compose publishes.
+
+`--force-recreate` matters: without it, `docker compose up -d` can report success while
+restarting a container that predates a `ports:` change (or one left over from a different
+worktree that happens to share this project's container name), which comes up publishing
+nothing or the wrong thing. `--force-recreate` guarantees the container you get actually
+reflects the compose file you're reading, every time.
+
+---
+
+## Running two stacks at once (parallel worktrees)
+
+Each `git worktree` checkout gets its own Compose project (Compose names it after the checkout
+directory), so two checkouts don't share containers — but by default they'd both try to publish
+the database on host port `5433`, and only one can hold it. The second `up` would then either
+fail to bind or, worse, silently leave you talking to the first checkout's database.
+
+Give each checkout its own port:
+
+```powershell
+# worktree A (the default port, nothing to set)
+docker compose up -d --force-recreate
+.\mvnw.cmd spring-boot:run
+
+# worktree B
+$env:DB_HOST_PORT = "5434"
+docker compose up -d --force-recreate
+.\mvnw.cmd spring-boot:run -Dspring-boot.run.arguments="--spring.datasource.url=jdbc:postgresql://localhost:5434/gastos"
+```
+
+To confirm which container is actually serving a port instead of guessing, ask Compose directly
+from within the checkout in question:
+
+```powershell
+docker compose port db 5432
+```
+
+That prints the host address *this project's* `db` service is bound to — if it doesn't match the
+port you expected, something else is holding it, not this checkout.
 
 The API starts on **http://localhost:8080**.  
 Swagger UI: **http://localhost:8080/swagger-ui.html**
