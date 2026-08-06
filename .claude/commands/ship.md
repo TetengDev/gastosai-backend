@@ -9,14 +9,14 @@ Take the current branch from "I think this is done" to a PR a human can merge.
 Linear issue: $ARGUMENTS (e.g. `TEN-129`). If it is missing, read it from the branch name or ask —
 do not guess, because the `Owns` block and the acceptance criteria both come from it.
 
-**Full rules: `../gastosai-app/docs/ship-loop.md`.** Read it. What follows is only the part
+**Full rules: `../docs/ship-loop.md`.** Read it. What follows is only the part
 specific to this repo.
 
 ## Per pass
 
 1. **Gate** — run the `pre-pr` agent. Red gate: fix, restart the pass, do not review.
 2. **Publish** — `gh pr create` (or push to the existing PR), then from the workspace:
-   `python3 ../gastosai-app/scripts/attach_evidence.py <ISSUE> <file> --caption "..." --pr <n> --repo gastosai-backend`
+   `python3 ../scripts/attach_evidence.py <ISSUE> <file> --caption "..." --pr <n> --repo gastosai-backend`
    to link the PR and attach evidence. Move the issue to `In Review`.
 3. **Review** — run the `pr-reviewer` agent with the PR number and the issue key.
 4. **Audit** — run the `pr-review-auditor` agent with the reviewer's findings and the PR number.

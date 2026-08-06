@@ -1,9 +1,10 @@
 # CLAUDE.md — gastosai-backend
 
 Spring Boot 4 (Java 25) REST API for gastosai, an AI-assisted expense tracker for a
-Philippine audience. **This repo owns and publishes the API contract.** Read
-`CONTRACT.md` first, then `KNOWN-GAPS.md` for the places today's code does not yet meet
-the invariants below.
+Philippine audience. **This repo owns and publishes the API contract.**
+
+The invariants below are always in force. Everything else is conditional — see
+§11 for which document to open for which task, and do not preload the rest.
 
 ---
 
@@ -110,12 +111,13 @@ nothing outward and defines ports that adapters implement.
 
 ## 7. Before opening a PR
 
-Run the gate in `ai/skills/shared/pre-pr-checklist.md`, or the `pre-pr` agent
-(`.claude/agents/pre-pr.md`) which executes it and reports a table.
+**When preparing a PR** — not while implementing — run the `pre-pr` agent
+(`.claude/agents/pre-pr.md`), which executes the full checklist and reports a table. Read the
+checklist itself only if you are running the gate by hand or changing it.
 
-The item that is not automatable and is skipped most often: **§6, runtime execution.** A green
-test suite is not evidence that the code was run. State in the PR body what you executed and
-what you observed.
+The item that is not automatable and is skipped most often: **runtime execution.** A green test
+suite is not evidence that the code was run. State in the PR body what you executed and what you
+observed. Use targeted tests while implementing; the full suite belongs here, once.
 
 ---
 
@@ -144,32 +146,22 @@ provider/quota model or auth, anything touching deploy/rollback.
 change outside a migration, provider SDK type in domain, key reachable by a client,
 `:latest` in prod compose, publish a breaking contract before clients can migrate.
 
-### Tracking
+### Working with tracked issues
 
-Work is tracked as Linear issues in the **GastosAI** project (team `TEN`). The backlog and the
-cross-repo roadmap live in the `gastosai-app` workspace beside this repo — see its
-`docs/ROADMAP.md` and `docs/ownership.toml`.
+Shared workflow — Linear lifecycle, `Owns` restrictions, evidence, PR linking, `/ship`, dispatch,
+subagent policy, search discipline — lives in
+[`../docs/agent-workflow.md`](../docs/agent-workflow.md).
 
-- Assign the issue to its human owner and move it to `In Progress` when you start.
-- **Only write the files your issue's `Owns` block lists.** They are also in `ownership.toml`.
-- **An issue that authors a migration is never `parallel-safe`.** The Flyway chain has one head;
-  two agents branching from the same head produce two. `check_ownership.py` enforces this.
-- Attach the PR to its issue before review; `In Review` when the PR opens, `Done` only after merge.
-- A finding too large to fix in the PR becomes a new Linear issue, related to the current one and
-  mentioned in a PR comment.
-- **Finish with `/ship <ISSUE>`.** It runs `pre-pr`, opens the PR, links it to the issue, then puts
-  the diff through an independent `pr-reviewer` → `pr-review-auditor` pass, iterating on findings
-  until the verdict is `APPROVE` or three passes have gone by. Rules:
-  `../gastosai-app/docs/ship-loop.md`. Never merge — a human does that.
-- Evidence goes on the Linear issue via `../gastosai-app/scripts/attach_evidence.py`. GitHub
-  carries the conversation, Linear carries the artifacts; there is no third channel.
-- **Deployment is deferred.** Verify locally against Docker Postgres. Render deploys are
-  milestone `M1`/`M5` work and are not part of ordinary verification.
+**Read it when** you start tracked implementation, move an issue's state, prepare or open a PR,
+attach evidence, run `/ship`, or coordinate across repositories. **Not** for debugging, planning,
+reading code, or a local edit.
 
-### Generated, do not hand-edit
+Two rules from it that bite hardest here, repeated because forgetting them is expensive:
 
-`.agentic-team/` and the agent and command files under `.claude/` come from the `agentic-team`
-CLI. Regenerate through it; never edit them in place.
+- **Only write the files your issue's `Owns` block lists.** An issue that authors a migration is
+  never `parallel-safe` — the Flyway chain has one head, and two agents branching from it produce
+  two. `check_ownership.py` enforces this.
+- **Never merge.** A human does that.
 
 ---
 
@@ -179,10 +171,29 @@ CLI. Regenerate through it; never edit them in place.
 docker compose up -d                # local Postgres :5433
 ./mvnw spring-boot:run              # Flyway then :8080, Swagger at /swagger-ui.html
 ./mvnw test                         # full suite; regenerates contract/openapi.json
-./mvnw verify                       # tests + JaCoCo report
-
+./mvnw test -Dtest=ClassName        # the targeted run to use while implementing
 scripts/project-version.sh          # the version the release/image workflows use
-DB_URL=... DB_USERNAME=... DB_PASSWORD=... scripts/backup-before-migrate.sh
 ```
 
 PowerShell equivalents (`.\mvnw.cmd`, `.\scripts\backup-before-migrate.ps1`) work the same.
+
+Do not rerun a command that already passed unless a later edit could change its result, and
+summarize long output rather than keeping the whole log in context.
+
+---
+
+## 11. Reference documents — read when the task calls for them
+
+**Do not preload linked reference documents for unrelated tasks.**
+
+| Read | When |
+|---|---|
+| `CONTRACT.md` | controller, DTO, endpoint or API-shape work; a contract version bump; client compatibility |
+| `KNOWN-GAPS.md` | the issue names a known gap, or the subsystem you are touching is documented there |
+| §5 above + `scripts/backup-before-migrate.sh` | any schema or Flyway work |
+| `.claude/agents/pre-pr.md` | preparing a PR, or running the gate by hand |
+| `../docs/ship-loop.md` | running `/ship`, or changing the review process |
+| `../docs/agent-workflow.md` | tracked work, issue state, PRs, evidence, cross-repo |
+| `docs/ARCHITECTURE.md` | changing a layer boundary or adding an adapter |
+
+Never search or read the `gastosai/` archive beside this repo during ordinary work.
