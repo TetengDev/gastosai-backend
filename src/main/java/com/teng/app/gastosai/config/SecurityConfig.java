@@ -49,19 +49,24 @@ public class SecurityConfig {
 						.referrerPolicy(rp -> rp
 								.policy(org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER)))
 				.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-				.authorizeHttpRequests(auth -> auth
-						.requestMatchers(HttpMethod.POST, "/auth/register", "/auth/login", "/auth/magic-link", "/auth/magic-link/verify", "/auth/google").permitAll()
-						.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-						.requestMatchers("/actuator/info", "/actuator/health", "/features", "/error",
-								"/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
-						.requestMatchers(HttpMethod.POST, "/submissions").permitAll()
-						.requestMatchers(HttpMethod.POST, "/webhooks/paymongo").permitAll()
-						.requestMatchers(HttpMethod.GET, "/subscription/pricing").permitAll()
+				.authorizeHttpRequests(auth -> {
+					// Every permitAll matcher comes from PublicEndpoints.RULES, which is also what
+					// decides whether an operation carries a `security` block in the published
+					// contract. One list, so the spec cannot claim an endpoint is open once this
+					// chain stops permitting it.
+					for (PublicEndpoints.Rule rule : PublicEndpoints.RULES) {
+						if (rule.method() == null) {
+							auth.requestMatchers(rule.pattern()).permitAll();
+						} else {
+							auth.requestMatchers(rule.method(), rule.pattern()).permitAll();
+						}
+					}
+					auth
 						.requestMatchers(HttpMethod.GET, "/submissions").hasRole("ADMIN")
 						.requestMatchers("/submissions/**").hasRole("ADMIN")
 						.requestMatchers("/admin/**").hasRole("ADMIN")
-						.anyRequest().authenticated()
-				)
+						.anyRequest().authenticated();
+				})
 				.exceptionHandling(e -> e
 						.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
 				.authenticationProvider(authenticationProvider())

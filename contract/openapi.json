@@ -1439,6 +1439,14 @@
         },
         "type" : "object"
       }
+    },
+    "securitySchemes" : {
+      "bearerAuth" : {
+        "bearerFormat" : "JWT",
+        "description" : "Backend-issued JWT from POST /auth/login, sent as `Authorization: Bearer <token>`.",
+        "scheme" : "bearer",
+        "type" : "http"
+      }
     }
   },
   "info" : {
@@ -1465,6 +1473,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "admin-ai-usage-controller" ]
       }
     },
@@ -1496,6 +1507,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "admin-chat-audit-controller" ]
       }
     },
@@ -1514,6 +1528,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "admin-observability-controller" ]
       }
     },
@@ -1552,6 +1569,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "admin-observability-controller" ]
       }
     },
@@ -1570,6 +1590,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "admin-observability-controller" ]
       }
     },
@@ -1588,6 +1611,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "admin-observability-controller" ]
       }
     },
@@ -1616,6 +1642,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "ai-controller" ]
       }
     },
@@ -1642,6 +1671,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "ai-insight-controller" ]
       }
     },
@@ -1668,6 +1700,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "ai-insight-controller" ]
       }
     },
@@ -1694,6 +1729,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "ai-insight-controller" ]
       }
     },
@@ -1722,6 +1760,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "ai-controller" ]
       }
     },
@@ -1740,6 +1781,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "ai-usage-controller" ]
       }
     },
@@ -1790,6 +1834,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "ai-controller" ]
       }
     },
@@ -1819,6 +1866,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "alert-controller" ]
       }
     },
@@ -1839,6 +1889,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "alert-controller" ]
       }
     },
@@ -1866,6 +1919,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "alert-controller" ]
       }
     },
@@ -1893,6 +1949,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "alert-controller" ]
       }
     },
@@ -2054,6 +2113,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "budget-rule-controller" ]
       },
       "put" : {
@@ -2080,6 +2142,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "budget-rule-controller" ]
       }
     },
@@ -2101,6 +2166,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "budget-rule-controller" ]
       }
     },
@@ -2129,6 +2197,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "budget-rule-controller" ]
       }
     },
@@ -2155,6 +2226,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "budget-rule-controller" ]
       }
     },
@@ -2174,6 +2248,9 @@
             "description" : "No Content"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "budget-controller" ]
       },
       "get" : {
@@ -2201,6 +2278,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "budget-controller" ]
       },
       "post" : {
@@ -2236,6 +2316,9 @@
             "description" : "Created"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "budget-controller" ]
       }
     },
@@ -2262,6 +2345,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "budget-controller" ]
       }
     },
@@ -2282,6 +2368,9 @@
             "description" : "No Content"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "budget-controller" ]
       },
       "put" : {
@@ -2317,6 +2406,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "budget-controller" ]
       }
     },
@@ -2328,6 +2420,9 @@
             "description" : "No Content"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "category-controller" ]
       },
       "get" : {
@@ -2347,6 +2442,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "category-controller" ]
       },
       "post" : {
@@ -2373,6 +2471,9 @@
             "description" : "Created"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "category-controller" ]
       }
     },
@@ -2393,6 +2494,9 @@
             "description" : "No Content"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "category-controller" ]
       },
       "get" : {
@@ -2418,6 +2522,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "category-controller" ]
       },
       "put" : {
@@ -2453,6 +2560,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "category-controller" ]
       }
     },
@@ -2474,6 +2584,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "conversation-controller" ]
       }
     },
@@ -2494,6 +2607,9 @@
             "description" : "No Content"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "conversation-controller" ]
       },
       "get" : {
@@ -2522,6 +2638,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "conversation-controller" ]
       }
     },
@@ -2533,6 +2652,9 @@
             "description" : "No Content"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "expense-controller" ]
       },
       "get" : {
@@ -2569,6 +2691,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "expense-controller" ]
       },
       "post" : {
@@ -2595,6 +2720,9 @@
             "description" : "Created"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "expense-controller" ]
       }
     },
@@ -2631,6 +2759,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "expense-controller" ]
       }
     },
@@ -2674,6 +2805,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "expense-controller" ]
       }
     },
@@ -2693,6 +2827,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "expense-controller" ]
       }
     },
@@ -2746,6 +2883,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "expense-controller" ]
       }
     },
@@ -2774,6 +2914,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "expense-controller" ]
       }
     },
@@ -2795,6 +2938,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "expense-controller" ]
       }
     },
@@ -2824,6 +2970,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "expense-controller" ]
       }
     },
@@ -2845,6 +2994,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "expense-controller" ]
       }
     },
@@ -2871,6 +3023,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "expense-controller" ]
       }
     },
@@ -2909,6 +3064,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "expense-controller" ]
       }
     },
@@ -2929,6 +3087,9 @@
             "description" : "No Content"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "expense-controller" ]
       },
       "get" : {
@@ -2954,6 +3115,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "expense-controller" ]
       },
       "put" : {
@@ -2989,6 +3153,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "expense-controller" ]
       }
     },
@@ -3028,6 +3195,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "savings-goal-controller" ]
       },
       "post" : {
@@ -3063,6 +3233,9 @@
             "description" : "Created"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "savings-goal-controller" ]
       }
     },
@@ -3083,6 +3256,9 @@
             "description" : "No Content"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "savings-goal-controller" ]
       },
       "get" : {
@@ -3108,6 +3284,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "savings-goal-controller" ]
       },
       "put" : {
@@ -3143,6 +3322,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "savings-goal-controller" ]
       }
     },
@@ -3154,6 +3336,9 @@
             "description" : "No Content"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "recurring-expense-controller" ]
       },
       "get" : {
@@ -3173,6 +3358,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "recurring-expense-controller" ]
       },
       "post" : {
@@ -3208,6 +3396,9 @@
             "description" : "Created"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "recurring-expense-controller" ]
       }
     },
@@ -3237,6 +3428,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "recurring-expense-controller" ]
       }
     },
@@ -3257,6 +3451,9 @@
             "description" : "No Content"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "recurring-expense-controller" ]
       },
       "put" : {
@@ -3292,6 +3489,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "recurring-expense-controller" ]
       }
     },
@@ -3313,6 +3513,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "submission-controller" ]
       },
       "post" : {
@@ -3366,6 +3569,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "submission-controller" ]
       }
     },
@@ -3384,6 +3590,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "subscription-controller" ]
       }
     },
@@ -3412,6 +3621,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "subscription-controller" ]
       }
     },
@@ -3451,6 +3663,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "user-ai-settings-controller" ]
       },
       "put" : {
@@ -3477,6 +3692,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "user-ai-settings-controller" ]
       }
     },
@@ -3503,6 +3721,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "user-ai-settings-controller" ]
       }
     },
@@ -3521,6 +3742,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "entitlement-controller" ]
       }
     },
@@ -3539,6 +3763,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "user-profile-controller" ]
       },
       "put" : {
@@ -3565,6 +3792,9 @@
             "description" : "OK"
           }
         },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
         "tags" : [ "user-profile-controller" ]
       }
     },
