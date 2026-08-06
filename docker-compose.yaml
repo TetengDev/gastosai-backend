@@ -7,10 +7,10 @@ services:
       POSTGRES_PASSWORD: dev
     # Host 5433, not 5432: 5432 is usually taken by a machine-wide Postgres. This is the port
     # `spring.datasource.url` defaults to, so the local loop needs no DB_URL override.
-    # A git worktree gets its own compose project and binds this same host port, so only one
-    # stack can hold it at a time — parallel runtime verification needs a shared stack.
+    # Override DB_HOST_PORT per checkout/worktree to run two stacks at once — see README.md
+    # for the parallel-worktree recipe, including why `--force-recreate` is required.
     ports:
-      - "5433:5432"
+      - "${DB_HOST_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     command: >
