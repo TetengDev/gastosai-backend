@@ -3,10 +3,12 @@ package com.teng.app.gastosai;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.teng.app.gastosai.config.PublicEndpoints;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpMethod;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.RestController;
@@ -22,6 +24,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -46,6 +49,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class OpenApiContractTest {
 
 	private static final Path CONTRACT_SPEC = Path.of("contract", "openapi.json");
+
+	/** The path-item keys that are operations; everything else on a path item is metadata. */
+	private static final Set<String> OPERATION_KEYS = Set.of(
+			"get", "put", "post", "delete", "options", "head", "patch", "trace");
 
 	private static final Pattern MONEY_PROPERTY = Pattern.compile(
 			"(?i)amount|total|budget|spent|price|cost|balance|saved|target(?!Date)");
@@ -109,6 +116,64 @@ class OpenApiContractTest {
 
 		Files.createDirectories(CONTRACT_SPEC.getParent());
 		Files.writeString(CONTRACT_SPEC, rendered);
+	}
+
+	@Test
+	void specLeavesExactlyThePublicOperationsUnsecured() throws Exception {
+		// The published contract's `security` blocks are the only thing a generated client knows
+		// about authentication, so an operation the server protects but the spec leaves unsecured is
+		// a 401 the client had no reason to expect — and the reverse advertises a token requirement
+		// that does not exist. OpenApiConfig derives those blocks from PublicEndpoints.isPublic; this
+		// asserts the derivation actually landed, across the whole documented surface.
+		//
+		// Stated as set equality rather than a count on purpose: an endpoint added to the security
+		// list without the contract (or the other way round) fails here by name, and no one has to
+		// remember to update a number.
+		JsonNode paths = new ObjectMapper().readTree(apiDocs()).get("paths");
+		assertTrue(paths != null && !paths.isEmpty(), "OpenAPI spec documents no paths.");
+
+		Set<String> unsecuredInSpec = new TreeSet<>();
+		Set<String> publicByRule = new TreeSet<>();
+
+		paths.fields().forEachRemaining(pathEntry -> {
+			String path = pathEntry.getKey();
+			pathEntry.getValue().fields().forEachRemaining(opEntry -> {
+				HttpMethod method = asHttpMethod(opEntry.getKey());
+				if (method == null) {
+					// `parameters`, `summary` and friends sit beside the operations on a path item.
+					return;
+				}
+				String operation = method + " " + path;
+				JsonNode security = opEntry.getValue().get("security");
+				if (security == null || security.isEmpty()) {
+					unsecuredInSpec.add(operation);
+				}
+				if (PublicEndpoints.isPublic(method, path)) {
+					publicByRule.add(operation);
+				}
+			});
+		});
+
+		assertEquals(publicByRule, unsecuredInSpec,
+				"The spec's unsecured operations must be exactly PublicEndpoints.isPublic applied to "
+						+ "the documented paths. A difference means the contract and the filter chain "
+						+ "disagree about who may call what.");
+	}
+
+	/** Spring's {@link HttpMethod} for an OpenAPI path-item key, or {@code null} if it is not one. */
+	private static HttpMethod asHttpMethod(String pathItemKey) {
+		return OPERATION_KEYS.contains(pathItemKey) ? HttpMethod.valueOf(pathItemKey.toUpperCase()) : null;
+	}
+
+	private String apiDocs() throws Exception {
+		return MockMvcBuilders.webAppContextSetup(webApplicationContext)
+				.apply(springSecurity())
+				.build()
+				.perform(get("/v3/api-docs"))
+				.andExpect(status().isOk())
+				.andReturn()
+				.getResponse()
+				.getContentAsString();
 	}
 
 	@Test
