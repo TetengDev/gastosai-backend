@@ -21,6 +21,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 
 import org.springframework.http.HttpStatus;
 
@@ -55,11 +57,7 @@ public class SecurityConfig {
 					// contract. One list, so the spec cannot claim an endpoint is open once this
 					// chain stops permitting it.
 					for (PublicEndpoints.Rule rule : PublicEndpoints.RULES) {
-						if (rule.method() == null) {
-							auth.requestMatchers(rule.pattern()).permitAll();
-						} else {
-							auth.requestMatchers(rule.method(), rule.pattern()).permitAll();
-						}
+						auth.requestMatchers(publicMatcher(rule)).permitAll();
 					}
 					auth
 						.requestMatchers(HttpMethod.GET, "/submissions").hasRole("ADMIN")
@@ -73,6 +71,25 @@ public class SecurityConfig {
 				.addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
 				.addFilterBefore(requestLoggingFilter, JwtAuthFilter.class);
 		return http.build();
+	}
+
+	/**
+	 * The request matcher this chain permits a {@link PublicEndpoints.Rule} with.
+	 *
+	 * <p>Built explicitly rather than through {@code auth.requestMatchers(String)} so the engine is
+	 * named in the source instead of inherited from whatever Spring Security's default happens to be
+	 * on the next upgrade. That matters because {@link PublicEndpoints#isPublic} answers the same
+	 * question with {@code AntPathMatcher} — it has to, since it is handed OpenAPI path templates
+	 * rather than live requests — and two engines silently disagreeing is exactly the drift this is
+	 * meant to prevent. {@code PublicEndpointsTest.matchesTheEngineSecurityConfigUses} asserts the
+	 * two agree over every pattern in {@code RULES}; pinning the engine here is what gives that test
+	 * something stable to compare against.
+	 */
+	static RequestMatcher publicMatcher(PublicEndpoints.Rule rule) {
+		PathPatternRequestMatcher.Builder builder = PathPatternRequestMatcher.withDefaults();
+		return rule.method() == null
+				? builder.matcher(rule.pattern())
+				: builder.matcher(rule.method(), rule.pattern());
 	}
 
 	@Bean
