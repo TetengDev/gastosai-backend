@@ -22,13 +22,17 @@ copy .env.example .env
 
 | Variable | Required | Description |
 |---|---|---|
-| `DB_URL` | Yes | JDBC URL — e.g. `jdbc:postgresql://localhost:5433/gastos` |
-| `DB_USERNAME` | Yes | Database user — default `postgres` |
-| `DB_PASSWORD` | Yes | Database password |
+| `DB_URL` | No | JDBC URL — defaults to `jdbc:postgresql://localhost:5433/gastos` |
+| `DB_USERNAME` | No | Database user — defaults to `postgres` |
+| `DB_PASSWORD` | No | Database password — defaults to `dev` |
 | `OPENAI_API_KEY` | One of these | OpenAI API key |
 | `CLAUDE_API_KEY` | One of these | Anthropic API key |
 | `GASTOS_AI_PROVIDER` | No | `openai` (default) or `claude` |
 | `GASTOS_SEED_SAMPLE_DATA` | No | `true` seeds 15 sample expenses on first run |
+
+The three `DB_*` defaults are the compose stack: `docker-compose.yaml` publishes `5433:5432`
+with user `postgres` / password `dev`, so the local loop needs no `.env` at all. Set them only
+when pointing at another database.
 
 > The database must be running before starting the backend.
 > Start it with `docker compose up -d` from the repo root.
@@ -38,8 +42,11 @@ copy .env.example .env
 ## Running
 
 ```powershell
+docker compose up -d
 .\mvnw.cmd spring-boot:run
 ```
+
+No `DB_URL` override is needed — the default already points at the port compose publishes.
 
 The API starts on **http://localhost:8080**.  
 Swagger UI: **http://localhost:8080/swagger-ui.html**

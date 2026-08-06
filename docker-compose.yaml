@@ -5,6 +5,10 @@ services:
       POSTGRES_DB: gastos
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: dev
+    # Host 5433, not 5432: 5432 is usually taken by a machine-wide Postgres. This is the port
+    # `spring.datasource.url` defaults to, so the local loop needs no DB_URL override.
+    # A git worktree gets its own compose project and binds this same host port, so only one
+    # stack can hold it at a time — parallel runtime verification needs a shared stack.
     ports:
       - "5433:5432"
     volumes:
