@@ -53,8 +53,8 @@ Two steps, then, to diff production against anything:
 **1. Identify what is deployed.** `/actuator/info` is exposed in production
 (`management.endpoints.web.exposure.include=health,info`) and carries the build version — the
 Maven `build-info` goal bakes it into the image. Fetch `https://<host>/actuator/info` from a
-browser or any HTTP client that can leave the machine; the repo's `scripts/http_check.py` helper
-reaches loopback only, so it is for the local step below, not this one.
+browser or any HTTP client that can leave the machine; the workspace's `../scripts/http_check.py`
+helper reaches loopback only, so it is for the local step below, not this one.
 
 Cross-check against `IMAGE_TAG` in `.env.prod` on the VM — the tag names exactly one build, and
 `build-image.yml` tags every image with both the application version and the commit SHA, so
