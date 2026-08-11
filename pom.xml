@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>com.teng.app</groupId>
 	<artifactId>gastosai</artifactId>
-	<version>0.67.2</version>
+	<version>0.67.3</version>
 	<name/>
 	<description/>
 	<url/>
@@ -150,6 +150,24 @@
 		<dependency>
 			<groupId>org.springframework.security</groupId>
 			<artifactId>spring-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- Real PostgreSQL for the migration chain: H2 in PostgreSQL mode cannot prove that
+		     V1..Vn apply to the engine production runs on. Versions come from the Boot parent's
+		     Testcontainers BOM. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-testcontainers</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-postgresql</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-junit-jupiter</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<!-- Core-only circuit breaker (no Spring Boot starter) - guards external LLM provider calls.
