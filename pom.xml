@@ -143,17 +143,15 @@
 			<artifactId>flyway-database-postgresql</artifactId>
 		</dependency>
 		<dependency>
-			<groupId>com.h2database</groupId>
-			<artifactId>h2</artifactId>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
 			<groupId>org.springframework.security</groupId>
 			<artifactId>spring-security-test</artifactId>
 			<scope>test</scope>
 		</dependency>
-		<!-- Real PostgreSQL for the migration chain: H2 in PostgreSQL mode cannot prove that
-		     V1..Vn apply to the engine production runs on. Versions come from the Boot parent's
+		<!-- Real PostgreSQL for the whole test suite. H2 in PostgreSQL mode emulates casing,
+		     information_schema, partial indexes, ON CONFLICT and interval/timestamp arithmetic
+		     differently enough that a repository change could pass CI and fail in production, so
+		     it is gone from the test scope entirely — see src/test/resources/application.properties
+		     for how the one shared container is wired. Versions come from the Boot parent's
 		     Testcontainers BOM. -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

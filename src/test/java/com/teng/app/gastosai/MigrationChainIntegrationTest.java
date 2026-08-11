@@ -26,15 +26,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Applies the whole Flyway chain to an empty, real PostgreSQL and then lets Hibernate validate
  * the entities against the resulting schema.
  *
- * <p>The rest of the suite runs on H2 in PostgreSQL compatibility mode with the schema derived
- * from the entities (ddl-auto=create-drop, Flyway disabled). That is fast, and fine for unit and
- * slice tests, but it means the migrations are never executed by CI — a migration using syntax H2
- * does not have, or one that drifts from the entities, would merge green and fail on deploy. This
- * test is the gate for exactly that, so it runs on the engine production runs: PostgreSQL 17, the
- * version in both docker-compose.yaml and Supabase.
+ * <p>The rest of the suite is on real PostgreSQL too (TEN-241), sharing one container across every
+ * Spring context. This class is the only one that does not join it, and the reason is the whole
+ * point of the test: that container is migrated once by whichever context starts first and then
+ * accumulates rows for the rest of the run, so it can never again show what a <em>new</em>
+ * environment sees. This one is empty on every run (a fresh volume per container), so Flyway
+ * starts from nothing and applies V1..Vn in order — the same path a new environment takes. Two
+ * containers per suite is the price of that guarantee, and it is the reason the class keeps its
+ * own {@code testcontainers} profile rather than the default one.
  *
- * <p>The container is empty on every run (a fresh volume per container), so Flyway starts from
- * nothing and applies V1..Vn in order — the same path a new environment takes.
+ * <p>PostgreSQL 17 in both places: the version in docker-compose.yaml and in Supabase.
  *
  * <p>Skipped, not failed, when no Docker daemon is reachable, so a local run without Docker still
  * gets the rest of the suite. CI runners have Docker, so the gate holds where it matters.

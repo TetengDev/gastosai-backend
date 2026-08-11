@@ -10,6 +10,7 @@ import com.teng.app.gastosai.repository.AiUsageRepository;
 import com.teng.app.gastosai.repository.AppEventRepository;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.service.AiQuotaService;
+import com.teng.app.gastosai.support.PostgresBackedTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "gastos.ai.absolute-monthly-cap=10000",
         "gastos.ai.allow-shared-key=true"
 })
-class GlobalAiDailyBudgetIntegrationTest {
+class GlobalAiDailyBudgetIntegrationTest extends PostgresBackedTest {
 
     @Autowired UserRepository userRepository;
     @Autowired AiUsageRepository aiUsageRepository;

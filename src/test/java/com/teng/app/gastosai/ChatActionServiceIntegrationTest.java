@@ -18,6 +18,7 @@ import com.teng.app.gastosai.repository.CategoryRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import com.teng.app.gastosai.repository.SavingsGoalRepository;
 import com.teng.app.gastosai.repository.UserRepository;
+import com.teng.app.gastosai.support.PostgresBackedTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,7 +48,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "gastos.monetization.enforce=false"
 })
 @Transactional
-class ChatActionServiceIntegrationTest {
+class ChatActionServiceIntegrationTest extends PostgresBackedTest {
 
     @Autowired WebApplicationContext webApplicationContext;
     @Autowired UserRepository userRepository;

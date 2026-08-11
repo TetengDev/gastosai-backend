@@ -8,6 +8,7 @@ import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.service.AiInsightService;
 import com.teng.app.gastosai.service.ExpenseService;
+import com.teng.app.gastosai.support.PostgresBackedTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,7 +26,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest
-class AiInsightCacheTest {
+class AiInsightCacheTest extends PostgresBackedTest {
 
 	@Autowired
 	AiInsightService aiInsightService;

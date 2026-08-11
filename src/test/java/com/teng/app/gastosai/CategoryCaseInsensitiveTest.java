@@ -6,6 +6,7 @@ import com.teng.app.gastosai.entity.Role;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.service.CategoryService;
+import com.teng.app.gastosai.support.PostgresBackedTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
 @Transactional
-class CategoryCaseInsensitiveTest {
+class CategoryCaseInsensitiveTest extends PostgresBackedTest {
 
     @Autowired
     CategoryService categoryService;

@@ -14,6 +14,7 @@ import com.teng.app.gastosai.repository.PaymentCheckoutRepository;
 import com.teng.app.gastosai.repository.SubscriptionPlanRepository;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.repository.UserSubscriptionRepository;
+import com.teng.app.gastosai.support.PostgresBackedTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,7 +50,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "gastos.paymongo.webhook-secret=integration-test-secret",
         "gastos.paymongo.secret-key=sk_test_placeholder"
 })
-class PaymentApiIntegrationTest {
+class PaymentApiIntegrationTest extends PostgresBackedTest {
 
     private static final String WEBHOOK_SECRET = "integration-test-secret";
 

@@ -3,6 +3,7 @@ package com.teng.app.gastosai;
 import com.teng.app.gastosai.config.JwtUtil;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.UserRepository;
+import com.teng.app.gastosai.support.PostgresBackedTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,7 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
-class UserAiSettingsApiIntegrationTest {
+class UserAiSettingsApiIntegrationTest extends PostgresBackedTest {
 
 	@Autowired
 	WebApplicationContext webApplicationContext;
