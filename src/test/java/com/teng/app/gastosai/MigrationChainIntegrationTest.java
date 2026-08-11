@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.core.env.Environment;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -49,24 +50,24 @@ class MigrationChainIntegrationTest {
 
     @Autowired Flyway flyway;
     @Autowired JdbcTemplate jdbcTemplate;
+    @Autowired Environment environment;
 
     @Test
     void everyMigrationAppliesCleanlyToAnEmptyDatabase() throws IOException {
         List<MigrationInfo> applied = Arrays.asList(flyway.info().applied());
 
         assertThat(applied)
+                .allSatisfy(info -> assertThat(info.getState())
+                        .as("migration %s (%s) state", info.getVersion(), info.getDescription())
+                        .isEqualTo(MigrationState.SUCCESS));
+
+        // Counted against the scripts on the classpath rather than a literal, so adding a
+        // migration does not require editing this test. Repeatable migrations (R__) are counted
+        // separately because they are not part of the versioned chain — there are none today.
+        List<MigrationInfo> versioned = applied.stream().filter(i -> i.getVersion() != null).toList();
+        assertThat(versioned)
                 .as("every versioned migration on the classpath must have been applied")
                 .hasSize(migrationScriptCount());
-
-        assertThat(applied)
-                .allSatisfy(info -> {
-                    assertThat(info.getState())
-                            .as("migration %s (%s) state", info.getVersion(), info.getDescription())
-                            .isEqualTo(MigrationState.SUCCESS);
-                    assertThat(info.getVersion())
-                            .as("the chain must be versioned, not repeatable")
-                            .isNotNull();
-                });
 
         // Flyway refuses to hand out a "current" version if the chain is broken or pending, so
         // this also pins that the head the entities were validated against is the last script.
@@ -78,7 +79,14 @@ class MigrationChainIntegrationTest {
         // Reaching this point at all means ddl-auto=validate passed during context startup: with
         // the testcontainers profile Hibernate creates nothing, so any column the entities expect
         // and the migrations did not create would have failed the context before the first test.
-        assertThat(flyway.getConfiguration().getDataSource()).isNotNull();
+        // That is only true while the profile keeps Flyway on and Hibernate in validate mode —
+        // flip either and this class would still go green while proving nothing, so pin both.
+        assertThat(environment.getProperty("spring.jpa.hibernate.ddl-auto"))
+                .as("Hibernate must validate the migrated schema, never generate one")
+                .isEqualTo("validate");
+        assertThat(environment.getProperty("spring.flyway.enabled", Boolean.class))
+                .as("the schema under test must come from the migrations")
+                .isTrue();
 
         Integer historyRows = jdbcTemplate.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE success = false", Integer.class);
