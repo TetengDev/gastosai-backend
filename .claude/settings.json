@@ -10,7 +10,6 @@
   },
   "enabledPlugins": {
     "developers-anthropic-skills@agentic-company-os": true,
-    "developers-claude-mem@agentic-company-os": true,
     "developers-context7@agentic-company-os": true,
     "developers-superpowers@agentic-company-os": true,
     "developers@agentic-company-os": true
