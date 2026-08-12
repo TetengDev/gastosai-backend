@@ -122,3 +122,92 @@ class GlobalAiDailyBudgetIntegrationTest extends PostgresBackedTest {
                 .doesNotThrowAnyException();
     }
 }
+
+/**
+ * TEN-244 regression: the same caps, in the shipping default configuration.
+ *
+ * <p>{@code gastos.ai.allow-shared-key=false} means every request is served by the user's own key,
+ * so the platform spends nothing on it. {@code globalDailyMax} and {@code absoluteMonthlyCap} meter
+ * <em>our</em> budget — they live in {@code AiManagedProperties} beside {@code allowSharedKey} and
+ * the per-plan quotas — so in this mode they must not fire. Before the fix both were checked above
+ * the managed-mode guard, so one heavy user's traffic locked out everybody else.
+ *
+ * <p>A second top-level class rather than a {@code @Nested} one: the property differs, which means
+ * a different Spring context, and {@code @TestPropertySource} is type-level only. Spring injects
+ * only the innermost instance of a {@code @Nested} hierarchy, so a nested class cannot reuse the
+ * enclosing class's autowired fixtures anyway.
+ */
+@SpringBootTest
+@TestPropertySource(properties = {
+        "gastos.ai.global-daily-max=3",
+        "gastos.ai.absolute-monthly-cap=2",
+        "gastos.ai.allow-shared-key=false"
+})
+class GlobalAiDailyBudgetByoKeyIntegrationTest extends PostgresBackedTest {
+
+    @Autowired UserRepository userRepository;
+    @Autowired AiUsageRepository aiUsageRepository;
+    @Autowired AppEventRepository appEventRepository;
+    @Autowired AiQuotaService aiQuotaService;
+    @Autowired PasswordEncoder passwordEncoder;
+
+    User heavyUser;
+    User byoUser;
+
+    @BeforeEach
+    void setUp() {
+        heavyUser = userRepository.save(User.builder()
+                .name("Heavy").email("heavy@test.com")
+                .password(passwordEncoder.encode("pw")).role(Role.USER).build());
+
+        byoUser = userRepository.save(User.builder()
+                .name("BYO").email("byo@test.com")
+                .password(passwordEncoder.encode("pw")).role(Role.USER).build());
+    }
+
+    private void seedSuccessRow(Long userId) {
+        aiUsageRepository.save(AiUsage.builder()
+                .userId(userId)
+                .provider("openai")
+                .model("gpt-4o-mini")
+                .feature(AiFeature.CHAT_CRUD_ASSISTANT)
+                .status(AiUsageStatus.SUCCESS)
+                .build());
+    }
+
+    /** One user drives the platform-wide daily counter past the cap; a second user is unaffected. */
+    @Test
+    void oneUserExhaustsGlobalPool_otherUserUnaffected() {
+        // global-daily-max=3, and every row belongs to the heavy user
+        seedSuccessRow(heavyUser.getId());
+        seedSuccessRow(heavyUser.getId());
+        seedSuccessRow(heavyUser.getId());
+        seedSuccessRow(heavyUser.getId());
+
+        assertThat(aiQuotaService.globalDailyUsed()).isGreaterThanOrEqualTo(3);
+        assertThat(aiQuotaService.usedThisMonth(byoUser.getId())).isZero();
+        // what GET /ai/usage reports to this user: no managed quota applies
+        assertThat(aiQuotaService.managedActive()).isFalse();
+
+        assertThatCode(() -> aiQuotaService.assertWithinQuota(byoUser, AiFeature.CHAT_CRUD_ASSISTANT))
+                .doesNotThrowAnyException();
+
+        // and nothing was logged as abuse against a user who made no request
+        assertThat(appEventRepository.findAll())
+                .noneMatch(e -> "AI_GLOBAL_CAP".equals(e.getEventType())
+                        && byoUser.getId().equals(e.getUserId()));
+    }
+
+    /** The per-user absolute monthly cap is a shared-key budget guard too. */
+    @Test
+    void absoluteMonthlyCapNotEnforced() {
+        seedSuccessRow(byoUser.getId());
+        seedSuccessRow(byoUser.getId());
+
+        assertThat(aiQuotaService.usedThisMonth(byoUser.getId()))
+                .isGreaterThanOrEqualTo(2); // at absolute-monthly-cap=2
+
+        assertThatCode(() -> aiQuotaService.assertWithinQuota(byoUser, AiFeature.CHAT_CRUD_ASSISTANT))
+                .doesNotThrowAnyException();
+    }
+}

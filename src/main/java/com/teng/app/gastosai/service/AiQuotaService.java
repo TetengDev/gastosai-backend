@@ -36,6 +36,17 @@ public class AiQuotaService {
     // otherwise read-only, but marking it so is misleading now that it has a write side-effect.
     @Transactional
     public void assertWithinQuota(User user, AiFeature feature) {
+        // Every cap below guards the *shared key's* spend, not platform load. `globalDailyMax`
+        // and `absoluteMonthlyCap` live in AiManagedProperties beside `allowSharedKey` and the
+        // per-plan quotas because they meter one budget: ours. A user calling the provider on
+        // their own key spends none of it, so none of these caps apply to them — and `GET
+        // /ai/usage` already reports exactly that, returning `managed: managedActive()`.
+        //
+        // If a platform-load guard is ever wanted, it is a different mechanism (rate limiting,
+        // per-IP or per-user) with a different error — not this budget counter. See TEN-244.
+        if (!managedActive()) {
+            return;
+        }
         if (!user.isAdmin() && globalDailyUsed() >= managedProps.getGlobalDailyMax()) {
             appEventService.recordAbuseTrip("AI_GLOBAL_CAP", user.getId(), "/ai",
                     "Global daily AI request cap reached");
@@ -46,9 +57,6 @@ public class AiQuotaService {
             if (used >= managedProps.getAbsoluteMonthlyCap()) {
                 throw new AiQuotaExceededException();
             }
-        }
-        if (!managedProps.isAllowSharedKey() || !managedProps.isFeaturesEnabled()) {
-            return;
         }
         EntitlementService.Entitlements entitlements = entitlementService.describe(user);
         if (entitlements.admin()) {
