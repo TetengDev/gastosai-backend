@@ -36,18 +36,20 @@ public class AiQuotaService {
     // otherwise read-only, but marking it so is misleading now that it has a write side-effect.
     @Transactional
     public void assertWithinQuota(User user, AiFeature feature) {
-        // Every cap below guards the *shared key's* spend, not platform load. `globalDailyMax`
-        // and `absoluteMonthlyCap` live in AiManagedProperties beside `allowSharedKey` and the
-        // per-plan quotas because they meter one budget: ours. A user calling the provider on
-        // their own key spends none of it, so none of these caps apply to them — and `GET
-        // /ai/usage` already reports exactly that, returning `managed: managedActive()`.
+        // `globalDailyMax` is a *shared pool*: one counter for the whole platform, spent against
+        // our key. A user calling the provider on their own key spends none of it, so charging
+        // them against that pool lets one heavy caller lock out everybody else — the bug TEN-244
+        // reports. Hence the managedActive() gate here, and only here.
         //
-        // If a platform-load guard is ever wanted, it is a different mechanism (rate limiting,
-        // per-IP or per-user) with a different error — not this budget counter. See TEN-244.
-        if (!managedActive()) {
-            return;
-        }
-        if (!user.isAdmin() && globalDailyUsed() >= managedProps.getGlobalDailyMax()) {
+        // `absoluteMonthlyCap` below is deliberately NOT gated. It is per-user
+        // (usedThisMonth(user.getId())) and it guards our backend rather than our provider bill:
+        // parsing, storage and database work happen on every request no matter who pays the
+        // provider. It is an abuse valve, not a budget counter, so it applies in
+        // bring-your-own-key mode too — which is what
+        // AiQuotaServiceTest.absoluteCap_blocks_whenAtCap_byoMode asserts.
+        if (managedActive()
+                && !user.isAdmin()
+                && globalDailyUsed() >= managedProps.getGlobalDailyMax()) {
             appEventService.recordAbuseTrip("AI_GLOBAL_CAP", user.getId(), "/ai",
                     "Global daily AI request cap reached");
             throw new AiQuotaExceededException();
@@ -57,6 +59,11 @@ public class AiQuotaService {
             if (used >= managedProps.getAbsoluteMonthlyCap()) {
                 throw new AiQuotaExceededException();
             }
+        }
+        // Per-plan entitlement quotas are shared-key concepts; they do not apply on a user's
+        // own key. This is the guard that stood here before TEN-244, unchanged in meaning.
+        if (!managedActive()) {
+            return;
         }
         EntitlementService.Entitlements entitlements = entitlementService.describe(user);
         if (entitlements.admin()) {

@@ -127,10 +127,14 @@ class GlobalAiDailyBudgetIntegrationTest extends PostgresBackedTest {
  * TEN-244 regression: the same caps, in the shipping default configuration.
  *
  * <p>{@code gastos.ai.allow-shared-key=false} means every request is served by the user's own key,
- * so the platform spends nothing on it. {@code globalDailyMax} and {@code absoluteMonthlyCap} meter
- * <em>our</em> budget — they live in {@code AiManagedProperties} beside {@code allowSharedKey} and
- * the per-plan quotas — so in this mode they must not fire. Before the fix both were checked above
- * the managed-mode guard, so one heavy user's traffic locked out everybody else.
+ * so the platform spends nothing at the provider on it. {@code globalDailyMax} is a shared pool
+ * metered against <em>our</em> key, so in this mode it must not fire — before the fix it was checked
+ * above the managed-mode guard, and one heavy user's traffic locked out everybody else.
+ *
+ * <p>{@code absoluteMonthlyCap} is the deliberate exception, and this class pins that too. It is
+ * per-user and guards the backend rather than the provider bill, so it still fires here. The unit
+ * test {@code AiQuotaServiceTest.absoluteCap_blocks_whenAtCap_byoMode} asserts the same thing; the
+ * two caps were conflated when this issue was first written up.
  *
  * <p>A second top-level class rather than a {@code @Nested} one: the property differs, which means
  * a different Spring context, and {@code @TestPropertySource} is type-level only. Spring injects
@@ -198,16 +202,21 @@ class GlobalAiDailyBudgetByoKeyIntegrationTest extends PostgresBackedTest {
                         && byoUser.getId().equals(e.getUserId()));
     }
 
-    /** The per-user absolute monthly cap is a shared-key budget guard too. */
+    /**
+     * The per-user absolute monthly cap is an abuse valve on our backend, not a guard on our
+     * provider bill, so it still fires on the user's own key. This is the half of TEN-244 that is
+     * deliberately <em>not</em> exempted — see the class javadoc.
+     */
     @Test
-    void absoluteMonthlyCapNotEnforced() {
+    void absoluteMonthlyCapStillEnforced() {
         seedSuccessRow(byoUser.getId());
         seedSuccessRow(byoUser.getId());
 
         assertThat(aiQuotaService.usedThisMonth(byoUser.getId()))
                 .isGreaterThanOrEqualTo(2); // at absolute-monthly-cap=2
+        assertThat(aiQuotaService.managedActive()).isFalse();
 
-        assertThatCode(() -> aiQuotaService.assertWithinQuota(byoUser, AiFeature.CHAT_CRUD_ASSISTANT))
-                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> aiQuotaService.assertWithinQuota(byoUser, AiFeature.CHAT_CRUD_ASSISTANT))
+                .isInstanceOf(AiQuotaExceededException.class);
     }
 }
