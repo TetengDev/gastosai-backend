@@ -9,16 +9,22 @@
     ]
   },
   "enabledPlugins": {
+    "context7@claude-plugins-official": true,
     "developers-anthropic-skills@agentic-company-os": true,
-    "developers-context7@agentic-company-os": true,
-    "developers-superpowers@agentic-company-os": true,
-    "developers@agentic-company-os": true
+    "developers@agentic-company-os": true,
+    "superpowers@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "agentic-company-os": {
       "source": {
         "source": "github",
         "repo": "TetengDev/agentic-company"
+      }
+    },
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-official"
       }
     }
   }
