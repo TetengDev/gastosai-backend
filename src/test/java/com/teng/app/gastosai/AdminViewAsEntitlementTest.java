@@ -7,6 +7,7 @@ import com.teng.app.gastosai.entity.Role;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.service.EntitlementService;
+import com.teng.app.gastosai.support.PostgresBackedTest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,7 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
-class AdminViewAsEntitlementTest {
+class AdminViewAsEntitlementTest extends PostgresBackedTest {
 
 	@Autowired
 	EntitlementService entitlementService;

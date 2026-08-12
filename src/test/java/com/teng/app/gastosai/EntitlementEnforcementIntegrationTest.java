@@ -3,6 +3,7 @@ package com.teng.app.gastosai;
 import com.teng.app.gastosai.config.JwtUtil;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.UserRepository;
+import com.teng.app.gastosai.support.PostgresBackedTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,7 +23,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
 
 @SpringBootTest
 @TestPropertySource(properties = {"gastos.monetization.enforce=true", "gastos.ai.allow-shared-key=true"})
-class EntitlementEnforcementIntegrationTest {
+class EntitlementEnforcementIntegrationTest extends PostgresBackedTest {
 
     @Autowired WebApplicationContext webApplicationContext;
     @Autowired UserRepository userRepository;

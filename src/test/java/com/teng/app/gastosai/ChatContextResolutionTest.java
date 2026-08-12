@@ -11,6 +11,7 @@ import com.teng.app.gastosai.repository.ChatAuditLogRepository;
 import com.teng.app.gastosai.repository.ConversationRepository;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.service.ChatActionService;
+import com.teng.app.gastosai.support.PostgresBackedTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,7 +24,7 @@ import static org.mockito.Mockito.when;
 
 /** Phase 2b-2: a created expense is recorded as the conversation's last entity (deterministic half of the hybrid). */
 @SpringBootTest
-class ChatContextResolutionTest {
+class ChatContextResolutionTest extends PostgresBackedTest {
 
 	@Autowired ChatActionService chatActionService;
 	@Autowired UserRepository userRepository;

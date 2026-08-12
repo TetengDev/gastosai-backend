@@ -8,6 +8,7 @@ import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.service.ConversationService;
+import com.teng.app.gastosai.support.PostgresBackedTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
-class ConversationServiceTest {
+class ConversationServiceTest extends PostgresBackedTest {
 
 	@Autowired ConversationService service;
 	@Autowired UserRepository userRepository;

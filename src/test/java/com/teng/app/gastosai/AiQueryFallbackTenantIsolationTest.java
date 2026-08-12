@@ -9,6 +9,7 @@ import com.teng.app.gastosai.repository.ExpenseRepository;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.service.AiQueryService;
 import com.teng.app.gastosai.service.AiQuotaService;
+import com.teng.app.gastosai.support.PostgresBackedTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,7 +32,7 @@ import static org.mockito.Mockito.when;
  * which covers the structured path.
  */
 @SpringBootTest
-class AiQueryFallbackTenantIsolationTest {
+class AiQueryFallbackTenantIsolationTest extends PostgresBackedTest {
 
     @Autowired UserRepository userRepository;
     @Autowired ExpenseRepository expenseRepository;

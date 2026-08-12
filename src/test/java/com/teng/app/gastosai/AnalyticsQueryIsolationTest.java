@@ -11,6 +11,7 @@ import com.teng.app.gastosai.entity.Expense;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import com.teng.app.gastosai.repository.UserRepository;
+import com.teng.app.gastosai.support.PostgresBackedTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** Proves the structured analytics pipeline only ever returns the querying user's own rows. */
 @SpringBootTest
-class AnalyticsQueryIsolationTest {
+class AnalyticsQueryIsolationTest extends PostgresBackedTest {
 
     @Autowired UserRepository userRepository;
     @Autowired ExpenseRepository expenseRepository;

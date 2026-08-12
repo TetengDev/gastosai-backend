@@ -18,6 +18,7 @@ import com.teng.app.gastosai.repository.CategoryRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import com.teng.app.gastosai.repository.SavingsGoalRepository;
 import com.teng.app.gastosai.repository.UserRepository;
+import com.teng.app.gastosai.support.PostgresBackedTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,7 +29,6 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
 
 import java.math.BigDecimal;
@@ -46,8 +46,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "gastos.ai.allow-shared-key=true",
         "gastos.monetization.enforce=false"
 })
-@Transactional
-class ChatActionServiceIntegrationTest {
+// Deliberately NOT @Transactional, unlike most integration tests here. Every /ai/chat request
+// meters through AiUsageService.record, which is Propagation.REQUIRES_NEW — a separate transaction
+// that cannot see rows an enclosing test transaction has not committed. The users this class
+// creates in setUp() are exactly such rows, so the metering insert violated fk_ai_usage_user,
+// marked the test transaction rollback-only, and the resulting failure opened the LLM circuit
+// breaker for the eight tests that followed.
+//
+// This passed under H2 only because ai_usage.user_id is mapped as a plain Long, not a @ManyToOne:
+// the ddl-auto=create-drop schema Hibernate generated for itself had no foreign key there at all,
+// while the migrations that own the real schema do. Committing the fixture removes the divergence;
+// isolation still comes from PostgresBackedTest's truncation, which does not need a shared
+// transaction to work.
+class ChatActionServiceIntegrationTest extends PostgresBackedTest {
 
     @Autowired WebApplicationContext webApplicationContext;
     @Autowired UserRepository userRepository;

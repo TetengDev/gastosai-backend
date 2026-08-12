@@ -1,6 +1,7 @@
 package com.teng.app.gastosai;
 
 import com.teng.app.gastosai.repository.UserRepository;
+import com.teng.app.gastosai.support.PostgresBackedTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,7 +21,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * comparison in both branches so account existence is not observable (CWE-208).
  */
 @SpringBootTest
-class LoginEnumerationIntegrationTest {
+class LoginEnumerationIntegrationTest extends PostgresBackedTest {
 
 	@Autowired WebApplicationContext webApplicationContext;
 	@Autowired UserRepository userRepository;

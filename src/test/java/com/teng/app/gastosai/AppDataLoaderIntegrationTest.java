@@ -30,11 +30,17 @@ import org.springframework.test.context.TestPropertySource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/*
+ * Shares the suite's PostgreSQL container rather than carving out a private database: the
+ * assertions below are all scoped to the demo user, or are before/after deltas, so rows another
+ * class left behind cannot move them.
+ *
+ * It is the one database-touching class that does NOT extend PostgresBackedTest — its subject is
+ * the data AppDataLoader seeds at context startup, and truncating before each test would delete
+ * exactly what it asserts.
+ */
 @SpringBootTest
-@TestPropertySource(properties = {
-        "gastos.seed-sample-data=true",
-        "spring.datasource.url=jdbc:h2:mem:seedtest;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1"
-})
+@TestPropertySource(properties = "gastos.seed-sample-data=true")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class AppDataLoaderIntegrationTest {
 
