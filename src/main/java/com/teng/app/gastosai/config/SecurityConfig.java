@@ -26,6 +26,8 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
 
 import org.springframework.http.HttpStatus;
 
+import java.util.List;
+
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor
@@ -34,6 +36,25 @@ public class SecurityConfig {
 	private final JwtAuthFilter jwtAuthFilter;
 	private final RequestLoggingFilter requestLoggingFilter;
 	private final UserRepository userRepository;
+
+	/**
+	 * A request restricted to {@code ROLE_ADMIN}. A {@code null} method means every method on the
+	 * pattern is restricted.
+	 */
+	record AdminRule(HttpMethod method, String pattern) {
+	}
+
+	/**
+	 * The ADMIN half of the boundary {@link PublicEndpoints#RULES} defines the other half of.
+	 *
+	 * <p>Order matters against that list, not within itself: the chain permits every public rule
+	 * first, so {@code POST /submissions} stays anonymous even though {@code /submissions/**} is
+	 * restricted here.
+	 */
+	static final List<AdminRule> ADMIN_RULES = List.of(
+			new AdminRule(HttpMethod.GET, "/submissions"),
+			new AdminRule(null, "/submissions/**"),
+			new AdminRule(null, "/admin/**"));
 
 	@Bean
 	public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -59,11 +80,14 @@ public class SecurityConfig {
 					for (PublicEndpoints.Rule rule : PublicEndpoints.RULES) {
 						auth.requestMatchers(publicMatcher(rule)).permitAll();
 					}
-					auth
-						.requestMatchers(HttpMethod.GET, "/submissions").hasRole("ADMIN")
-						.requestMatchers("/submissions/**").hasRole("ADMIN")
-						.requestMatchers("/admin/**").hasRole("ADMIN")
-						.anyRequest().authenticated();
+					// The denied half of the same boundary, built through the same factory as the
+					// permitted half above. Two matcher engines resolving one boundary is the drift
+					// this avoids: an upgrade that moved the implicit default would move only one
+					// side of the line between anonymous callers and the moderation queue.
+					for (AdminRule rule : ADMIN_RULES) {
+						auth.requestMatchers(adminMatcher(rule)).hasRole("ADMIN");
+					}
+					auth.anyRequest().authenticated();
 				})
 				.exceptionHandling(e -> e
 						.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
@@ -86,10 +110,28 @@ public class SecurityConfig {
 	 * something stable to compare against.
 	 */
 	static RequestMatcher publicMatcher(PublicEndpoints.Rule rule) {
+		return matcher(rule.method(), rule.pattern());
+	}
+
+	/**
+	 * The request matcher this chain restricts an {@link AdminRule} with.
+	 *
+	 * <p>Deliberately the same factory as {@link #publicMatcher}, and named for the same reason. The
+	 * permitted and denied halves of one boundary have to be resolved by one engine: if they were not,
+	 * an upgrade that changed the implicit default of {@code auth.requestMatchers(String)} would move
+	 * only the ADMIN half — on the line separating anonymous callers from the moderation queue and the
+	 * admin surface. {@code SecurityConfigAdminMatchersTest} asserts the two factories agree over
+	 * every admin pattern, and that the boundary they jointly define resolves the same way under
+	 * either engine.
+	 */
+	static RequestMatcher adminMatcher(AdminRule rule) {
+		return matcher(rule.method(), rule.pattern());
+	}
+
+	/** The one place a matcher engine is chosen, for both halves of the boundary. */
+	private static RequestMatcher matcher(HttpMethod method, String pattern) {
 		PathPatternRequestMatcher.Builder builder = PathPatternRequestMatcher.withDefaults();
-		return rule.method() == null
-				? builder.matcher(rule.pattern())
-				: builder.matcher(rule.method(), rule.pattern());
+		return method == null ? builder.matcher(pattern) : builder.matcher(method, pattern);
 	}
 
 	@Bean
