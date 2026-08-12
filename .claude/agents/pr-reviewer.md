@@ -63,6 +63,15 @@ number is missing, ask — do not guess.
    `/api/v2` path with the old one kept live — a breaking change published before clients can
    migrate is a BLOCKER.
 
+   **Version** — if anything under `src/` changed, the `pom.xml` **project** version must be bumped
+   (not the parent's). `feat:` → MINOR, `fix:`/`perf:` → PATCH, `!` → MAJOR, `docs:`/`chore:`/`ci:`
+   → none. A `meta/*` branch must not touch `src/` or the version.
+
+   Check the bump against `main` and against the tags, not just that the line changed:
+   `auto-release.yml` tags `v$(scripts/project-version.sh)` on merge and **skips when the tag
+   already exists**, so a version that merely matches `main` ships the change untagged and
+   unreleased. That happened on PR #33, which bumped to a number `main` had already taken.
+
    **Ownership** — the Linear issue carries an `Owns` block listing the paths it may write. Any
    file in the diff outside those paths is a finding. This is what makes parallel work safe: two
    agents told they may run concurrently, writing the same file, is the failure the ownership map

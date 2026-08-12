@@ -28,8 +28,6 @@ specific to this repo.
 4. **Audit** — run the `pr-review-auditor` agent with the reviewer's findings and the PR number.
    **Low-risk changes skip this step**; medium and high always run it. Risk levels and the
    critical-domain list: `../docs/ship-loop.md`. When in doubt, take the higher level.
-   **Low-risk changes skip this step**; medium and high always run it. Risk levels and the
-   critical-domain list: `../docs/ship-loop.md`. When in doubt, take the higher level.
 5. **Decide** — `APPROVE` stops the loop. Otherwise fix the upheld findings and start a new pass.
 
 **Three passes**, and only for high-risk work or while valid blocking findings remain. A fourth is
