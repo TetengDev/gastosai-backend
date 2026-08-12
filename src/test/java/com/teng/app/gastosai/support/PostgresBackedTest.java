@@ -6,6 +6,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.teng.app.gastosai.bootstrap.EntitlementSeeder;
 import com.teng.app.gastosai.config.AiStartupValidator;
@@ -38,8 +41,16 @@ import com.teng.app.gastosai.config.AiStartupValidator;
  * 429 for the first request it made. Letting the sequences run on keeps ids unique for the life of
  * the JVM, which is what the per-context H2 database used to give for free.
  *
- * <p>Subclasses that are themselves {@code @Transactional} still work — the truncation joins the
- * test's transaction and rolls back with it.
+ * <p>The reset runs in its <em>own committed transaction</em>, never the test's. {@code TRUNCATE}
+ * takes an {@code ACCESS EXCLUSIVE} lock on every table it names, and joining a {@code @Transactional}
+ * test's transaction would hold those locks for the whole test body. That is not a slow path, it is
+ * a hang: {@code AiUsageService.record} and {@code AppEventService} are
+ * {@code Propagation.REQUIRES_NEW}, so they take a <em>second</em> connection and try to insert into
+ * {@code ai_usage} / the event table while the test's own outer transaction still holds the exclusive
+ * lock on it. A transaction cannot wait for itself, so the suite stalls forever rather than failing.
+ * Committing the reset before the test body releases the locks up front and the nesting works
+ * normally. Under H2 each context had its own database, so this contention could not arise; one
+ * shared container makes it structural.
  *
  * <p>Deliberately not extended by {@code AppDataLoaderIntegrationTest}, whose subject is the data
  * seeded at context startup: truncating before each test would delete exactly what it asserts.
@@ -88,6 +99,9 @@ public abstract class PostgresBackedTest {
     @Autowired
     private EntitlementSeeder entitlementSeeder;
 
+    @Autowired
+    private PlatformTransactionManager postgresBackedTestTransactionManager;
+
     @BeforeEach
     void resetToAFreshlyStartedDatabase() {
         String statement = truncateStatement;
@@ -95,8 +109,17 @@ public abstract class PostgresBackedTest {
             statement = buildTruncateStatement();
             truncateStatement = statement;
         }
-        postgresBackedTestJdbcTemplate.execute(statement);
-        entitlementSeeder.run();
+        String truncate = statement;
+
+        // REQUIRES_NEW, not the ambient transaction: see the class javadoc. Spring has already
+        // started the test's transaction by the time @BeforeEach runs, so without this the
+        // TRUNCATE would enlist in it and hold ACCESS EXCLUSIVE locks for the whole test.
+        TransactionTemplate ownTransaction = new TransactionTemplate(postgresBackedTestTransactionManager);
+        ownTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        ownTransaction.executeWithoutResult(status -> {
+            postgresBackedTestJdbcTemplate.execute(truncate);
+            entitlementSeeder.run();
+        });
     }
 
     private String buildTruncateStatement() {
