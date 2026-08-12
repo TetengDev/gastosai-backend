@@ -1,4 +1,13 @@
 {
+  "permissions": {
+    "deny": [
+      "Edit(.env)",
+      "Edit(**/.env)",
+      "Edit(.env.local)",
+      "Edit(**/.env.local)",
+      "Edit(.agentic-team/**)"
+    ]
+  },
   "enabledPlugins": {
     "developers-anthropic-skills@agentic-company-os": true,
     "developers-claude-mem@agentic-company-os": true,
