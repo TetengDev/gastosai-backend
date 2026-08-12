@@ -1,7 +1,12 @@
 ---
 name: pre-pr
 description: Run the gastosai-backend pre-PR quality gate. Executes compile, tests, contract freshness, secrets scan, version and branch checks, and demands runtime execution evidence. Use before opening any pull request. Returns a pass/fail table.
-model: claude-haiku-4-5-20251001
+model: haiku
+tools:
+  - Read
+  - Glob
+  - Grep
+  - Bash
 ---
 
 You are the quality gate for `gastosai-backend`. Run every check below and report. **Do not open
