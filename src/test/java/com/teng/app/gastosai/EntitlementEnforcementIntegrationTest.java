@@ -17,6 +17,7 @@ import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.repository.UserSubscriptionRepository;
 import com.teng.app.gastosai.service.AiQueryService;
 import com.teng.app.gastosai.service.AiQuotaService;
+import com.teng.app.gastosai.service.CategorySeedService;
 import com.teng.app.gastosai.service.ChatActionService;
 import com.teng.app.gastosai.service.EntitlementService;
 import com.teng.app.gastosai.support.PostgresBackedTest;
@@ -94,6 +95,7 @@ class EntitlementEnforcementIntegrationTest extends PostgresBackedTest {
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired AiQuotaService aiQuotaService;
     @Autowired EntitlementService entitlementService;
+    @Autowired CategorySeedService categorySeedService;
 
     // Mocked so a request that passes the gate stops at the boundary instead of calling a provider.
     @MockitoBean AiQueryService aiQueryService;
@@ -242,11 +244,38 @@ class EntitlementEnforcementIntegrationTest extends PostgresBackedTest {
 
     @Test
     void free_sixthCategory_isBlockedWith402() throws Exception {
+        // A user starting from zero categories, which is the cap's own arithmetic. It is not the
+        // state a registered user is in — see free_afterRegistrationSeeding_cannotCreateAnyCategory.
         for (int i = 1; i <= FREE_CATEGORY_CAP; i++) {
             createCategory(freeAuth, "Category " + i).andExpect(status().isCreated());
         }
 
         createCategory(freeAuth, "Category " + (FREE_CATEGORY_CAP + 1))
+                .andExpect(status().isPaymentRequired())
+                .andExpect(jsonPath("$.feature").value("CUSTOM_CATEGORIES"));
+    }
+
+    /**
+     * Pins a live gap rather than endorsing it. Every registration path — password, magic link and
+     * Google — calls {@code CategorySeedService.seedPredefinedForUser}, which creates 12 categories.
+     * The FREE cap is 5. So a real FREE user is over the cap from the moment they sign up and can
+     * never create a category, while the 402 tells them their "plan is limited to 5 categories"
+     * as they look at 12 of them.
+     *
+     * <p>Found by walking the matrix by hand against a booted API, which is exactly the state the
+     * test above cannot reach: it builds its user through the repository, so no seeding runs.
+     *
+     * <p>The fix is a product decision — raise the cap above the seeded set, count only
+     * user-created categories, or seed fewer — and it lands in {@code CategoryService} or
+     * {@code CategoryLimitProperties}, neither of which TEN-153 owns. Asserting the current
+     * behaviour means whichever way it is resolved, this test fails and has to be updated
+     * deliberately, instead of the gap going quiet.
+     */
+    @Test
+    void free_afterRegistrationSeeding_cannotCreateAnyCategory() throws Exception {
+        categorySeedService.seedPredefinedForUser(free);
+
+        createCategory(freeAuth, "Groceries")
                 .andExpect(status().isPaymentRequired())
                 .andExpect(jsonPath("$.feature").value("CUSTOM_CATEGORIES"));
     }
