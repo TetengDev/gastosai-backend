@@ -215,4 +215,56 @@ class OpenApiContractTest {
 		assertTrue(offenders.isEmpty(),
 				"Money must never be a floating-point type — see CONTRACT.md. Offending fields: " + offenders);
 	}
+
+	/**
+	 * The v2 surface's entire reason to exist: money as an integer number of centavos (TEN-135).
+	 *
+	 * <p>The float/double guard above passes trivially for an integer, so it cannot tell a v2 that
+	 * serves centavos from one that quietly went on serving decimals — and a v2 that serves
+	 * decimals is a major version published for nothing, with both clients pinned to it. This is
+	 * the assertion that makes the promise checkable.
+	 *
+	 * <p>Percentages are excluded by name. {@code percentOfMonthTotal} matches a money-ish pattern
+	 * on "Total" while being a legitimate non-integer, and a guard that has to be argued with is a
+	 * guard that gets deleted.
+	 */
+	@Test
+	void v2MoneyIsIntegerCentavos() throws Exception {
+		MockMvc mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
+				.apply(springSecurity())
+				.build();
+
+		String body = mockMvc.perform(get("/v3/api-docs"))
+				.andExpect(status().isOk())
+				.andReturn()
+				.getResponse()
+				.getContentAsString();
+
+		JsonNode schemas = new ObjectMapper().readTree(body).path("components").path("schemas");
+
+		Set<String> checked = new TreeSet<>();
+		Set<String> offenders = new TreeSet<>();
+		schemas.fields().forEachRemaining(schema -> {
+			if (!schema.getKey().endsWith("V2")) {
+				return;
+			}
+			schema.getValue().path("properties").fields().forEachRemaining(property -> {
+				String name = property.getKey();
+				if (!MONEY_PROPERTY.matcher(name).find() || name.toLowerCase().startsWith("percent")) {
+					return;
+				}
+				checked.add(schema.getKey() + "." + name);
+				if (!property.getValue().path("type").asText("").equals("integer")) {
+					offenders.add(schema.getKey() + "." + name + " ("
+							+ property.getValue().path("type").asText("?") + ")");
+				}
+			});
+		});
+
+		assertTrue(checked.size() >= 20,
+				"Expected the v2 surface to carry money fields; found " + checked.size()
+						+ ". Has the v2 schema naming changed, leaving this guard checking nothing?");
+		assertTrue(offenders.isEmpty(),
+				"/api/v2 must serve money as integer centavos (TEN-135). Offending fields: " + offenders);
+	}
 }
