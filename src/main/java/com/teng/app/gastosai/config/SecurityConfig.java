@@ -50,11 +50,25 @@ public class SecurityConfig {
 	 * <p>Order matters against that list, not within itself: the chain permits every public rule
 	 * first, so {@code POST /submissions} stays anonymous even though {@code /submissions/**} is
 	 * restricted here.
+	 *
+	 * <p>Expanded over {@link PublicEndpoints#VERSION_PREFIXES} for the same reason the public half
+	 * is: every one of these patterns has a {@code /api/v2} twin serving the same data through the
+	 * same controller, and an admin rule written for only one surface is not a narrower rule — it is
+	 * an open one. Missing {@code /api/v2/admin/**} here would leave the whole v2 admin surface on
+	 * {@code anyRequest().authenticated()}, reachable by any logged-in user.
 	 */
-	static final List<AdminRule> ADMIN_RULES = List.of(
+	static final List<AdminRule> ADMIN_RULES = versionedAdminRules(
 			new AdminRule(HttpMethod.GET, "/submissions"),
 			new AdminRule(null, "/submissions/**"),
 			new AdminRule(null, "/admin/**"));
+
+	/** Each rule at every version prefix, preserving the given order within each prefix. */
+	private static List<AdminRule> versionedAdminRules(AdminRule... rules) {
+		return PublicEndpoints.VERSION_PREFIXES.stream()
+				.flatMap(prefix -> java.util.Arrays.stream(rules)
+						.map(rule -> new AdminRule(rule.method(), prefix + rule.pattern())))
+				.toList();
+	}
 
 	@Bean
 	public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {

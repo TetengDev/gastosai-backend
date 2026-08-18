@@ -38,19 +38,37 @@ public class WebConfig implements WebMvcConfigurer {
 				.maxAge(3600);
 	}
 
+	/**
+	 * Registers the path-pattern interceptors across every API version.
+	 *
+	 * <p>Every pattern below goes through {@link PublicEndpoints#atEveryVersion}, which expands it
+	 * over {@code VERSION_PREFIXES} — so {@code "/ai/**"} registers as both {@code /ai/**} and
+	 * {@code /api/v2/ai/**}. Writing the v1 patterns alone would not narrow these gates, it would
+	 * remove them: {@code /api/v2/ai/query} would then reach the LLM with no per-user key resolved
+	 * and no quota metered, and the v2 write endpoints would be exempt from the write rate limit.
+	 * A version prefix is not supposed to be a way around a rate limiter.
+	 *
+	 * <p>{@code viewAsInterceptor} and {@code featureAccessInterceptor} need no expansion — they are
+	 * registered against every request, and {@code @RequiresFeature} is re-declared on the v2
+	 * handlers so the plan gate resolves off the mapping that actually matched.
+	 */
 	@Override
 	public void addInterceptors(InterceptorRegistry registry) {
 		registry.addInterceptor(viewAsInterceptor);
 		registry.addInterceptor(publicRateLimitInterceptor)
-				.addPathPatterns("/auth/login", "/auth/register", "/auth/magic-link",
-						"/auth/magic-link/verify", "/submissions");
+				.addPathPatterns(PublicEndpoints.atEveryVersion("/auth/login", "/auth/register",
+						"/auth/magic-link", "/auth/magic-link/verify", "/submissions"));
 		// /expenses/parse also calls the LLM, so it needs the per-user key (BYO) like /ai/**.
 		// /ai/usage is informational only (no LLM call), so it is exempt from the key and rate-limit gates.
-		registry.addInterceptor(aiKeyContextInterceptor).addPathPatterns("/ai/**", "/expenses/parse").excludePathPatterns("/ai/usage");
-		registry.addInterceptor(aiRateLimitInterceptor).addPathPatterns("/ai/**", "/expenses/parse").excludePathPatterns("/ai/usage");
+		registry.addInterceptor(aiKeyContextInterceptor)
+				.addPathPatterns(PublicEndpoints.atEveryVersion("/ai/**", "/expenses/parse"))
+				.excludePathPatterns(PublicEndpoints.atEveryVersion("/ai/usage"));
+		registry.addInterceptor(aiRateLimitInterceptor)
+				.addPathPatterns(PublicEndpoints.atEveryVersion("/ai/**", "/expenses/parse"))
+				.excludePathPatterns(PublicEndpoints.atEveryVersion("/ai/usage"));
 		registry.addInterceptor(authenticatedWriteRateLimitInterceptor)
-				.addPathPatterns("/expenses/**", "/categories/**", "/budgets/**", "/recurring/**",
-						"/goals/**", "/alerts/**");
+				.addPathPatterns(PublicEndpoints.atEveryVersion("/expenses/**", "/categories/**",
+						"/budgets/**", "/recurring/**", "/goals/**", "/alerts/**"));
 		registry.addInterceptor(featureAccessInterceptor);
 	}
 }
