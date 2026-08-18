@@ -157,7 +157,15 @@ class SecurityConfigAdminMatchersTest {
 	void adminRulesCoverTheAdminSurfaces() {
 		Set<String> patterns = new TreeSet<>();
 		SecurityConfig.ADMIN_RULES.forEach(r -> patterns.add(r.method() + " " + r.pattern()));
-		assertEquals(Set.of("GET /submissions", "null /submissions/**", "null /admin/**"), patterns,
+		// Restated 2026-08-18 for TEN-135, which publishes /api/v2 beside /api/v1. Each v1 admin
+		// rule gains its v2 twin and nothing else: the same three surfaces, named twice. Confirmed
+		// against the rules themselves rather than assumed — an unrestricted /api/v2/admin/** is
+		// precisely the unauthenticated admin surface an earlier session stopped rather than ship.
+		assertEquals(Set.of(
+						"GET /submissions", "null /submissions/**", "null /admin/**",
+						"GET /api/v2/submissions", "null /api/v2/submissions/**",
+						"null /api/v2/admin/**"),
+				patterns,
 				"ADMIN_RULES changed; confirm the boundary table above still describes it.");
 	}
 

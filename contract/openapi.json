@@ -253,11 +253,71 @@
         },
         "type" : "object"
       },
+      "BucketSummaryV2" : {
+        "properties" : {
+          "bucket" : {
+            "enum" : [ "NEEDS", "WANTS", "SAVINGS" ],
+            "type" : "string"
+          },
+          "percent" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "percentUsed" : {
+            "format" : "double",
+            "type" : "number"
+          },
+          "remaining" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "spent" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "target" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "BudgetRequest" : {
         "properties" : {
           "amountLimit" : {
             "minimum" : 0.0,
             "type" : "number"
+          },
+          "categoryId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "currency" : {
+            "type" : "string"
+          },
+          "exchangeRate" : {
+            "minimum" : 0.0,
+            "type" : "number"
+          },
+          "month" : {
+            "minLength" : 1,
+            "pattern" : "\\d{4}-(0[1-9]|1[0-2])",
+            "type" : "string"
+          },
+          "recurring" : {
+            "type" : "boolean"
+          }
+        },
+        "required" : [ "amountLimit", "categoryId", "month" ],
+        "type" : "object"
+      },
+      "BudgetRequestV2" : {
+        "properties" : {
+          "amountLimit" : {
+            "format" : "int64",
+            "maximum" : 99999999999999999,
+            "minimum" : 1,
+            "type" : "integer"
           },
           "categoryId" : {
             "format" : "int64",
@@ -289,6 +349,42 @@
           },
           "amountLimitInBaseCurrency" : {
             "type" : "number"
+          },
+          "categoryId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "categoryName" : {
+            "type" : "string"
+          },
+          "currency" : {
+            "type" : "string"
+          },
+          "exchangeRate" : {
+            "type" : "number"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "month" : {
+            "type" : "string"
+          },
+          "recurring" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "BudgetResponseV2" : {
+        "properties" : {
+          "amountLimit" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "amountLimitInBaseCurrency" : {
+            "format" : "int64",
+            "type" : "integer"
           },
           "categoryId" : {
             "format" : "int64",
@@ -350,6 +446,33 @@
         "required" : [ "monthlyIncome", "ruleType" ],
         "type" : "object"
       },
+      "BudgetRuleRequestV2" : {
+        "properties" : {
+          "monthlyIncome" : {
+            "format" : "int64",
+            "minimum" : 0,
+            "type" : "integer"
+          },
+          "needsPct" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "ruleType" : {
+            "enum" : [ "FIFTY_THIRTY_TWENTY", "SEVENTY_TWENTY_TEN", "CUSTOM" ],
+            "type" : "string"
+          },
+          "savingsPct" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "wantsPct" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "required" : [ "monthlyIncome", "ruleType" ],
+        "type" : "object"
+      },
       "BudgetRuleResponse" : {
         "properties" : {
           "enabled" : {
@@ -357,6 +480,34 @@
           },
           "monthlyIncome" : {
             "type" : "number"
+          },
+          "needsPct" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "ruleType" : {
+            "enum" : [ "FIFTY_THIRTY_TWENTY", "SEVENTY_TWENTY_TEN", "CUSTOM" ],
+            "type" : "string"
+          },
+          "savingsPct" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "wantsPct" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "BudgetRuleResponseV2" : {
+        "properties" : {
+          "enabled" : {
+            "type" : "boolean"
+          },
+          "monthlyIncome" : {
+            "format" : "int64",
+            "type" : "integer"
           },
           "needsPct" : {
             "format" : "int32",
@@ -401,6 +552,32 @@
         },
         "type" : "object"
       },
+      "BudgetRuleSummaryResponseV2" : {
+        "properties" : {
+          "buckets" : {
+            "items" : {
+              "$ref" : "#/components/schemas/BucketSummaryV2"
+            },
+            "type" : "array"
+          },
+          "month" : {
+            "type" : "string"
+          },
+          "monthlyIncome" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "ruleType" : {
+            "enum" : [ "FIFTY_THIRTY_TWENTY", "SEVENTY_TWENTY_TEN", "CUSTOM" ],
+            "type" : "string"
+          },
+          "unassignedSpent" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "BudgetSummaryItem" : {
         "properties" : {
           "budgeted" : {
@@ -421,6 +598,36 @@
           },
           "spent" : {
             "type" : "number"
+          },
+          "status" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "BudgetSummaryItemV2" : {
+        "properties" : {
+          "budgeted" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "categoryId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "categoryName" : {
+            "type" : "string"
+          },
+          "percentUsed" : {
+            "type" : "number"
+          },
+          "remaining" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "spent" : {
+            "format" : "int64",
+            "type" : "integer"
           },
           "status" : {
             "type" : "string"
@@ -454,6 +661,36 @@
         },
         "type" : "object"
       },
+      "BudgetSummaryResponseV2" : {
+        "properties" : {
+          "dailyAllowance" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "items" : {
+            "items" : {
+              "$ref" : "#/components/schemas/BudgetSummaryItemV2"
+            },
+            "type" : "array"
+          },
+          "month" : {
+            "type" : "string"
+          },
+          "safeToSpend" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "totalBudgeted" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "totalSpent" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "CategoryReportItem" : {
         "properties" : {
           "category" : {
@@ -461,6 +698,18 @@
           },
           "total" : {
             "type" : "number"
+          }
+        },
+        "type" : "object"
+      },
+      "CategoryReportItemV2" : {
+        "properties" : {
+          "category" : {
+            "type" : "string"
+          },
+          "total" : {
+            "format" : "int64",
+            "type" : "integer"
           }
         },
         "type" : "object"
@@ -638,6 +887,18 @@
         },
         "type" : "object"
       },
+      "DailyReportItemV2" : {
+        "properties" : {
+          "date" : {
+            "type" : "string"
+          },
+          "total" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "EntitlementResponse" : {
         "properties" : {
           "admin" : {
@@ -667,6 +928,46 @@
           "amount" : {
             "minimum" : 0.0,
             "type" : "number"
+          },
+          "category" : {
+            "maxLength" : 50,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "currency" : {
+            "maxLength" : 3,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "date" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "description" : {
+            "minLength" : 1,
+            "type" : "string"
+          },
+          "exchangeRate" : {
+            "minimum" : 1.0E-6,
+            "type" : "number"
+          },
+          "expenseType" : {
+            "type" : "string"
+          },
+          "reimbursable" : {
+            "type" : "boolean"
+          }
+        },
+        "required" : [ "amount", "description" ],
+        "type" : "object"
+      },
+      "ExpenseRequestV2" : {
+        "properties" : {
+          "amount" : {
+            "format" : "int64",
+            "maximum" : 99999999999999999,
+            "minimum" : 1,
+            "type" : "integer"
           },
           "category" : {
             "maxLength" : 50,
@@ -737,6 +1038,45 @@
         },
         "type" : "object"
       },
+      "ExpenseResponseV2" : {
+        "properties" : {
+          "amount" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "amountInBaseCurrency" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "category" : {
+            "type" : "string"
+          },
+          "currency" : {
+            "type" : "string"
+          },
+          "date" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "exchangeRate" : {
+            "type" : "number"
+          },
+          "expenseType" : {
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "reimbursable" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
       "FeatureProperties" : {
         "properties" : {
           "chatAttachments" : {
@@ -767,6 +1107,36 @@
           "targetAmount" : {
             "minimum" : 0.01,
             "type" : "number"
+          },
+          "targetDate" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        },
+        "required" : [ "name", "savedAmount", "targetAmount" ],
+        "type" : "object"
+      },
+      "GoalRequestV2" : {
+        "properties" : {
+          "currency" : {
+            "type" : "string"
+          },
+          "name" : {
+            "minLength" : 1,
+            "type" : "string"
+          },
+          "paused" : {
+            "type" : "boolean"
+          },
+          "savedAmount" : {
+            "format" : "int64",
+            "minimum" : 0,
+            "type" : "integer"
+          },
+          "targetAmount" : {
+            "format" : "int64",
+            "minimum" : 1,
+            "type" : "integer"
           },
           "targetDate" : {
             "format" : "date",
@@ -807,6 +1177,47 @@
           },
           "targetAmount" : {
             "type" : "number"
+          },
+          "targetDate" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "GoalResponseV2" : {
+        "properties" : {
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "currency" : {
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "paused" : {
+            "type" : "boolean"
+          },
+          "progressPercent" : {
+            "type" : "number"
+          },
+          "savedAmount" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "status" : {
+            "enum" : [ "ON_TRACK", "BEHIND", "COMPLETED", "PAUSED" ],
+            "type" : "string"
+          },
+          "targetAmount" : {
+            "format" : "int64",
+            "type" : "integer"
           },
           "targetDate" : {
             "format" : "date",
@@ -925,6 +1336,25 @@
         },
         "type" : "object"
       },
+      "MonthlyComparisonResponseV2" : {
+        "properties" : {
+          "changePercent" : {
+            "type" : "number"
+          },
+          "currentTotal" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "month" : {
+            "type" : "string"
+          },
+          "previousTotal" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "MonthlyReportItem" : {
         "properties" : {
           "month" : {
@@ -932,6 +1362,18 @@
           },
           "total" : {
             "type" : "number"
+          }
+        },
+        "type" : "object"
+      },
+      "MonthlyReportItemV2" : {
+        "properties" : {
+          "month" : {
+            "type" : "string"
+          },
+          "total" : {
+            "format" : "int64",
+            "type" : "integer"
           }
         },
         "type" : "object"
@@ -1038,6 +1480,36 @@
         },
         "type" : "object"
       },
+      "PageResponseExpenseResponseV2" : {
+        "properties" : {
+          "content" : {
+            "items" : {
+              "$ref" : "#/components/schemas/ExpenseResponseV2"
+            },
+            "type" : "array"
+          },
+          "last" : {
+            "type" : "boolean"
+          },
+          "page" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "size" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "totalElements" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "totalPages" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ParseExpenseRequest" : {
         "properties" : {
           "text" : {
@@ -1053,6 +1525,37 @@
         "properties" : {
           "amount" : {
             "type" : "number"
+          },
+          "category" : {
+            "type" : "string"
+          },
+          "confidence" : {
+            "type" : "string"
+          },
+          "date" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "hint" : {
+            "type" : "string"
+          },
+          "rejectionMessage" : {
+            "type" : "string"
+          },
+          "saveable" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ParsedExpenseResultV2" : {
+        "properties" : {
+          "amount" : {
+            "format" : "int64",
+            "type" : "integer"
           },
           "category" : {
             "type" : "string"
@@ -1156,6 +1659,50 @@
         "required" : [ "amount", "frequency", "name" ],
         "type" : "object"
       },
+      "RecurringExpenseRequestV2" : {
+        "properties" : {
+          "active" : {
+            "type" : "boolean"
+          },
+          "amount" : {
+            "format" : "int64",
+            "minimum" : 1,
+            "type" : "integer"
+          },
+          "categoryName" : {
+            "type" : "string"
+          },
+          "currency" : {
+            "type" : "string"
+          },
+          "dayOfMonth" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "dayOfWeek" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "exchangeRate" : {
+            "type" : "number"
+          },
+          "frequency" : {
+            "enum" : [ "MONTHLY", "WEEKLY", "YEARLY" ],
+            "type" : "string"
+          },
+          "monthOfYear" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "name" : {
+            "maxLength" : 100,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "amount", "frequency", "name" ],
+        "type" : "object"
+      },
       "RecurringExpenseResponse" : {
         "properties" : {
           "active" : {
@@ -1163,6 +1710,50 @@
           },
           "amount" : {
             "type" : "number"
+          },
+          "categoryName" : {
+            "type" : "string"
+          },
+          "currency" : {
+            "type" : "string"
+          },
+          "dayOfMonth" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "dayOfWeek" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "exchangeRate" : {
+            "type" : "number"
+          },
+          "frequency" : {
+            "enum" : [ "MONTHLY", "WEEKLY", "YEARLY" ],
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "monthOfYear" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "name" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RecurringExpenseResponseV2" : {
+        "properties" : {
+          "active" : {
+            "type" : "boolean"
+          },
+          "amount" : {
+            "format" : "int64",
+            "type" : "integer"
           },
           "categoryName" : {
             "type" : "string"
@@ -1312,6 +1903,24 @@
         },
         "type" : "object"
       },
+      "TopCategoryInsightResponseV2" : {
+        "properties" : {
+          "category" : {
+            "type" : "string"
+          },
+          "month" : {
+            "type" : "string"
+          },
+          "percentOfMonthTotal" : {
+            "type" : "number"
+          },
+          "total" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "TopUserItem" : {
         "properties" : {
           "requests" : {
@@ -1329,6 +1938,35 @@
         "properties" : {
           "amount" : {
             "type" : "number"
+          },
+          "categoryName" : {
+            "type" : "string"
+          },
+          "currency" : {
+            "type" : "string"
+          },
+          "dueDate" : {
+            "type" : "string"
+          },
+          "frequency" : {
+            "enum" : [ "MONTHLY", "WEEKLY", "YEARLY" ],
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "name" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "UpcomingBillResponseV2" : {
+        "properties" : {
+          "amount" : {
+            "format" : "int64",
+            "type" : "integer"
           },
           "categoryName" : {
             "type" : "string"
@@ -1953,6 +2591,2349 @@
           "bearerAuth" : [ ]
         } ],
         "tags" : [ "alert-controller" ]
+      }
+    },
+    "/api/v2/admin/ai-usage/summary" : {
+      "get" : {
+        "operationId" : "v2AdminAiUsageSummary",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/AiUsageSummaryItem"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "admin-ai-usage-v-2-controller" ]
+      }
+    },
+    "/api/v2/admin/chat-audit" : {
+      "get" : {
+        "operationId" : "v2AdminChatAudit",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "default" : 100,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/ChatAuditLogDto"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "admin-chat-audit-v-2-controller" ]
+      }
+    },
+    "/api/v2/admin/observability/cost" : {
+      "get" : {
+        "operationId" : "v2AdminObservabilityCost",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ObservabilityCost"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "admin-observability-v-2-controller" ]
+      }
+    },
+    "/api/v2/admin/observability/events" : {
+      "get" : {
+        "operationId" : "v2AdminObservabilityEvents",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "type",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "default" : 100,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/AppEventDto"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "admin-observability-v-2-controller" ]
+      }
+    },
+    "/api/v2/admin/observability/health" : {
+      "get" : {
+        "operationId" : "v2AdminObservabilityHealth",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ObservabilityHealth"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "admin-observability-v-2-controller" ]
+      }
+    },
+    "/api/v2/admin/observability/summary" : {
+      "get" : {
+        "operationId" : "v2AdminObservabilitySummary",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ObservabilitySummary"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "admin-observability-v-2-controller" ]
+      }
+    },
+    "/api/v2/ai/chat" : {
+      "post" : {
+        "operationId" : "v2AiChat",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ChatRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ChatResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "ai-v-2-controller" ]
+      }
+    },
+    "/api/v2/ai/insights/month-summary" : {
+      "get" : {
+        "operationId" : "v2MonthSummaryInsight",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "month",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/MonthSummaryInsightResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "ai-insight-v-2-controller" ]
+      }
+    },
+    "/api/v2/ai/insights/recommendations" : {
+      "get" : {
+        "operationId" : "v2RecommendationsInsight",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "month",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RecommendationsInsightResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "ai-insight-v-2-controller" ]
+      }
+    },
+    "/api/v2/ai/insights/top-category" : {
+      "get" : {
+        "operationId" : "v2TopCategoryInsight",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "month",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/TopCategoryInsightResponseV2"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "ai-insight-v-2-controller" ]
+      }
+    },
+    "/api/v2/ai/query" : {
+      "post" : {
+        "operationId" : "v2AiQuery",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AiQueryRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AiQueryResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "ai-v-2-controller" ]
+      }
+    },
+    "/api/v2/ai/usage" : {
+      "get" : {
+        "operationId" : "v2AiUsage",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AiUsageResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "ai-usage-v-2-controller" ]
+      }
+    },
+    "/api/v2/ai/vision" : {
+      "post" : {
+        "operationId" : "v2AiVision",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "question",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "mode",
+          "required" : false,
+          "schema" : {
+            "default" : "plain",
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "multipart/form-data" : {
+              "schema" : {
+                "properties" : {
+                  "file" : {
+                    "format" : "binary",
+                    "type" : "string"
+                  }
+                },
+                "required" : [ "file" ],
+                "type" : "object"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ParsedExpenseResultV2"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "ai-v-2-controller" ]
+      }
+    },
+    "/api/v2/alerts" : {
+      "get" : {
+        "operationId" : "v2ListAlerts",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "month",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/AlertResponse"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "alert-v-2-controller" ]
+      }
+    },
+    "/api/v2/alerts/{id}" : {
+      "delete" : {
+        "operationId" : "v2DeleteAlert",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "alert-v-2-controller" ]
+      }
+    },
+    "/api/v2/alerts/{id}/dismiss" : {
+      "patch" : {
+        "operationId" : "v2DismissAlert",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AlertResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "alert-v-2-controller" ]
+      }
+    },
+    "/api/v2/alerts/{id}/read" : {
+      "patch" : {
+        "operationId" : "v2MarkAlertRead",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AlertResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "alert-v-2-controller" ]
+      }
+    },
+    "/api/v2/auth/google" : {
+      "post" : {
+        "operationId" : "v2GoogleAuth",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/GoogleAuthRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AuthResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "auth-v-2-controller" ]
+      }
+    },
+    "/api/v2/auth/login" : {
+      "post" : {
+        "operationId" : "v2Login",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AuthResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "auth-v-2-controller" ]
+      }
+    },
+    "/api/v2/auth/magic-link" : {
+      "post" : {
+        "operationId" : "v2RequestMagicLink",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/MagicLinkRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "additionalProperties" : {
+                    "type" : "boolean"
+                  },
+                  "type" : "object"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "auth-v-2-controller" ]
+      }
+    },
+    "/api/v2/auth/magic-link/verify" : {
+      "post" : {
+        "operationId" : "v2VerifyMagicLink",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/MagicLinkVerifyRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AuthResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "auth-v-2-controller" ]
+      }
+    },
+    "/api/v2/auth/register" : {
+      "post" : {
+        "operationId" : "v2Register",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AuthResponse"
+                }
+              }
+            },
+            "description" : "Created"
+          }
+        },
+        "tags" : [ "auth-v-2-controller" ]
+      }
+    },
+    "/api/v2/budget-rules" : {
+      "get" : {
+        "operationId" : "v2GetBudgetRule",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BudgetRuleResponseV2"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "budget-rule-v-2-controller" ]
+      },
+      "put" : {
+        "operationId" : "v2UpsertBudgetRule",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/BudgetRuleRequestV2"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BudgetRuleResponseV2"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "budget-rule-v-2-controller" ]
+      }
+    },
+    "/api/v2/budget-rules/buckets" : {
+      "put" : {
+        "operationId" : "v2AssignBuckets",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/BucketAssignmentRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "budget-rule-v-2-controller" ]
+      }
+    },
+    "/api/v2/budget-rules/enabled" : {
+      "put" : {
+        "operationId" : "v2SetBudgetRuleEnabled",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/BudgetRuleEnabledRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BudgetRuleResponseV2"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "budget-rule-v-2-controller" ]
+      }
+    },
+    "/api/v2/budget-rules/summary" : {
+      "get" : {
+        "operationId" : "v2BudgetRuleSummary",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "month",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BudgetRuleSummaryResponseV2"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "budget-rule-v-2-controller" ]
+      }
+    },
+    "/api/v2/budgets" : {
+      "delete" : {
+        "operationId" : "v2DeleteAllBudgets",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "month",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "budget-v-2-controller" ]
+      },
+      "get" : {
+        "operationId" : "v2ListBudgets",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "month",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/BudgetResponseV2"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "budget-v-2-controller" ]
+      },
+      "post" : {
+        "operationId" : "v2CreateBudget",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "force",
+          "required" : false,
+          "schema" : {
+            "default" : false,
+            "type" : "boolean"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/BudgetRequestV2"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BudgetResponseV2"
+                }
+              }
+            },
+            "description" : "Created"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "budget-v-2-controller" ]
+      }
+    },
+    "/api/v2/budgets/summary" : {
+      "get" : {
+        "operationId" : "v2BudgetSummary",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "month",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BudgetSummaryResponseV2"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "budget-v-2-controller" ]
+      }
+    },
+    "/api/v2/budgets/{id}" : {
+      "delete" : {
+        "operationId" : "v2DeleteBudget",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "budget-v-2-controller" ]
+      },
+      "put" : {
+        "operationId" : "v2UpdateBudget",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/BudgetRequestV2"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BudgetResponseV2"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "budget-v-2-controller" ]
+      }
+    },
+    "/api/v2/categories" : {
+      "delete" : {
+        "operationId" : "v2DeleteAllCategories",
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "category-v-2-controller" ]
+      },
+      "get" : {
+        "operationId" : "v2ListCategories",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/CategoryResponse"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "category-v-2-controller" ]
+      },
+      "post" : {
+        "operationId" : "v2CreateCategory",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CategoryRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CategoryResponse"
+                }
+              }
+            },
+            "description" : "Created"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "category-v-2-controller" ]
+      }
+    },
+    "/api/v2/categories/{id}" : {
+      "delete" : {
+        "operationId" : "v2DeleteCategory",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "category-v-2-controller" ]
+      },
+      "get" : {
+        "operationId" : "v2GetCategory",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CategoryResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "category-v-2-controller" ]
+      },
+      "put" : {
+        "operationId" : "v2UpdateCategory",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CategoryRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CategoryResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "category-v-2-controller" ]
+      }
+    },
+    "/api/v2/chat/conversations" : {
+      "get" : {
+        "operationId" : "v2ListConversations",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/ConversationSummaryDto"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "conversation-v-2-controller" ]
+      }
+    },
+    "/api/v2/chat/conversations/{id}" : {
+      "delete" : {
+        "operationId" : "v2DeleteConversation",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "conversation-v-2-controller" ]
+      },
+      "get" : {
+        "operationId" : "v2ConversationMessages",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/ChatMessageDto"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "conversation-v-2-controller" ]
+      }
+    },
+    "/api/v2/expenses" : {
+      "delete" : {
+        "operationId" : "v2DeleteAllExpenses",
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-v-2-controller" ]
+      },
+      "get" : {
+        "operationId" : "v2ListExpenses",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "from",
+          "required" : false,
+          "schema" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "to",
+          "required" : false,
+          "schema" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/ExpenseResponseV2"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-v-2-controller" ]
+      },
+      "post" : {
+        "operationId" : "v2CreateExpense",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ExpenseRequestV2"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ExpenseResponseV2"
+                }
+              }
+            },
+            "description" : "Created"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-v-2-controller" ]
+      }
+    },
+    "/api/v2/expenses/export" : {
+      "get" : {
+        "operationId" : "v2ExportExpenses",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "from",
+          "required" : false,
+          "schema" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "to",
+          "required" : false,
+          "schema" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "format" : "byte",
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-v-2-controller" ]
+      }
+    },
+    "/api/v2/expenses/import" : {
+      "post" : {
+        "operationId" : "v2ImportExpenses",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "strict",
+          "required" : false,
+          "schema" : {
+            "default" : false,
+            "type" : "boolean"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "multipart/form-data" : {
+              "schema" : {
+                "properties" : {
+                  "file" : {
+                    "format" : "binary",
+                    "type" : "string"
+                  }
+                },
+                "required" : [ "file" ],
+                "type" : "object"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ImportResult"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-v-2-controller" ]
+      }
+    },
+    "/api/v2/expenses/import/template" : {
+      "get" : {
+        "operationId" : "v2ImportTemplate",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "format" : "byte",
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-v-2-controller" ]
+      }
+    },
+    "/api/v2/expenses/page" : {
+      "get" : {
+        "operationId" : "v2PageExpenses",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "page",
+          "required" : false,
+          "schema" : {
+            "default" : 0,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        }, {
+          "in" : "query",
+          "name" : "size",
+          "required" : false,
+          "schema" : {
+            "default" : 50,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        }, {
+          "in" : "query",
+          "name" : "from",
+          "required" : false,
+          "schema" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "to",
+          "required" : false,
+          "schema" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/PageResponseExpenseResponseV2"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-v-2-controller" ]
+      }
+    },
+    "/api/v2/expenses/parse" : {
+      "post" : {
+        "operationId" : "v2ParseExpense",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ParseExpenseRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ParsedExpenseResultV2"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-v-2-controller" ]
+      }
+    },
+    "/api/v2/expenses/report/category" : {
+      "get" : {
+        "operationId" : "v2CategoryReport",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/CategoryReportItemV2"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-v-2-controller" ]
+      }
+    },
+    "/api/v2/expenses/report/daily" : {
+      "get" : {
+        "operationId" : "v2DailyReport",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "month",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/DailyReportItemV2"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-v-2-controller" ]
+      }
+    },
+    "/api/v2/expenses/report/monthly" : {
+      "get" : {
+        "operationId" : "v2MonthlyReport",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/MonthlyReportItemV2"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-v-2-controller" ]
+      }
+    },
+    "/api/v2/expenses/report/monthly-comparison" : {
+      "get" : {
+        "operationId" : "v2MonthlyComparison",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "month",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/MonthlyComparisonResponseV2"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-v-2-controller" ]
+      }
+    },
+    "/api/v2/expenses/report/top" : {
+      "get" : {
+        "operationId" : "v2TopTransactions",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "month",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "default" : 5,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/ExpenseResponseV2"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-v-2-controller" ]
+      }
+    },
+    "/api/v2/expenses/{id}" : {
+      "delete" : {
+        "operationId" : "v2DeleteExpense",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-v-2-controller" ]
+      },
+      "get" : {
+        "operationId" : "v2GetExpense",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ExpenseResponseV2"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-v-2-controller" ]
+      },
+      "put" : {
+        "operationId" : "v2UpdateExpense",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ExpenseRequestV2"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ExpenseResponseV2"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-v-2-controller" ]
+      }
+    },
+    "/api/v2/features" : {
+      "get" : {
+        "operationId" : "v2Features",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/FeatureProperties"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "feature-v-2-controller" ]
+      }
+    },
+    "/api/v2/goals" : {
+      "get" : {
+        "operationId" : "v2ListGoals",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/GoalResponseV2"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "savings-goal-v-2-controller" ]
+      },
+      "post" : {
+        "operationId" : "v2CreateGoal",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "force",
+          "required" : false,
+          "schema" : {
+            "default" : false,
+            "type" : "boolean"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/GoalRequestV2"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/GoalResponseV2"
+                }
+              }
+            },
+            "description" : "Created"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "savings-goal-v-2-controller" ]
+      }
+    },
+    "/api/v2/goals/{id}" : {
+      "delete" : {
+        "operationId" : "v2DeleteGoal",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "savings-goal-v-2-controller" ]
+      },
+      "get" : {
+        "operationId" : "v2GetGoal",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/GoalResponseV2"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "savings-goal-v-2-controller" ]
+      },
+      "put" : {
+        "operationId" : "v2UpdateGoal",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/GoalRequestV2"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/GoalResponseV2"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "savings-goal-v-2-controller" ]
+      }
+    },
+    "/api/v2/recurring" : {
+      "delete" : {
+        "operationId" : "v2DeleteAllRecurringExpenses",
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "recurring-expense-v-2-controller" ]
+      },
+      "get" : {
+        "operationId" : "v2ListRecurringExpenses",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/RecurringExpenseResponseV2"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "recurring-expense-v-2-controller" ]
+      },
+      "post" : {
+        "operationId" : "v2CreateRecurringExpense",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "force",
+          "required" : false,
+          "schema" : {
+            "default" : false,
+            "type" : "boolean"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RecurringExpenseRequestV2"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RecurringExpenseResponseV2"
+                }
+              }
+            },
+            "description" : "Created"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "recurring-expense-v-2-controller" ]
+      }
+    },
+    "/api/v2/recurring/upcoming" : {
+      "get" : {
+        "operationId" : "v2UpcomingBills",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "month",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/UpcomingBillResponseV2"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "recurring-expense-v-2-controller" ]
+      }
+    },
+    "/api/v2/recurring/{id}" : {
+      "delete" : {
+        "operationId" : "v2DeleteRecurringExpense",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "recurring-expense-v-2-controller" ]
+      },
+      "put" : {
+        "operationId" : "v2UpdateRecurringExpense",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RecurringExpenseRequestV2"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RecurringExpenseResponseV2"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "recurring-expense-v-2-controller" ]
+      }
+    },
+    "/api/v2/submissions" : {
+      "get" : {
+        "operationId" : "v2ListSubmissions",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/SubmissionResponse"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "submission-v-2-controller" ]
+      },
+      "post" : {
+        "operationId" : "v2CreateSubmission",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SubmissionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SubmissionResponse"
+                }
+              }
+            },
+            "description" : "Created"
+          }
+        },
+        "tags" : [ "submission-v-2-controller" ]
+      }
+    },
+    "/api/v2/submissions/{id}/handled" : {
+      "patch" : {
+        "operationId" : "v2MarkSubmissionHandled",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SubmissionResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "submission-v-2-controller" ]
+      }
+    },
+    "/api/v2/subscription" : {
+      "get" : {
+        "operationId" : "v2CurrentSubscription",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SubscriptionResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "subscription-v-2-controller" ]
+      }
+    },
+    "/api/v2/subscription/checkout" : {
+      "post" : {
+        "operationId" : "v2StartCheckout",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CheckoutRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CheckoutResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "subscription-v-2-controller" ]
+      }
+    },
+    "/api/v2/subscription/pricing" : {
+      "get" : {
+        "operationId" : "v2Pricing",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/PricingItem"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "subscription-v-2-controller" ]
+      }
+    },
+    "/api/v2/user/ai-settings" : {
+      "get" : {
+        "operationId" : "v2GetAiSettings",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AiSettingsResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "user-ai-settings-v-2-controller" ]
+      },
+      "put" : {
+        "operationId" : "v2UpdateAiSettings",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AiSettingsRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AiSettingsResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "user-ai-settings-v-2-controller" ]
+      }
+    },
+    "/api/v2/user/ai-settings/{provider}" : {
+      "delete" : {
+        "operationId" : "v2ClearAiSettings",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "provider",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AiSettingsResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "user-ai-settings-v-2-controller" ]
+      }
+    },
+    "/api/v2/user/entitlements" : {
+      "get" : {
+        "operationId" : "v2Entitlements",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EntitlementResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "entitlement-v-2-controller" ]
+      }
+    },
+    "/api/v2/user/profile" : {
+      "get" : {
+        "operationId" : "v2GetProfile",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/UserProfileResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "user-profile-v-2-controller" ]
+      },
+      "put" : {
+        "operationId" : "v2UpdateProfile",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/UserProfileRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/UpdateProfileResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "user-profile-v-2-controller" ]
       }
     },
     "/auth/google" : {

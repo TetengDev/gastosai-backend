@@ -51,7 +51,21 @@ class PublicEndpointsTest {
 			new Case(HttpMethod.GET, "/v3/api-docs", "/v3/api-docs/**"),
 			new Case(HttpMethod.POST, "/submissions", "/submissions"),
 			new Case(HttpMethod.POST, "/webhooks/paymongo", "/webhooks/paymongo"),
-			new Case(HttpMethod.GET, "/subscription/pricing", "/subscription/pricing"));
+			new Case(HttpMethod.GET, "/subscription/pricing", "/subscription/pricing"),
+
+			// TEN-135 publishes /api/v2 alongside /api/v1. A v2 path that serves the same resource
+			// must be public on exactly the same terms — anything else means the version bump
+			// quietly changed who can reach it, which is the one thing a parallel surface must not
+			// do. Mirrored one-for-one from the block above; this test failing is how a v2 rule
+			// added without a case here gets caught.
+			new Case(HttpMethod.POST, "/api/v2/auth/register", "/api/v2/auth/register"),
+			new Case(HttpMethod.POST, "/api/v2/auth/login", "/api/v2/auth/login"),
+			new Case(HttpMethod.POST, "/api/v2/auth/magic-link", "/api/v2/auth/magic-link"),
+			new Case(HttpMethod.POST, "/api/v2/auth/magic-link/verify", "/api/v2/auth/magic-link/verify"),
+			new Case(HttpMethod.POST, "/api/v2/auth/google", "/api/v2/auth/google"),
+			new Case(HttpMethod.GET, "/api/v2/features", "/api/v2/features"),
+			new Case(HttpMethod.POST, "/api/v2/submissions", "/api/v2/submissions"),
+			new Case(HttpMethod.GET, "/api/v2/subscription/pricing", "/api/v2/subscription/pricing"));
 
 	/**
 	 * Requests that must not read as public. The first two are the ADMIN surface that sits on the
