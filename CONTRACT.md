@@ -81,6 +81,42 @@ surface — republishing an unchanged spec under a new number would make the pin
 
 ---
 
+## The 2.0.0 break — integer centavos on `/api/v2`
+
+*Recorded 2026-08-19 (TEN-136). The change itself shipped in TEN-135.*
+
+**What changed.** Every money-bearing field on `/api/v2` is an integer number of centavos
+(`long`, e.g. `amountLimit: 190000` for ₱1,900.00). On `/api/v1` money remains a decimal
+`number` and is **byte-identical to before** — same code path, same rows.
+
+**Why it is a major.** The type of an existing field changed. That is breaking by the rule above,
+even though nothing was removed, so it required a major *and* a new URL path with the old one kept
+live. Both surfaces read the same rows; conversion happens in the v2 DTO factory, so there is no
+second source of truth.
+
+**Migration order for clients.** Do not treat this as urgent — nothing on `/api/v1` has changed,
+and there is no deadline attached to it:
+
+1. Bump the pin to the published 2.x contract and `npm run gen:api`.
+2. Fix the type errors. They are the safety net: every money field that moves from a decimal to an
+   integer will fail to compile until it is handled.
+3. Divide by 100 **only at the display edge**, through `src/lib/formatters.ts`. Never do arithmetic
+   on the converted value — the integer is the money; the decimal is a rendering of it.
+4. Repoint calls from `/api/…` to `/api/v2/…`.
+
+**Web may migrate before mobile, and should.** Mobile is the pacing constraint (installed apps call
+`/api/v1` for months), so the two clients are deliberately allowed to sit on different major
+versions. `/api/v1` is retired only when analytics show old app versions have drained — a later
+issue, not a consequence of this one.
+
+**Publishing is a manual step and has been missed once.** `contract/package.json` said `2.0.0`
+from the day `/api/v2` shipped, but `publish-contract.yml` fires on a `contract-v*` **tag** and
+nothing had tagged it — so for several days the entire v2 surface existed in the spec and in the
+running API, and in no package a client could pin. Bumping the version in the file publishes
+nothing. See TEN-271.
+
+---
+
 ## Cross-repo change ordering
 
 A change that spans the contract is **not** one commit anymore — it's an ordered
