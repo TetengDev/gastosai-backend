@@ -216,6 +216,98 @@ class PaymentApiIntegrationTest extends PostgresBackedTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    /**
+     * The 401 above pins the rejection; this pins the absence of an effect, which is the other
+     * half of TEN-148's first acceptance criterion. Every rejection path the verifier has is
+     * pointed at a checkout that *would* activate under a valid signature, so a regression that
+     * activated before verifying would have to survive all of them.
+     */
+    @Test
+    void rejectedWebhooksActivateNothing() throws Exception {
+        checkoutRepository.save(PaymentCheckout.builder()
+                .user(testUser)
+                .sessionId("cs_test_rejected_111")
+                .planKey(PlanKey.PREMIUM)
+                .billingPeriod(BillingPeriod.MONTHLY)
+                .amountCentavos(14900)
+                .status(CheckoutStatus.PENDING)
+                .createdAt(LocalDateTime.now())
+                .build());
+
+        String body = buildWebhookBody("cs_test_rejected_111");
+        String now = String.valueOf(java.time.Instant.now().getEpochSecond());
+        String authenticSig = computeHmac(now + "." + body, WEBHOOK_SECRET);
+
+        // A wrong signature, and every shape of "not a usable signature" the verifier distinguishes.
+        String[] badHeaders = {
+                "t=" + now + ",te=" + computeHmac(now + "." + body, "the-wrong-secret"),
+                "t=" + now + ",te=deadbeef",
+                "t=" + now + ",te=",
+                "t=,te=" + authenticSig,
+                "t=not-a-number,te=" + authenticSig,
+                "te=" + authenticSig,
+                "garbage"
+        };
+
+        for (String header : badHeaders) {
+            mockMvc.perform(post("/webhooks/paymongo")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body)
+                            .header("Paymongo-Signature", header))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        // No header at all.
+        mockMvc.perform(post("/webhooks/paymongo")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isUnauthorized());
+
+        assertNothingActivated("cs_test_rejected_111");
+    }
+
+    /**
+     * The signature is genuine — it was computed with the real secret — but the signed timestamp
+     * is hours old, which is what a captured-and-replayed event looks like. It must be rejected,
+     * and it must leave the checkout exactly where it found it.
+     */
+    @Test
+    void replayedExpiredWebhookActivatesNothing() throws Exception {
+        checkoutRepository.save(PaymentCheckout.builder()
+                .user(testUser)
+                .sessionId("cs_test_expired_222")
+                .planKey(PlanKey.PREMIUM)
+                .billingPeriod(BillingPeriod.MONTHLY)
+                .amountCentavos(14900)
+                .status(CheckoutStatus.PENDING)
+                .createdAt(LocalDateTime.now())
+                .build());
+
+        String body = buildWebhookBody("cs_test_expired_222");
+        String staleTimestamp = String.valueOf(java.time.Instant.now().getEpochSecond() - 3600);
+        String sig = computeHmac(staleTimestamp + "." + body, WEBHOOK_SECRET);
+
+        mockMvc.perform(post("/webhooks/paymongo")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body)
+                        .header("Paymongo-Signature", "t=" + staleTimestamp + ",te=" + sig))
+                .andExpect(status().isUnauthorized());
+
+        assertNothingActivated("cs_test_expired_222");
+    }
+
+    private void assertNothingActivated(String sessionId) {
+        var checkout = checkoutRepository.findBySessionId(sessionId);
+        assertThat(checkout).isPresent();
+        assertThat(checkout.get().getStatus()).isEqualTo(CheckoutStatus.PENDING);
+        assertThat(checkout.get().getPaidAt()).isNull();
+
+        assertThat(checkoutRepository.findAll())
+                .noneMatch(c -> c.getStatus() == CheckoutStatus.PAID);
+        assertThat(subscriptionRepository.findFirstByUserOrderByCreatedAtDesc(testUser)).isEmpty();
+        assertThat(subscriptionRepository.findAll()).isEmpty();
+    }
+
     @Test
     void getSubscriptionReturnsFreePlanForNewUser() throws Exception {
         mockMvc.perform(get("/subscription")
