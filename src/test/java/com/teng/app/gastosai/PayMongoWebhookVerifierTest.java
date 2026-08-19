@@ -295,6 +295,24 @@ class PayMongoWebhookVerifierTest {
     }
 
     @Test
+    void aForgedTruncationMarkerCannotSurviveIntoTheLog() {
+        // A short value that spells out the marker by hand. If it survived, it would hand whoever
+        // is investigating a false size for the incident.
+        assertThat(verifier.verify(BODY, "t=…(truncated from 4000),te=deadbeef")).isFalse();
+
+        String line = onlyLog().getFormattedMessage();
+        assertRejectedBecause("TIMESTAMP_NOT_NUMERIC");
+        // The attacker's ASCII text still shows — that is the value they sent, and echoing it is
+        // the point. What they cannot forge is the marker itself: the ellipsis only survives the
+        // filter when this class appended it, so the line cannot claim a truncation that never
+        // happened.
+        assertThat(line)
+                .as("only this class may write a truncation marker")
+                .doesNotContain("…(truncated from");
+        assertThat(line).contains(".(truncated from 4000)");
+    }
+
+    @Test
     void rejectionsAreLoggedAtWarn() {
         verifier.verify(BODY, null);
         assertThat(onlyLog().getLevel()).isEqualTo(Level.WARN);

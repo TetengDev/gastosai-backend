@@ -159,13 +159,18 @@ public class PayMongoWebhookVerifier {
      * replaced, so no control character can restructure the log.
      */
     private static String sanitize(String value) {
-        String bounded = value.length() > MAX_LOGGED_TIMESTAMP_CHARS
-                ? value.substring(0, MAX_LOGGED_TIMESTAMP_CHARS) + "…(truncated from " + value.length() + ")"
-                : value;
-        StringBuilder out = new StringBuilder(bounded.length());
-        for (int i = 0; i < bounded.length(); i++) {
-            char c = bounded.charAt(i);
-            out.append(c >= 0x20 && c < 0x7F || c == '…' ? c : '.');
+        int keep = Math.min(value.length(), MAX_LOGGED_TIMESTAMP_CHARS);
+        StringBuilder out = new StringBuilder(keep);
+        // Filter first, then append the marker — so a '…' in the output can only ever be one this
+        // method wrote. Appending first and filtering after would let an attacker whose value is
+        // short enough to escape truncation spell out a convincing "…(truncated from 4000)" and
+        // hand whoever is investigating a false size for the incident.
+        for (int i = 0; i < keep; i++) {
+            char c = value.charAt(i);
+            out.append((c >= 0x20 && c < 0x7F) ? c : '.');
+        }
+        if (value.length() > MAX_LOGGED_TIMESTAMP_CHARS) {
+            out.append("…(truncated from ").append(value.length()).append(')');
         }
         return out.toString();
     }
