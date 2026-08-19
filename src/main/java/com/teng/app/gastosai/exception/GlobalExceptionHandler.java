@@ -23,6 +23,9 @@ public class GlobalExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	/** Provider callbacks (today only {@code /webhooks/paymongo}); never a request from a user. */
+	private static final String WEBHOOK_PATH_PREFIX = "/webhooks/";
+
 	private final AppEventService appEventService;
 
 	public GlobalExceptionHandler(AppEventService appEventService) {
@@ -76,8 +79,21 @@ public class GlobalExceptionHandler {
 		return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd);
 	}
 
+	/**
+	 * 400 is a reasonable default for a user request whose query fails, and the wrong answer for a
+	 * provider callback: PayMongo does not retry a 4xx, so a 400 on a verified webhook drops a paid
+	 * event. {@code PaymentService} already converts the failures it can see into a 503; this is the
+	 * net under it, for a data-access failure anywhere else on a callback path.
+	 */
 	@ExceptionHandler(DataAccessException.class)
-	public ResponseEntity<ProblemDetail> dataAccess(DataAccessException ex) {
+	public ResponseEntity<ProblemDetail> dataAccess(DataAccessException ex, HttpServletRequest request) {
+		if (request.getRequestURI().startsWith(WEBHOOK_PATH_PREFIX)) {
+			log.error("Data access error on webhook {}: {}", request.getRequestURI(), ex.getMessage(), ex);
+			ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
+					"Webhook could not be applied; retry the delivery.");
+			pd.setTitle("Service Unavailable");
+			return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(pd);
+		}
 		log.warn("Data access error: {}", ex.getMessage());
 		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Query execution failed");
 		pd.setTitle("Bad Request");

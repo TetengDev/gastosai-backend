@@ -17,11 +17,14 @@ import com.teng.app.gastosai.repository.PaymentCheckoutRepository;
 import com.teng.app.gastosai.repository.WebhookEventRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -87,15 +90,47 @@ public class PaymentService {
         try {
             new TransactionTemplate(transactionManager)
                     .executeWithoutResult(status -> claimAndApply(root, eventId));
-        } catch (DataIntegrityViolationException e) {
+        } catch (DataAccessException e) {
             // Only a lost race for the event id is an already-processed delivery. Any other
-            // integrity failure must still reach the caller as an error, so the provider retries
-            // instead of being told a payment was handled that was not.
-            if (eventId.isBlank() || !webhookEventRepository.existsByProviderAndEventId(PROVIDER, eventId)) {
-                throw e;
+            // persistence failure must reach the provider as a retryable status, so the delivery
+            // comes back instead of the payment being dropped.
+            if (e instanceof DataIntegrityViolationException && alreadyClaimed(eventId)) {
+                log.info("paymongo_webhook_duplicate event_id={} — applied by a concurrent delivery", eventId);
+                return;
             }
-            log.info("paymongo_webhook_duplicate event_id={} — applied by a concurrent delivery", eventId);
+            throw retryable(eventId, e);
         }
+    }
+
+    /**
+     * Whether the event id is already claimed in {@code webhook_event} — i.e. the integrity failure
+     * just caught was a concurrent delivery of this same event. A lookup that itself fails answers
+     * {@code false}: the delivery is then treated as retryable, which is the safe way to be wrong.
+     */
+    private boolean alreadyClaimed(String eventId) {
+        if (eventId.isBlank()) {
+            return false;
+        }
+        try {
+            return webhookEventRepository.existsByProviderAndEventId(PROVIDER, eventId);
+        } catch (DataAccessException e) {
+            log.warn("paymongo_webhook_claim_lookup_failed event_id={}: {}", eventId, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * A persistence failure while applying a verified webhook is answered 503, not the 400 that
+     * {@code GlobalExceptionHandler} gives a {@link DataAccessException} on an ordinary request.
+     * PayMongo does not retry a 4xx, so a 400 here silently drops a paid event; a 5xx is the only
+     * answer that gets the delivery back. The live case is the {@code (user_id, provider_ref)}
+     * unique constraint on {@code user_subscriptions}.
+     */
+    private ResponseStatusException retryable(String eventId, DataAccessException cause) {
+        log.error("paymongo_webhook_failed event_id={} — answering 503 so the provider retries: {}",
+                eventId, cause.getMessage(), cause);
+        return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                "Webhook could not be applied; retry the delivery.", cause);
     }
 
     private void claimAndApply(JsonNode root, String eventId) {
