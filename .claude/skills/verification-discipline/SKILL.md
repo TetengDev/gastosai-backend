@@ -99,6 +99,21 @@ every later call in that session.
 the next call's `gastosai-web/.maestro` resolved to `gastosai-web/gastosai-web/.maestro` and failed
 with "no such file or directory". Prefer absolute paths in any command that writes.
 
+**The dangerous version of the same drift (2026-08-19):** a session's shell relocated to the
+workspace root mid-run, and its next two `./mvnw test` invocations produced **empty output** rather
+than an error. Empty output from a test command is not a pass — it is the strongest possible sign
+the command never ran. The 2026-08-12 case failed loudly; this one failed silently, which is worse,
+and it is why the rule is worth repeating a second time in the same document.
+
+Before believing a test result, check that it *counted* something:
+
+```bash
+./mvnw test 2>&1 | tail -40          # must contain a "Tests run:" line
+pwd                                   # if in doubt about where you are, ask
+```
+
+A run with no "Tests run:" line has not told you anything about the code.
+
 ## Prove an enforcement mechanism actually fires
 
 A check that has never failed is not known to work. When adding a guard, break the thing it guards
