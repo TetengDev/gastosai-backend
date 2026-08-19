@@ -64,6 +64,7 @@ class PayMongoWebhookVerifierTest {
         String sig = computeHmac(TIMESTAMP + "." + BODY, SECRET);
         String header = "t=" + TIMESTAMP + ",li=" + sig;
         assertThat(verifier.verify(BODY, header)).isTrue();
+        assertThat(logs.list).isEmpty();
     }
 
     @Test
@@ -268,6 +269,29 @@ class PayMongoWebhookVerifierTest {
                 .contains("bodyLength=" + BODY.length())
                 .contains("t=" + TIMESTAMP)
                 .contains("elements=[t, li]");
+    }
+
+    @Test
+    void anOverlongTimestampIsTruncatedBeforeItReachesTheLog() {
+        // t= is echoed for correlation, but on this path it has not been through Long.parseLong,
+        // so it is arbitrary attacker text. It must not be able to become a kilobyte log line.
+        String flood = "9".repeat(4000);
+        assertThat(verifier.verify(BODY, "t=" + flood + ",te=deadbeef")).isFalse();
+
+        String line = onlyLog().getFormattedMessage();
+        assertRejectedBecause("TIMESTAMP_NOT_NUMERIC");
+        assertThat(line).hasSizeLessThan(400);
+        assertThat(line).contains("truncated from 4000");
+    }
+
+    @Test
+    void controlCharactersInTheTimestampCannotRestructureTheLog() {
+        // A newline in the logged value would let an attacker forge a second log line.
+        assertThat(verifier.verify(BODY, "t=12\n34\r WARN forged,te=deadbeef")).isFalse();
+
+        String line = onlyLog().getFormattedMessage();
+        assertRejectedBecause("TIMESTAMP_NOT_NUMERIC");
+        assertThat(line).doesNotContain("\n").doesNotContain("\r");
     }
 
     @Test

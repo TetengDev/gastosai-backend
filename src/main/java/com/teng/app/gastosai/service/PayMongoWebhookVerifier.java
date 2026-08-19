@@ -23,6 +23,10 @@ public class PayMongoWebhookVerifier {
     // more than 5 minutes from now.
     private static final long TOLERANCE_SECONDS = 300;
 
+    // An epoch-second timestamp needs ten characters. This leaves room to see what a malformed
+    // one actually was, while denying an attacker a several-kilobyte log line.
+    private static final int MAX_LOGGED_TIMESTAMP_CHARS = 32;
+
     private final PayMongoProperties properties;
 
     /**
@@ -135,13 +139,35 @@ public class PayMongoWebhookVerifier {
                 reason, rawBody == null ? 0 : rawBody.length(), detail);
     }
 
-    /** Describes which signature elements arrived, by presence only — never their values. */
+    /**
+     * Describes which signature elements arrived, by presence only — never their values. The one
+     * value it does echo is the timestamp, because an operator cannot correlate an event without
+     * it, and it is sanitised first: on the not-numeric path it has not been through
+     * {@code Long.parseLong} yet, so it is arbitrary attacker-controlled text.
+     */
     private static String describe(String timestamp, String testSig, String liveSig) {
         List<String> present = new ArrayList<>();
         if (timestamp != null) present.add("t");
         if (!isBlank(testSig)) present.add("te");
         if (!isBlank(liveSig)) present.add("li");
-        return "t=" + (timestamp == null ? "<none>" : timestamp) + " elements=" + present;
+        return "t=" + (timestamp == null ? "<none>" : sanitize(timestamp)) + " elements=" + present;
+    }
+
+    /**
+     * Bounds and de-fangs an attacker-controlled value before it reaches a log line: at most
+     * {@value #MAX_LOGGED_TIMESTAMP_CHARS} characters, and anything outside printable ASCII
+     * replaced, so no control character can restructure the log.
+     */
+    private static String sanitize(String value) {
+        String bounded = value.length() > MAX_LOGGED_TIMESTAMP_CHARS
+                ? value.substring(0, MAX_LOGGED_TIMESTAMP_CHARS) + "…(truncated from " + value.length() + ")"
+                : value;
+        StringBuilder out = new StringBuilder(bounded.length());
+        for (int i = 0; i < bounded.length(); i++) {
+            char c = bounded.charAt(i);
+            out.append(c >= 0x20 && c < 0x7F || c == '…' ? c : '.');
+        }
+        return out.toString();
     }
 
     private static boolean isBlank(String s) {
