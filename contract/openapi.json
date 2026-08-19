@@ -857,23 +857,33 @@
         "type" : "object"
       },
       "ConversationSummaryDto" : {
+        "description" : "A chat conversation as it appears in a history list — enough to render a row and fetch the transcript, without the messages themselves.",
         "properties" : {
           "createdAt" : {
+            "description" : "When the conversation was started. ISO-8601 local date-time, no offset.",
+            "example" : "2026-08-19T09:41:12",
             "format" : "date-time",
             "type" : "string"
           },
           "id" : {
+            "description" : "Stable identifier. Pass it to GET /chat/conversations/{id} for the transcript.",
+            "example" : 42,
             "format" : "int64",
             "type" : "integer"
           },
           "title" : {
-            "type" : "string"
+            "description" : "The conversation's first user message, trimmed to 60 characters. Null until the first turn is recorded — a conversation can exist with no messages, so a history list must render a placeholder rather than assume a label.",
+            "example" : "How much did I spend on groceries?",
+            "type" : [ "string", "null" ]
           },
           "updatedAt" : {
+            "description" : "When the last turn was recorded. The list is ordered by this field, newest first, so it is also the sort key a client should display.",
+            "example" : "2026-08-19T10:02:57",
             "format" : "date-time",
             "type" : "string"
           }
         },
+        "required" : [ "createdAt", "id", "updatedAt" ],
         "type" : "object"
       },
       "DailyReportItem" : {
@@ -5549,11 +5559,12 @@
     },
     "/chat/conversations" : {
       "get" : {
-        "operationId" : "list_5",
+        "description" : "Conversation summaries for the authenticated user, most recently updated first. Carries no messages; fetch a transcript with GET /chat/conversations/{id}.",
+        "operationId" : "listConversations",
         "responses" : {
           "200" : {
             "content" : {
-              "*/*" : {
+              "application/json" : {
                 "schema" : {
                   "items" : {
                     "$ref" : "#/components/schemas/ConversationSummaryDto"
@@ -5562,12 +5573,13 @@
                 }
               }
             },
-            "description" : "OK"
+            "description" : "The caller's conversations, newest activity first. Empty when they have never chatted."
           }
         },
         "security" : [ {
           "bearerAuth" : [ ]
         } ],
+        "summary" : "List the caller's chat conversations",
         "tags" : [ "conversation-controller" ]
       }
     },
