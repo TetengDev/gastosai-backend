@@ -10,8 +10,12 @@ import com.teng.app.gastosai.entity.PlanKey;
 import com.teng.app.gastosai.entity.User;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+
+import java.time.Instant;
+import java.util.Optional;
 
 @Component
 public class PayMongoProvider implements PaymentProvider {
@@ -85,5 +89,57 @@ public class PayMongoProvider implements PaymentProvider {
         } catch (Exception e) {
             throw new IllegalStateException("Failed to parse PayMongo checkout response", e);
         }
+    }
+
+    /**
+     * Retrieves one checkout session. A session PayMongo settled carries the payment in
+     * {@code data.attributes.payments[]}; the session is paid when any of them is, which is the same
+     * fact {@code checkout_session.payment.paid} would have delivered.
+     *
+     * <p>Only 404 is swallowed into an empty answer. Every other status still throws on purpose: a
+     * rejected key or a provider outage must not read back as "nothing was paid", because that is
+     * indistinguishable from a clean reconciliation and would hide exactly what this call looks for.
+     */
+    @Override
+    public Optional<RemoteCheckout> fetchCheckout(String sessionId) {
+        String responseBody = restClient.get()
+                .uri("/v1/checkout_sessions/{id}", sessionId)
+                .retrieve()
+                .onStatus(status -> status.value() == HttpStatus.NOT_FOUND.value(), (request, response) -> { })
+                .body(String.class);
+
+        if (responseBody == null || responseBody.isBlank()) {
+            return Optional.empty();
+        }
+
+        JsonNode data;
+        try {
+            data = objectMapper.readTree(responseBody).path("data");
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to parse PayMongo checkout session response", e);
+        }
+        if (data.path("id").asText().isBlank()) {
+            // The 404 body, or anything else shaped like an error: the provider has no such session.
+            return Optional.empty();
+        }
+
+        JsonNode attributes = data.path("attributes");
+        int sessionAmount = attributes.path("amount").asInt();
+        for (JsonNode payment : attributes.path("payments")) {
+            JsonNode paymentAttributes = payment.path("attributes");
+            if ("paid".equals(paymentAttributes.path("status").asText())) {
+                return Optional.of(new RemoteCheckout(
+                        sessionId,
+                        true,
+                        paymentAttributes.path("amount").asInt(sessionAmount),
+                        payment.path("id").asText(null),
+                        epochSeconds(paymentAttributes.path("paid_at"))));
+            }
+        }
+        return Optional.of(new RemoteCheckout(sessionId, false, sessionAmount, null, null));
+    }
+
+    private static Instant epochSeconds(JsonNode node) {
+        return node.isNumber() ? Instant.ofEpochSecond(node.asLong()) : null;
     }
 }
