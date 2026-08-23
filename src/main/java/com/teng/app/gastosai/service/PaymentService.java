@@ -44,6 +44,29 @@ public class PaymentService implements ApplicationRunner {
     private static final String PROVIDER = "paymongo";
     private static final ZoneId MANILA = ZoneId.of("Asia/Manila");
 
+    /** The provider event that says money moved for a checkout session. */
+    private static final String PAID_EVENT = "checkout_session.payment.paid";
+
+    /**
+     * The provider events that say a payment was attempted and refused.
+     *
+     * <p>Both names are accepted because only one of them carries the checkout session in the field
+     * this service reads ({@code data.attributes.data.id}). A payment-scoped {@code payment.failed}
+     * names a payment instead, so its id matches no checkout here and the delivery is acknowledged
+     * and ignored — the checkout it belonged to then resolves as {@code EXPIRED} when its window
+     * runs out, which is the whole reason expiry does not depend on an event arriving.
+     */
+    private static final List<String> FAILED_EVENTS =
+            List.of("checkout_session.payment.failed", "payment.failed");
+
+    /**
+     * How many of a user's abandoned checkouts one {@code startCheckout} will resolve. A user with
+     * more stale rows than this keeps the remainder until their next attempt; the bound is here so
+     * that a sweep which somehow fails to advance ends anyway instead of looping against the
+     * database forever.
+     */
+    private static final int MAX_EXPIRY_SWEEP = 50;
+
     /** The command-line option {@code scripts/reconcile-payments.sh} passes; see {@link #run}. */
     public static final String RECONCILE_OPTION = "reconcile-payments";
 
@@ -58,6 +81,8 @@ public class PaymentService implements ApplicationRunner {
 
     @Transactional
     public String startCheckout(User user, BillingPeriod period) {
+        expireAbandonedCheckouts(user, LocalDateTime.now());
+
         var session = paymentProvider.createCheckout(user, PlanKey.PREMIUM, period);
         var checkout = PaymentCheckout.builder()
                 .user(user)
@@ -69,6 +94,39 @@ public class PaymentService implements ApplicationRunner {
                 .build();
         checkoutRepository.save(checkout);
         return session.checkoutUrl();
+    }
+
+    /**
+     * Resolves this user's abandoned checkouts before a new one is created.
+     *
+     * <p>Starting a checkout is the moment the stale ones matter and the moment their owner is
+     * known, so the sweep is scoped to that user rather than run as a background job over the whole
+     * table. Nothing here blocks the new checkout either way — a leftover {@code PENDING} row never
+     * prevented one — but leaving a user with a growing pile of rows that claim to be in progress is
+     * how "am I already paying for this?" becomes unanswerable.
+     *
+     * <p>It walks {@code findFirstByUserAndStatusOrderByCreatedAtDesc}, the only pending-scoped
+     * query {@code PaymentCheckoutRepository} offers and — that repository being outside this
+     * issue's ownership — the only one available. Newest first means the loop stops at the first
+     * checkout still inside its window, which can leave older elapsed rows for the next attempt.
+     * That is acceptable: {@link PaymentCheckout#effectiveStatus} already reads those rows as
+     * expired, so the stored status is catching up with a decision the clock has made, not making
+     * it. A {@code findByUserAndStatus} here would resolve them in one pass and is the first thing
+     * to reach for if that repository ever opens up.
+     */
+    private void expireAbandonedCheckouts(User user, LocalDateTime now) {
+        for (int swept = 0; swept < MAX_EXPIRY_SWEEP; swept++) {
+            Optional<PaymentCheckout> pending = checkoutRepository
+                    .findFirstByUserAndStatusOrderByCreatedAtDesc(user, CheckoutStatus.PENDING);
+            if (pending.isEmpty() || !pending.get().expireIfElapsed(now)) {
+                return;
+            }
+            checkoutRepository.save(pending.get());
+            log.info("checkout_expired session_id={} created_at={} — abandoned past the {}h window",
+                    pending.get().getSessionId(), pending.get().getCreatedAt(), PaymentCheckout.WINDOW.toHours());
+        }
+        log.warn("checkout_expiry_sweep_truncated user_id={} — more than {} abandoned checkouts",
+                user.getId(), MAX_EXPIRY_SWEEP);
     }
 
     /**
@@ -164,7 +222,8 @@ public class PaymentService implements ApplicationRunner {
                     .build());
         }
 
-        if (!"checkout_session.payment.paid".equals(eventType)) {
+        boolean paid = PAID_EVENT.equals(eventType);
+        if (!paid && !FAILED_EVENTS.contains(eventType)) {
             return;
         }
 
@@ -174,8 +233,32 @@ public class PaymentService implements ApplicationRunner {
         }
 
         PaymentCheckout checkout = checkoutRepository.findBySessionId(sessionId).orElse(null);
-        if (checkout == null || checkout.getStatus() == CheckoutStatus.PAID) {
+        if (checkout == null) {
             return;
+        }
+
+        if (paid) {
+            applyPaid(checkout, sessionId);
+        } else {
+            applyFailed(checkout, sessionId);
+        }
+    }
+
+    /**
+     * Activates the subscription this checkout was for and marks it paid.
+     *
+     * <p>Applied even when the checkout had already been given up on as expired or failed: this
+     * event is the provider saying it took the money, and that outranks anything this service
+     * concluded from silence. Only an already-{@code PAID} checkout is skipped, which is the replay
+     * case.
+     */
+    private void applyPaid(PaymentCheckout checkout, String sessionId) {
+        if (checkout.getStatus() == CheckoutStatus.PAID) {
+            return;
+        }
+        if (checkout.getStatus().isResolved()) {
+            log.info("paymongo_payment_paid_after_resolution session_id={} previous_status={} — "
+                    + "activating anyway, the provider settled it", sessionId, checkout.getStatus());
         }
 
         // Let any persistence failure below propagate as a 5xx so PayMongo retries the event
@@ -184,9 +267,23 @@ public class PaymentService implements ApplicationRunner {
         LocalDateTime periodEnd = checkout.getBillingPeriod().plus(now);
         subscriptionService.activate(checkout.getUser(), PlanKey.PREMIUM, PROVIDER, sessionId, periodEnd);
 
-        checkout.setStatus(CheckoutStatus.PAID);
-        checkout.setPaidAt(now);
+        checkout.markPaid(now);
         checkoutRepository.save(checkout);
+    }
+
+    /**
+     * Marks a checkout the provider refused, so it reads as a declined payment rather than as an
+     * abandoned page. Nothing is activated and nothing is revoked — a failed attempt on a checkout
+     * that had already succeeded, or one already resolved, changes nothing.
+     */
+    private void applyFailed(PaymentCheckout checkout, String sessionId) {
+        if (!checkout.markFailed()) {
+            log.info("paymongo_payment_failed_ignored session_id={} status={} — already resolved",
+                    sessionId, checkout.getStatus());
+            return;
+        }
+        checkoutRepository.save(checkout);
+        log.info("paymongo_payment_failed session_id={} — checkout marked FAILED", sessionId);
     }
 
     @Transactional(readOnly = true)
@@ -250,13 +347,14 @@ public class PaymentService implements ApplicationRunner {
         List<ActivationGap> gaps = new ArrayList<>();
         List<String> unresolved = new ArrayList<>();
         int providerQueries = 0;
+        LocalDateTime now = LocalDateTime.now();
 
         for (PaymentCheckout checkout : checkouts) {
             if (checkout.getStatus() == CheckoutStatus.PAID) {
                 // Already agrees with the provider on the payment, so no lookup is spent on it.
                 // What can still be missing is the activation the payment was for.
                 if (subscriptionService.findCurrentSubscription(checkout.getUser()).isEmpty()) {
-                    gaps.add(gap(GapKind.PAID_WITHOUT_SUBSCRIPTION, checkout, null));
+                    gaps.add(gap(GapKind.PAID_WITHOUT_SUBSCRIPTION, checkout, null, now));
                 }
                 continue;
             }
@@ -274,7 +372,7 @@ public class PaymentService implements ApplicationRunner {
             }
 
             if (remote.isPresent() && remote.get().paid()) {
-                gaps.add(gap(GapKind.PROVIDER_PAID_LOCALLY_UNPAID, checkout, remote.get()));
+                gaps.add(gap(GapKind.PROVIDER_PAID_LOCALLY_UNPAID, checkout, remote.get(), now));
             }
         }
 
@@ -282,7 +380,13 @@ public class PaymentService implements ApplicationRunner {
                 List.copyOf(gaps), List.copyOf(unresolved));
     }
 
-    private ActivationGap gap(GapKind kind, PaymentCheckout checkout, PaymentProvider.RemoteCheckout remote) {
+    /**
+     * {@code localStatus} is reported as {@link PaymentCheckout#effectiveStatus} rather than the
+     * stored value: an operator reading this needs to know the checkout is abandoned, not that a row
+     * says {@code PENDING} because nothing has happened to that user since the window ran out.
+     */
+    private ActivationGap gap(GapKind kind, PaymentCheckout checkout,
+                              PaymentProvider.RemoteCheckout remote, LocalDateTime now) {
         return new ActivationGap(
                 kind,
                 checkout.getSessionId(),
@@ -291,7 +395,7 @@ public class PaymentService implements ApplicationRunner {
                 checkout.getPlanKey(),
                 checkout.getBillingPeriod(),
                 checkout.getAmountCentavos(),
-                checkout.getStatus(),
+                checkout.effectiveStatus(now),
                 checkout.getCreatedAt(),
                 remote == null ? null : remote.paymentId(),
                 remote == null ? null : remote.paidAt());
