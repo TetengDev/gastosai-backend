@@ -50,7 +50,34 @@ for the fast unit-ish slices if desired. Assert `V1..Vn` applies to an empty dat
 
 ---
 
-## 3. Files intentionally dropped in the split
+## 3. Timestamps are naive, not `+08:00`
+
+**Target (Invariant 4 / `CONTRACT.md`):** timestamps are stored UTC and served as ISO 8601 with
+an explicit `+08:00` offset; day/month logic runs in `Asia/Manila`.
+
+**Today:** every response DTO in the repo serves `LocalDateTime`, which Jackson serializes with
+no offset at all — not `+08:00`, not `Z`, nothing. There is a second half to this: no JVM
+timezone is configured anywhere (no `-Duser.timezone`, no `spring.jackson.time-zone`), so the
+naive value that goes out is whatever the *host's* default zone happens to produce, not reliably
+`Asia/Manila`. Two hosts with different default zones would serve different wall-clock values
+for the same instant.
+
+**Why it is not done here:** fixing it means changing the type of every timestamp field on every
+response DTO across the surface — `OffsetDateTime`/`ZonedDateTime` in place of `LocalDateTime` —
+which is a breaking contract change on most of the API, not a local fix. Per `CONTRACT.md` that
+needs a major contract version plus `/api/v2` kept live alongside `/api/v1`, the same shape as
+gap #1's money migration.
+
+**First raised:** PR #45, by `pr-reviewer` and upheld by `pr-review-auditor` as a deferred issue;
+this entry is the durable record so it survives the PR scrolling out of view.
+
+**Scope:** every response DTO carrying a timestamp, plus pinning the JVM/Jackson timezone to
+`Asia/Manila` (or UTC with explicit conversion at the edge) so the served value stops depending
+on the host.
+
+---
+
+## 4. Files intentionally dropped in the split
 
 The following existed at the monorepo root and were **not** carried into either repo:
 `CHANGELOG.md`, `LICENSE`, `AGENTS.md`, `.githooks/`, `ai/`, `brand/`, `qa-csv/`,
@@ -69,7 +96,7 @@ Consequences **not** handled — decide deliberately:
 
 ---
 
-## 4. Branch protection is not enabled (blocked by plan/visibility)
+## 5. Branch protection is not enabled (blocked by plan/visibility)
 
 The monorepo had two active rulesets — `Protect master` (block deletion and force-push,
 require a PR, and require `Backend tests` / `Frontend audit & lint` / `Validate release branch`
