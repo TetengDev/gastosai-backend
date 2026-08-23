@@ -1,13 +1,24 @@
 package com.teng.app.gastosai;
 
+import com.teng.app.gastosai.config.AiKeyContextInterceptor;
+import com.teng.app.gastosai.config.AiRateLimitInterceptor;
+import com.teng.app.gastosai.config.AuthenticatedWriteRateLimitInterceptor;
+import com.teng.app.gastosai.config.FeatureAccessInterceptor;
 import com.teng.app.gastosai.config.InMemoryRateLimiterStore;
 import com.teng.app.gastosai.config.PublicRateLimitInterceptor;
+import com.teng.app.gastosai.config.ViewAsInterceptor;
+import com.teng.app.gastosai.config.WebConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.handler.MappedInterceptor;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 class PublicRateLimitInterceptorTest {
 
@@ -15,7 +26,16 @@ class PublicRateLimitInterceptorTest {
 
     @BeforeEach
     void setUp() {
-        interceptor = new PublicRateLimitInterceptor(3, new InMemoryRateLimiterStore());
+        interceptor = new PublicRateLimitInterceptor(3, WEBHOOK_LIMIT, new InMemoryRateLimiterStore());
+    }
+
+    /** Deliberately larger than the interactive limit of 3, as it is in production. */
+    private static final int WEBHOOK_LIMIT = 8;
+
+    private MockHttpServletRequest webhookRequest(String ip) {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/webhooks/paymongo");
+        request.setRemoteAddr(ip);
+        return request;
     }
 
     private MockHttpServletResponse response() {
@@ -97,6 +117,68 @@ class PublicRateLimitInterceptorTest {
         }
         assertThat(handle(attackerSpoofing)).isFalse();
         assertThat(handle(legitRequest)).isTrue();
+    }
+
+    @Test
+    void webhook_isRateLimited_onItsOwnLargerBudget() throws Exception {
+        MockHttpServletRequest webhook = webhookRequest("10.0.0.20");
+
+        // A burst the size of the interactive limit — what a run of genuine PayMongo events, or a
+        // backlog being redelivered, looks like — still reaches the handler.
+        for (int i = 0; i < WEBHOOK_LIMIT; i++) {
+            assertThat(handle(webhook)).as("webhook %d of %d", i + 1, WEBHOOK_LIMIT).isTrue();
+        }
+
+        MockHttpServletResponse resp = response();
+        assertThat(interceptor.preHandle(webhook, resp, null)).isFalse();
+        assertThat(resp.getStatus()).isEqualTo(429);
+    }
+
+    @Test
+    void webhook_andInteractiveTraffic_doNotShareABucket() throws Exception {
+        MockHttpServletRequest login = new MockHttpServletRequest("POST", "/auth/login");
+        login.setRemoteAddr("10.0.0.21");
+
+        // Same IP exhausts the interactive window; the webhook budget is untouched by it.
+        for (int i = 0; i < 3; i++) {
+            handle(login);
+        }
+        assertThat(handle(login)).isFalse();
+        assertThat(handle(webhookRequest("10.0.0.21"))).isTrue();
+    }
+
+    @Test
+    void webhookRegistration_coversThePayMongoPath() {
+        PublicRateLimitInterceptor publicLimiter =
+                new PublicRateLimitInterceptor(3, WEBHOOK_LIMIT, new InMemoryRateLimiterStore());
+        WebConfig config = new WebConfig(
+                mock(FeatureAccessInterceptor.class),
+                mock(AiRateLimitInterceptor.class),
+                mock(AiKeyContextInterceptor.class),
+                mock(ViewAsInterceptor.class),
+                publicLimiter,
+                mock(AuthenticatedWriteRateLimitInterceptor.class));
+
+        ExposedRegistry registry = new ExposedRegistry();
+        config.addInterceptors(registry);
+
+        List<String> patterns = registry.interceptors().stream()
+                .filter(MappedInterceptor.class::isInstance)
+                .map(MappedInterceptor.class::cast)
+                .filter(mapped -> mapped.getInterceptor() == publicLimiter)
+                .map(MappedInterceptor::getIncludePathPatterns)
+                .filter(java.util.Objects::nonNull)
+                .flatMap(java.util.Arrays::stream)
+                .toList();
+
+        assertThat(patterns).contains("/webhooks/paymongo");
+    }
+
+    /** {@code InterceptorRegistry#getInterceptors} is protected; a subclass is the way to read it. */
+    private static class ExposedRegistry extends InterceptorRegistry {
+        List<Object> interceptors() {
+            return getInterceptors();
+        }
     }
 
     @Test
