@@ -107,6 +107,46 @@
         },
         "type" : "object"
       },
+      "AlertChatItem" : {
+        "description" : "An alert in a chat answer — enough to render the notice and mark it read.",
+        "properties" : {
+          "id" : {
+            "description" : "Stable alert identifier. Pass it back to mark read, dismiss or delete.",
+            "example" : 91,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "message" : {
+            "description" : "The human-readable notice, already composed by the server.",
+            "example" : "You have used 92% of your Groceries budget for August.",
+            "type" : "string"
+          },
+          "read" : {
+            "description" : "Whether the user has already seen this alert.",
+            "example" : false,
+            "type" : "boolean"
+          },
+          "severity" : {
+            "description" : "How loudly to render it.",
+            "enum" : [ "INFO", "WARNING", "CRITICAL" ],
+            "type" : "string"
+          },
+          "type" : {
+            "description" : "What triggered the alert.",
+            "enum" : [ "BUDGET_WARNING", "BUDGET_EXCEEDED", "SPENDING_SPIKE", "RECURRING_DUE" ],
+            "type" : "string"
+          }
+        },
+        "required" : [ "id", "message", "read", "severity", "type" ],
+        "type" : "object"
+      },
+      "AlertChatItemList" : {
+        "description" : "The result of a `list_alerts` turn: a JSON array of alerts.",
+        "items" : {
+          "$ref" : "#/components/schemas/AlertChatItem"
+        },
+        "type" : "array"
+      },
       "AlertResponse" : {
         "properties" : {
           "categoryName" : {
@@ -280,6 +320,44 @@
             "type" : "integer"
           }
         },
+        "type" : "object"
+      },
+      "BudgetChatItem" : {
+        "description" : "One category's budget line in a chat budget summary.",
+        "properties" : {
+          "budgeted" : {
+            "description" : "The budget limit for the month, in PHP.",
+            "example" : 8000.0,
+            "type" : "number"
+          },
+          "categoryName" : {
+            "description" : "The budgeted category's name.",
+            "example" : "Groceries",
+            "type" : "string"
+          },
+          "percentUsed" : {
+            "description" : "Share of the budget used, as a percentage. May exceed 100.",
+            "example" : 80.26,
+            "type" : "number"
+          },
+          "remaining" : {
+            "description" : "`budgeted` minus `spent`, in PHP. Negative once the budget is exceeded.",
+            "example" : 1579.5,
+            "type" : "number"
+          },
+          "spent" : {
+            "description" : "Spent against this budget so far, in PHP.",
+            "example" : 6420.5,
+            "type" : "number"
+          },
+          "status" : {
+            "description" : "Banding derived from `percentUsed`: `WARNING` at 80%, `OVER_BUDGET` at 100%. The server computes it — a client must never re-derive it.",
+            "enum" : [ "ON_TRACK", "WARNING", "OVER_BUDGET" ],
+            "example" : "WARNING",
+            "type" : "string"
+          }
+        },
+        "required" : [ "budgeted", "categoryName", "percentUsed", "remaining", "spent", "status" ],
         "type" : "object"
       },
       "BudgetRequest" : {
@@ -578,6 +656,40 @@
         },
         "type" : "object"
       },
+      "BudgetSummaryChatResult" : {
+        "description" : "A month's budget summary as returned by a chat turn.",
+        "properties" : {
+          "items" : {
+            "description" : "One line per budgeted category. Empty when no budget is set.",
+            "items" : {
+              "$ref" : "#/components/schemas/BudgetChatItem"
+            },
+            "type" : "array"
+          },
+          "month" : {
+            "description" : "The month summarised, `YYYY-MM` in Asia/Manila.",
+            "example" : "2026-08",
+            "type" : "string"
+          },
+          "safeToSpend" : {
+            "description" : "What remains across all budgets for the month, in PHP.",
+            "example" : 6259.75,
+            "type" : "number"
+          },
+          "totalBudgeted" : {
+            "description" : "Sum of every budget limit for the month, in PHP.",
+            "example" : 25000.0,
+            "type" : "number"
+          },
+          "totalSpent" : {
+            "description" : "Sum of spending against those budgets, in PHP.",
+            "example" : 18740.25,
+            "type" : "number"
+          }
+        },
+        "required" : [ "items", "month", "safeToSpend", "totalBudgeted", "totalSpent" ],
+        "type" : "object"
+      },
       "BudgetSummaryItem" : {
         "properties" : {
           "budgeted" : {
@@ -691,6 +803,19 @@
         },
         "type" : "object"
       },
+      "BulkDeleteChatResult" : {
+        "description" : "How many expenses a bulk delete actually removed.",
+        "properties" : {
+          "deleted" : {
+            "description" : "The number of expenses deleted. Can be lower than the number asked for — ids that no longer exist are skipped rather than failing the turn — and can be zero when a filter matched nothing.",
+            "example" : 12,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "required" : [ "deleted" ],
+        "type" : "object"
+      },
       "CategoryReportItem" : {
         "properties" : {
           "category" : {
@@ -749,6 +874,37 @@
         },
         "type" : "object"
       },
+      "CategoryResponseList" : {
+        "description" : "The result of a `list_categories` turn: a JSON array of the user's categories, as full CategoryResponse records.",
+        "items" : {
+          "$ref" : "#/components/schemas/CategoryResponse"
+        },
+        "type" : "array"
+      },
+      "CategoryTotalChatItem" : {
+        "description" : "A category and what was spent in it over the requested window.",
+        "properties" : {
+          "category" : {
+            "description" : "Category name, or `Uncategorized`.",
+            "example" : "Groceries",
+            "type" : "string"
+          },
+          "total" : {
+            "description" : "Total spent in this category, in PHP, rounded to two decimal places.",
+            "example" : 6420.5,
+            "type" : "number"
+          }
+        },
+        "required" : [ "category", "total" ],
+        "type" : "object"
+      },
+      "CategoryTotalChatItemList" : {
+        "description" : "The result of a `get_category_totals` turn: a JSON array of category totals.",
+        "items" : {
+          "$ref" : "#/components/schemas/CategoryTotalChatItem"
+        },
+        "type" : "array"
+      },
       "ChatAuditLogDto" : {
         "properties" : {
           "conversationId" : {
@@ -804,6 +960,29 @@
         },
         "type" : "object"
       },
+      "ChatPreviewData" : {
+        "description" : "A pending assistant action awaiting confirmation. Echo `params` back on the confirming turn; the client never interprets them, it only renders and returns them.",
+        "properties" : {
+          "existingId" : {
+            "description" : "The id of the expense this one looks like a duplicate of. Present only on the duplicate-confirmation turn, which arrives as `type: \"disambiguate\"` rather than `\"preview\"`; the property is omitted, not null, on every other turn. A client may show it to let the user open the existing row before confirming.",
+            "example" : 1204,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "params" : {
+            "additionalProperties" : { },
+            "description" : "The tool's arguments, exactly as the assistant produced them. The key set varies by tool and is not part of this contract — treat it as opaque.",
+            "type" : "object"
+          },
+          "toolName" : {
+            "description" : "The tool the assistant resolved, e.g. `create_expense`. This is the one field that says which action is pending.",
+            "example" : "create_expense",
+            "type" : "string"
+          }
+        },
+        "required" : [ "params", "toolName" ],
+        "type" : "object"
+      },
       "ChatRequest" : {
         "properties" : {
           "conversationId" : {
@@ -823,19 +1002,57 @@
         "type" : "object"
       },
       "ChatResponse" : {
+        "description" : "One assistant turn: what kind of turn it is, what to say, and an optional structured payload to render.",
         "properties" : {
           "conversationId" : {
+            "description" : "The conversation this turn belongs to. Omitted — not null — on turns served before a conversation is established, such as the circuit-breaker fallback.",
+            "example" : 42,
             "format" : "int64",
             "type" : "integer"
           },
           "message" : {
+            "description" : "The assistant's reply, ready to render. Always present, and always sufficient on its own — a client that cannot render `result` can show this.",
+            "example" : "You have 3 savings goal(s).",
             "type" : "string"
           },
-          "result" : { },
+          "result" : {
+            "description" : "The structured payload for this turn, omitted when the turn carries none. Which member applies follows from the tool the assistant ran, which is not itself on the wire — so narrow on `type` first, then on the payload's own properties. See TEN-275 for why an explicit per-payload discriminator is not published here.",
+            "oneOf" : [ {
+              "$ref" : "#/components/schemas/ChatPreviewData"
+            }, {
+              "$ref" : "#/components/schemas/BudgetSummaryChatResult"
+            }, {
+              "$ref" : "#/components/schemas/RecurringChatResult"
+            }, {
+              "$ref" : "#/components/schemas/MonthlyReportChatResult"
+            }, {
+              "$ref" : "#/components/schemas/SubscriptionChatResult"
+            }, {
+              "$ref" : "#/components/schemas/BulkDeleteChatResult"
+            }, {
+              "$ref" : "#/components/schemas/RecategorizeChatResult"
+            }, {
+              "$ref" : "#/components/schemas/GoalChatItemList"
+            }, {
+              "$ref" : "#/components/schemas/AlertChatItemList"
+            }, {
+              "$ref" : "#/components/schemas/ExpenseChatItemList"
+            }, {
+              "$ref" : "#/components/schemas/CategoryTotalChatItemList"
+            }, {
+              "$ref" : "#/components/schemas/ExpenseDisambiguateItemList"
+            }, {
+              "$ref" : "#/components/schemas/CategoryResponseList"
+            } ]
+          },
           "type" : {
+            "description" : "The turn's kind, and the only field a client should branch on before reading `result`. `text` — prose only, no payload. `action` — something was read or written; `result` carries it. `preview` — a write is pending confirmation and `result` is a ChatPreviewData. `disambiguate` — the assistant needs the user to choose before it proceeds.",
+            "enum" : [ "text", "action", "preview", "disambiguate" ],
+            "example" : "action",
             "type" : "string"
           }
         },
+        "required" : [ "message", "type" ],
         "type" : "object"
       },
       "CheckoutRequest" : {
@@ -932,6 +1149,81 @@
           }
         },
         "type" : "object"
+      },
+      "ExpenseChatItem" : {
+        "description" : "An expense in a chat answer — flattened for a chat bubble.",
+        "properties" : {
+          "amount" : {
+            "description" : "Amount in PHP, rounded to two decimal places for display.",
+            "example" : 320.0,
+            "type" : "number"
+          },
+          "category" : {
+            "description" : "Category name, or the literal `Uncategorized` when the expense has no category. Never null.",
+            "example" : "Groceries",
+            "type" : "string"
+          },
+          "date" : {
+            "description" : "The expense date as `YYYY-MM-DD` in Asia/Manila, or an empty string on the rare rows with no date. Not declared as a date format for that reason — parse defensively.",
+            "example" : "2026-08-14",
+            "type" : "string"
+          },
+          "description" : {
+            "description" : "What the expense was for.",
+            "example" : "SM Supermarket",
+            "type" : "string"
+          },
+          "id" : {
+            "description" : "Stable expense identifier.",
+            "example" : 1204,
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "required" : [ "amount", "category", "date", "description", "id" ],
+        "type" : "object"
+      },
+      "ExpenseChatItemList" : {
+        "description" : "The result of a `search_expenses` turn: a JSON array of matching expenses, at most 50.",
+        "items" : {
+          "$ref" : "#/components/schemas/ExpenseChatItem"
+        },
+        "type" : "array"
+      },
+      "ExpenseDisambiguateItem" : {
+        "description" : "One expense the user must choose between before a delete can proceed.",
+        "properties" : {
+          "amount" : {
+            "description" : "Amount in PHP, at the stored precision. Unlike ExpenseChatItem this is not rounded for display, so format it at the edge.",
+            "example" : 320.0,
+            "type" : "number"
+          },
+          "date" : {
+            "description" : "The expense date as `YYYY-MM-DD` in Asia/Manila, or an empty string on the rare rows with no date.",
+            "example" : "2026-08-14",
+            "type" : "string"
+          },
+          "description" : {
+            "description" : "What the expense was for — the field the user's ambiguous phrase matched.",
+            "example" : "SM Supermarket",
+            "type" : "string"
+          },
+          "id" : {
+            "description" : "The expense's identifier. Send it back to name the one to delete.",
+            "example" : 1204,
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "required" : [ "amount", "date", "description", "id" ],
+        "type" : "object"
+      },
+      "ExpenseDisambiguateItemList" : {
+        "description" : "The result of a delete-expense `disambiguate` turn: a JSON array of the candidates the user must choose between.",
+        "items" : {
+          "$ref" : "#/components/schemas/ExpenseDisambiguateItem"
+        },
+        "type" : "array"
       },
       "ExpenseRequest" : {
         "properties" : {
@@ -1097,6 +1389,57 @@
           }
         },
         "type" : "object"
+      },
+      "GoalChatItem" : {
+        "description" : "A savings goal in a chat answer — the subset a chat bubble renders.",
+        "properties" : {
+          "id" : {
+            "description" : "Stable goal identifier.",
+            "example" : 7,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "name" : {
+            "description" : "The goal's name.",
+            "example" : "Emergency fund",
+            "type" : "string"
+          },
+          "progressPercent" : {
+            "description" : "Progress as a percentage, 0–100. Not money: a decimal fraction here is correct.",
+            "example" : 25.0,
+            "type" : "number"
+          },
+          "savedAmount" : {
+            "description" : "Amount saved so far, in PHP.",
+            "example" : 12500.0,
+            "type" : "number"
+          },
+          "status" : {
+            "description" : "Where the goal stands against its target date.",
+            "enum" : [ "ON_TRACK", "BEHIND", "COMPLETED", "PAUSED" ],
+            "type" : "string"
+          },
+          "targetAmount" : {
+            "description" : "Target amount in PHP, at full decimal precision.",
+            "example" : 50000.0,
+            "type" : "number"
+          },
+          "targetDate" : {
+            "description" : "Target date as `YYYY-MM-DD`. Absent — the property is omitted, not null — when the goal has no target date.",
+            "example" : "2026-12-31",
+            "format" : "date",
+            "type" : [ "string", "null" ]
+          }
+        },
+        "required" : [ "id", "name", "progressPercent", "savedAmount", "status", "targetAmount" ],
+        "type" : "object"
+      },
+      "GoalChatItemList" : {
+        "description" : "The result of a `list_goals` turn: a JSON array of savings goals.",
+        "items" : {
+          "$ref" : "#/components/schemas/GoalChatItem"
+        },
+        "type" : "array"
       },
       "GoalRequest" : {
         "properties" : {
@@ -1365,6 +1708,37 @@
         },
         "type" : "object"
       },
+      "MonthlyReportChatResult" : {
+        "description" : "A month's spending report as returned by a chat turn.",
+        "properties" : {
+          "categoryBreakdown" : {
+            "description" : "Spend per category for the month. Empty when nothing was spent.",
+            "items" : {
+              "$ref" : "#/components/schemas/CategoryTotalChatItem"
+            },
+            "type" : "array"
+          },
+          "month" : {
+            "description" : "The month reported, `YYYY-MM` in Asia/Manila.",
+            "example" : "2026-08",
+            "type" : "string"
+          },
+          "topExpenses" : {
+            "description" : "The month's five largest expenses, descending by amount. Fewer than five when the month has fewer expenses.",
+            "items" : {
+              "$ref" : "#/components/schemas/ExpenseChatItem"
+            },
+            "type" : "array"
+          },
+          "totalSpent" : {
+            "description" : "Total spent in the month, in PHP. Equals the sum of `categoryBreakdown[].total`; the server computes it, a client must not re-derive it.",
+            "example" : 18740.25,
+            "type" : "number"
+          }
+        },
+        "required" : [ "categoryBreakdown", "month", "topExpenses", "totalSpent" ],
+        "type" : "object"
+      },
       "MonthlyReportItem" : {
         "properties" : {
           "month" : {
@@ -1612,6 +1986,19 @@
         },
         "type" : "object"
       },
+      "RecategorizeChatResult" : {
+        "description" : "How many expenses a bulk recategorization moved.",
+        "properties" : {
+          "updated" : {
+            "description" : "The number of expenses moved to the target category. Zero when nothing matched the source category over the requested window.",
+            "example" : 8,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "required" : [ "updated" ],
+        "type" : "object"
+      },
       "RecommendationsInsightResponse" : {
         "properties" : {
           "month" : {
@@ -1624,6 +2011,65 @@
             "type" : "array"
           }
         },
+        "type" : "object"
+      },
+      "RecurringChatItem" : {
+        "description" : "A recurring expense in a chat answer.",
+        "properties" : {
+          "active" : {
+            "description" : "False once paused; a paused entry is still listed, but generates nothing and never appears in `upcoming`.",
+            "example" : true,
+            "type" : "boolean"
+          },
+          "amount" : {
+            "description" : "Amount charged each period, in PHP.",
+            "example" : 549.0,
+            "type" : "number"
+          },
+          "categoryName" : {
+            "description" : "Category the generated expenses land in.",
+            "example" : "Subscriptions",
+            "type" : "string"
+          },
+          "frequency" : {
+            "description" : "How often it recurs.",
+            "enum" : [ "MONTHLY", "WEEKLY", "YEARLY" ],
+            "type" : "string"
+          },
+          "id" : {
+            "description" : "Stable recurring-expense identifier.",
+            "example" : 13,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "name" : {
+            "description" : "The recurring expense's name.",
+            "example" : "Netflix",
+            "type" : "string"
+          }
+        },
+        "required" : [ "active", "amount", "categoryName", "frequency", "id", "name" ],
+        "type" : "object"
+      },
+      "RecurringChatResult" : {
+        "description" : "A user's recurring expenses and the bills due this month.",
+        "properties" : {
+          "items" : {
+            "description" : "Every recurring expense the user has, active or paused.",
+            "items" : {
+              "$ref" : "#/components/schemas/RecurringChatItem"
+            },
+            "type" : "array"
+          },
+          "upcoming" : {
+            "description" : "Bills falling due in the requested month. A projection of `items`, not a parallel list — the two can differ in length, and a paused entry appears in `items` only.",
+            "items" : {
+              "$ref" : "#/components/schemas/UpcomingBillChatItem"
+            },
+            "type" : "array"
+          }
+        },
+        "required" : [ "items", "upcoming" ],
         "type" : "object"
       },
       "RecurringExpenseRequest" : {
@@ -1875,6 +2321,36 @@
         },
         "type" : "object"
       },
+      "SubscriptionChatResult" : {
+        "description" : "The user's plan and what it entitles them to, as reported by a chat turn.",
+        "properties" : {
+          "admin" : {
+            "description" : "True when the account is an administrator, which bypasses plan gating and AI quota entirely.",
+            "example" : false,
+            "type" : "boolean"
+          },
+          "features" : {
+            "description" : "The capabilities currently unlocked. Unordered, and already resolved against `status` — a client gates on membership here, never on `plan`.",
+            "items" : {
+              "enum" : [ "AI_ANALYTICS", "NL_CHATBOT", "EXPORT_CSV", "EXPORT_PDF", "BUDGET_FORECASTING", "TREND_ANALYSIS", "CUSTOM_CATEGORIES", "UNLIMITED_TRANSACTIONS", "ADVANCED_INSIGHTS", "ANOMALY_DETECTION", "CHAT_PERSONAS" ],
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "plan" : {
+            "description" : "The tier in force. `FREE` is the implicit default when there is no active subscription.",
+            "enum" : [ "FREE", "PREMIUM", "TRIAL" ],
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "The subscription's lifecycle state. Only `ACTIVE` and `TRIAL` grant a paid plan's features — the other values mean the effective plan is `FREE`.",
+            "enum" : [ "ACTIVE", "TRIAL", "INACTIVE", "EXPIRED", "CANCELLED" ],
+            "type" : "string"
+          }
+        },
+        "required" : [ "admin", "features", "plan", "status" ],
+        "type" : "object"
+      },
       "SubscriptionResponse" : {
         "properties" : {
           "billingPeriod" : {
@@ -1942,6 +2418,29 @@
             "type" : "integer"
           }
         },
+        "type" : "object"
+      },
+      "UpcomingBillChatItem" : {
+        "description" : "A bill projected to fall due in the requested month.",
+        "properties" : {
+          "amount" : {
+            "description" : "Amount due, in PHP.",
+            "example" : 549.0,
+            "type" : "number"
+          },
+          "dueDate" : {
+            "description" : "The due date as `YYYY-MM-DD`, in Asia/Manila.",
+            "example" : "2026-08-28",
+            "format" : "date",
+            "type" : "string"
+          },
+          "name" : {
+            "description" : "The originating recurring expense's name.",
+            "example" : "Netflix",
+            "type" : "string"
+          }
+        },
+        "required" : [ "amount", "dueDate", "name" ],
         "type" : "object"
       },
       "UpcomingBillResponse" : {
