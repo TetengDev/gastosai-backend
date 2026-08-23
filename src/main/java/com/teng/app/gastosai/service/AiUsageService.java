@@ -25,6 +25,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -146,8 +147,8 @@ public class AiUsageService {
         Map<PlanKey, Slices> byPlan = new EnumMap<>(PlanKey.class);
         Map<PlanKey, Long> activeUsersByPlan = new EnumMap<>(PlanKey.class);
 
-        for (Object[] row : rollupByUserAndFeature(periodStart.atStartOfDay(),
-                periodEnd.plusDays(1).atStartOfDay())) {
+        for (Object[] row : rollupByUserAndFeature(manilaDayStart(periodStart),
+                manilaDayStart(periodEnd.plusDays(1)))) {
             Long userId = ((Number) row[0]).longValue();
             AiFeature feature = (AiFeature) row[1];
             long requests = ((Number) row[2]).longValue();
@@ -206,6 +207,23 @@ public class AiUsageService {
                 visionOutputPerMtokUsd,
                 pricesLastCheckedOn,
                 pricesSource);
+    }
+
+    /**
+     * Midnight of a Manila calendar day, expressed in the zone {@code ai_usage.created_at} is
+     * actually written in.
+     *
+     * <p>{@code AiUsage} stamps itself with {@code LocalDateTime.now()}, so the column holds
+     * wall-clock time in the JVM's default zone — UTC in the container, Manila on a developer's
+     * machine. Comparing a Manila calendar date straight against that column is only right by
+     * accident on the second of those. In the container it would file every call made after 16:00
+     * UTC under the wrong Manila day, which is a whole evening of usage landing in yesterday's
+     * report. Converting the boundary keeps the comparison an instant comparison in either zone.
+     */
+    private static LocalDateTime manilaDayStart(LocalDate day) {
+        return day.atStartOfDay(JacksonTimeConfig.APP_ZONE)
+                .withZoneSameInstant(ZoneId.systemDefault())
+                .toLocalDateTime();
     }
 
     @SuppressWarnings("unchecked")

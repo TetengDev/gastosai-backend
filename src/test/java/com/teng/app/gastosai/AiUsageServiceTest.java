@@ -22,6 +22,8 @@ import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,6 +32,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -37,6 +40,7 @@ import static org.mockito.Mockito.when;
 @MockitoSettings(strictness = Strictness.LENIENT)
 class AiUsageServiceTest {
 
+    private static final ZoneId MANILA = ZoneId.of("Asia/Manila");
     private static final LocalDate CHECKED_ON = LocalDate.of(2026, 8, 24);
     private static final String SOURCE = "OpenAI API pricing page";
 
@@ -44,6 +48,7 @@ class AiUsageServiceTest {
     @Mock EntityManager entityManager;
 
     AiUsageService aiUsageService;
+    TypedQuery<Object[]> usageQuery;
 
     @BeforeEach
     void setUp() {
@@ -225,9 +230,31 @@ class AiUsageServiceTest {
 
         AiCostReport report = aiUsageService.costReport(null, null);
 
-        LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Manila"));
+        LocalDate today = LocalDate.now(MANILA);
         assertThat(report.periodStart()).isEqualTo(today.withDayOfMonth(1));
         assertThat(report.periodEnd()).isEqualTo(today);
+    }
+
+    /**
+     * {@code ai_usage.created_at} holds wall-clock time in the JVM's default zone — UTC in the
+     * container, Manila on a laptop. A Manila calendar day therefore has to be translated into
+     * that zone before it is compared, or every call made after 16:00 UTC files under the wrong
+     * Manila day in production. Asserting on the instant rather than on the local value keeps this
+     * test honest whichever zone it runs in.
+     */
+    @Test
+    void costReportBoundsThePeriodByManilaMidnight() {
+        stubUsageAndPlans();
+        ArgumentCaptor<LocalDateTime> captor = ArgumentCaptor.forClass(LocalDateTime.class);
+
+        aiUsageService.costReport(LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 24));
+
+        verify(usageQuery, times(2)).setParameter(anyString(), captor.capture());
+        List<LocalDateTime> bounds = captor.getAllValues();
+        assertThat(bounds.get(0).atZone(ZoneId.systemDefault()).toInstant())
+                .isEqualTo(LocalDate.of(2026, 8, 1).atStartOfDay(MANILA).toInstant());
+        assertThat(bounds.get(1).atZone(ZoneId.systemDefault()).toInstant())
+                .isEqualTo(LocalDate.of(2026, 8, 25).atStartOfDay(MANILA).toInstant());
     }
 
     @Test
@@ -264,7 +291,7 @@ class AiUsageServiceTest {
 
     /** Routes the service's two JPQL queries to their own result lists. */
     private void stubQueries(List<Object[]> usageRows, List<Object[]> planRows) {
-        TypedQuery<Object[]> usageQuery = queryReturning(usageRows);
+        usageQuery = queryReturning(usageRows);
         TypedQuery<Object[]> planQuery = queryReturning(planRows);
         when(entityManager.createQuery(anyString(), eq(Object[].class))).thenAnswer(invocation ->
                 invocation.<String>getArgument(0).contains("FROM UserSubscription") ? planQuery : usageQuery);
