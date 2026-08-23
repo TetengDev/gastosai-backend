@@ -803,6 +803,19 @@
         },
         "type" : "object"
       },
+      "BulkDeleteChatResult" : {
+        "description" : "How many expenses a bulk delete actually removed.",
+        "properties" : {
+          "deleted" : {
+            "description" : "The number of expenses deleted. Can be lower than the number asked for — ids that no longer exist are skipped rather than failing the turn — and can be zero when a filter matched nothing.",
+            "example" : 12,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "required" : [ "deleted" ],
+        "type" : "object"
+      },
       "CategoryReportItem" : {
         "properties" : {
           "category" : {
@@ -943,6 +956,12 @@
       "ChatPreviewData" : {
         "description" : "A pending assistant action awaiting confirmation. Echo `params` back on the confirming turn; the client never interprets them, it only renders and returns them.",
         "properties" : {
+          "existingId" : {
+            "description" : "The id of the expense this one looks like a duplicate of. Present only on the duplicate-confirmation turn, which arrives as `type: \"disambiguate\"` rather than `\"preview\"`; the property is omitted, not null, on every other turn. A client may show it to let the user open the existing row before confirming.",
+            "example" : 1204,
+            "format" : "int64",
+            "type" : "integer"
+          },
           "params" : {
             "additionalProperties" : { },
             "description" : "The tool's arguments, exactly as the assistant produced them. The key set varies by tool and is not part of this contract — treat it as opaque.",
@@ -979,10 +998,10 @@
         "description" : "One assistant turn: what kind of turn it is, what to say, and an optional structured payload to render.",
         "properties" : {
           "conversationId" : {
-            "description" : "The conversation this turn belongs to. Omitted on turns served before a conversation is established, such as the circuit-breaker fallback.",
+            "description" : "The conversation this turn belongs to. Omitted — not null — on turns served before a conversation is established, such as the circuit-breaker fallback.",
             "example" : 42,
             "format" : "int64",
-            "type" : [ "integer", "null" ]
+            "type" : "integer"
           },
           "message" : {
             "description" : "The assistant's reply, ready to render. Always present, and always sufficient on its own — a client that cannot render `result` can show this.",
@@ -1000,6 +1019,12 @@
             }, {
               "$ref" : "#/components/schemas/MonthlyReportChatResult"
             }, {
+              "$ref" : "#/components/schemas/SubscriptionChatResult"
+            }, {
+              "$ref" : "#/components/schemas/BulkDeleteChatResult"
+            }, {
+              "$ref" : "#/components/schemas/RecategorizeChatResult"
+            }, {
               "$ref" : "#/components/schemas/GoalChatItemList"
             }, {
               "$ref" : "#/components/schemas/AlertChatItemList"
@@ -1007,6 +1032,8 @@
               "$ref" : "#/components/schemas/ExpenseChatItemList"
             }, {
               "$ref" : "#/components/schemas/CategoryTotalChatItemList"
+            }, {
+              "$ref" : "#/components/schemas/ExpenseDisambiguateItemList"
             } ]
           },
           "type" : {
@@ -1151,6 +1178,41 @@
         "description" : "The result of a `search_expenses` turn: a JSON array of matching expenses, at most 50.",
         "items" : {
           "$ref" : "#/components/schemas/ExpenseChatItem"
+        },
+        "type" : "array"
+      },
+      "ExpenseDisambiguateItem" : {
+        "description" : "One expense the user must choose between before a delete can proceed.",
+        "properties" : {
+          "amount" : {
+            "description" : "Amount in PHP, at the stored precision. Unlike ExpenseChatItem this is not rounded for display, so format it at the edge.",
+            "example" : 320.0,
+            "type" : "number"
+          },
+          "date" : {
+            "description" : "The expense date as `YYYY-MM-DD` in Asia/Manila, or an empty string on the rare rows with no date.",
+            "example" : "2026-08-14",
+            "type" : "string"
+          },
+          "description" : {
+            "description" : "What the expense was for — the field the user's ambiguous phrase matched.",
+            "example" : "SM Supermarket",
+            "type" : "string"
+          },
+          "id" : {
+            "description" : "The expense's identifier. Send it back to name the one to delete.",
+            "example" : 1204,
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "required" : [ "amount", "date", "description", "id" ],
+        "type" : "object"
+      },
+      "ExpenseDisambiguateItemList" : {
+        "description" : "The result of a delete-expense `disambiguate` turn: a JSON array of the candidates the user must choose between.",
+        "items" : {
+          "$ref" : "#/components/schemas/ExpenseDisambiguateItem"
         },
         "type" : "array"
       },
@@ -1915,6 +1977,19 @@
         },
         "type" : "object"
       },
+      "RecategorizeChatResult" : {
+        "description" : "How many expenses a bulk recategorization moved.",
+        "properties" : {
+          "updated" : {
+            "description" : "The number of expenses moved to the target category. Zero when nothing matched the source category over the requested window.",
+            "example" : 8,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "required" : [ "updated" ],
+        "type" : "object"
+      },
       "RecommendationsInsightResponse" : {
         "properties" : {
           "month" : {
@@ -2235,6 +2310,36 @@
             "type" : "string"
           }
         },
+        "type" : "object"
+      },
+      "SubscriptionChatResult" : {
+        "description" : "The user's plan and what it entitles them to, as reported by a chat turn.",
+        "properties" : {
+          "admin" : {
+            "description" : "True when the account is an administrator, which bypasses plan gating and AI quota entirely.",
+            "example" : false,
+            "type" : "boolean"
+          },
+          "features" : {
+            "description" : "The capabilities currently unlocked. Unordered, and already resolved against `status` — a client gates on membership here, never on `plan`.",
+            "items" : {
+              "enum" : [ "AI_ANALYTICS", "NL_CHATBOT", "EXPORT_CSV", "EXPORT_PDF", "BUDGET_FORECASTING", "TREND_ANALYSIS", "CUSTOM_CATEGORIES", "UNLIMITED_TRANSACTIONS", "ADVANCED_INSIGHTS", "ANOMALY_DETECTION", "CHAT_PERSONAS" ],
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "plan" : {
+            "description" : "The tier in force. `FREE` is the implicit default when there is no active subscription.",
+            "enum" : [ "FREE", "PREMIUM", "TRIAL" ],
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "The subscription's lifecycle state. Only `ACTIVE` and `TRIAL` grant a paid plan's features — the other values mean the effective plan is `FREE`.",
+            "enum" : [ "ACTIVE", "TRIAL", "INACTIVE", "EXPIRED", "CANCELLED" ],
+            "type" : "string"
+          }
+        },
+        "required" : [ "admin", "features", "plan", "status" ],
         "type" : "object"
       },
       "SubscriptionResponse" : {

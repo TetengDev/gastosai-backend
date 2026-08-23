@@ -25,6 +25,14 @@ public record ChatPreviewData(
 		@Schema(description = "The tool's arguments, exactly as the assistant produced them. The key "
 				+ "set varies by tool and is not part of this contract — treat it as opaque.",
 				requiredMode = Schema.RequiredMode.REQUIRED)
-		Map<String, Object> params
+		Map<String, Object> params,
+
+		@Schema(description = "The id of the expense this one looks like a duplicate of. Present "
+				+ "only on the duplicate-confirmation turn, which arrives as `type: \"disambiguate\"` "
+				+ "rather than `\"preview\"`; the property is omitted, not null, on every other turn. "
+				+ "A client may show it to let the user open the existing row before confirming.",
+				example = "1204",
+				requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+		Long existingId
 ) {
 }

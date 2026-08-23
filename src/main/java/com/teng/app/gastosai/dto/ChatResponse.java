@@ -45,17 +45,20 @@ public record ChatResponse(
 						BudgetSummaryChatResult.class,
 						RecurringChatResult.class,
 						MonthlyReportChatResult.class,
+						SubscriptionChatResult.class,
+						BulkDeleteChatResult.class,
+						RecategorizeChatResult.class,
 						GoalChatItemList.class,
 						AlertChatItemList.class,
 						ExpenseChatItemList.class,
-						CategoryTotalChatItemList.class
+						CategoryTotalChatItemList.class,
+						ExpenseDisambiguateItemList.class
 				})
 		@JsonInclude(JsonInclude.Include.NON_NULL) Object result,
 
-		@Schema(description = "The conversation this turn belongs to. Omitted on turns served before "
-				+ "a conversation is established, such as the circuit-breaker fallback.",
-				example = "42",
-				nullable = true)
+		@Schema(description = "The conversation this turn belongs to. Omitted — not null — on turns "
+				+ "served before a conversation is established, such as the circuit-breaker fallback.",
+				example = "42")
 		@JsonInclude(JsonInclude.Include.NON_NULL) Long conversationId
 ) {
 

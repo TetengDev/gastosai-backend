@@ -239,7 +239,12 @@ class OpenApiContractTest {
 				"GoalChatItem", "BudgetChatItem", "BudgetSummaryChatResult",
 				"RecurringChatItem", "UpcomingBillChatItem", "RecurringChatResult",
 				"AlertChatItem", "ExpenseChatItem", "CategoryTotalChatItem",
-				"MonthlyReportChatResult"));
+				"MonthlyReportChatResult",
+				// Not in the issue's list of eleven, but the acceptance criterion is *every* payload
+				// and review found these four still undescribed: the entitlement view, the two bulk
+				// counters, and the delete-expense disambiguation candidate.
+				"SubscriptionChatResult", "BulkDeleteChatResult", "RecategorizeChatResult",
+				"ExpenseDisambiguateItem"));
 
 		Set<String> missing = new TreeSet<>(expected);
 		schemas.fieldNames().forEachRemaining(missing::remove);
@@ -257,17 +262,26 @@ class OpenApiContractTest {
 		assertEquals(
 				new TreeSet<>(Set.of(
 						"ChatPreviewData", "BudgetSummaryChatResult", "RecurringChatResult",
-						"MonthlyReportChatResult", "GoalChatItemList", "AlertChatItemList",
-						"ExpenseChatItemList", "CategoryTotalChatItemList")),
+						"MonthlyReportChatResult", "SubscriptionChatResult", "BulkDeleteChatResult",
+						"RecategorizeChatResult", "GoalChatItemList", "AlertChatItemList",
+						"ExpenseChatItemList", "CategoryTotalChatItemList",
+						"ExpenseDisambiguateItemList")),
 				branches,
 				"ChatResponse.result must describe every branch the handler can return.");
+
+		// The delete-expense disambiguation is not an ExpenseChatItem: it carries no `category` and
+		// its amount is unrounded. Publishing one where the other is served would put a required
+		// property in the generated type that the response never contains.
+		assertTrue(schemas.path("ExpenseDisambiguateItem").path("properties").path("category")
+						.isMissingNode(),
+				"ExpenseDisambiguateItem must not claim a `category` — that branch does not send one.");
 
 		// Four branches are bare JSON arrays. springdoc resolves a named list type as an object bean
 		// unless it is told otherwise, and did exactly that on the first attempt here — publishing
 		// `{type: object, properties: {empty, first, last}}` for an array. That contract would compile
 		// on the client and fail on the first response, so assert the array-ness directly.
 		for (String listSchema : Set.of("GoalChatItemList", "AlertChatItemList",
-				"ExpenseChatItemList", "CategoryTotalChatItemList")) {
+				"ExpenseChatItemList", "CategoryTotalChatItemList", "ExpenseDisambiguateItemList")) {
 			JsonNode resolved = schemas.path(listSchema);
 			assertEquals("array", resolved.path("type").asText(""),
 					listSchema + " must be published as a JSON array — the wire returns a bare array.");
