@@ -1,6 +1,173 @@
 {
   "components" : {
     "schemas" : {
+      "AiCostBreakdown" : {
+        "description" : "Requests, tokens and USD cost for one slice (text or vision) of recorded AI usage.",
+        "properties" : {
+          "costUsd" : {
+            "description" : "Cost in USD, recomputed from the tokens above at this report's per-token prices. Six decimal places: a single call costs far less than a cent.",
+            "example" : 0.046292,
+            "type" : "number"
+          },
+          "inputTokens" : {
+            "description" : "Prompt tokens summed over the slice.",
+            "example" : 184320,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "outputTokens" : {
+            "description" : "Completion tokens summed over the slice.",
+            "example" : 31044,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "requests" : {
+            "description" : "Metered requests in the slice, including failed ones.",
+            "example" : 142,
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "AiCostByPlanItem" : {
+        "description" : "Cost to serve one plan over the reporting period.",
+        "properties" : {
+          "activeUsers" : {
+            "description" : "Distinct users on this plan with recorded usage in the period. Users who made no AI call are not counted — they cost nothing to serve.",
+            "example" : 37,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "costPerActiveUserUsd" : {
+            "description" : "`totalCostUsd` divided by `activeUsers`; zero when nobody was active. Compare this against the plan's price to read the margin.",
+            "example" : 0.130078,
+            "type" : "number"
+          },
+          "plan" : {
+            "description" : "`FREE`, `PREMIUM` or `TRIAL`.",
+            "example" : "PREMIUM",
+            "type" : "string"
+          },
+          "text" : {
+            "$ref" : "#/components/schemas/AiCostBreakdown",
+            "description" : "Text-only calls: chat, insights, summaries, category suggestions."
+          },
+          "totalCostUsd" : {
+            "description" : "Text plus vision, in USD.",
+            "example" : 4.8129,
+            "type" : "number"
+          },
+          "vision" : {
+            "$ref" : "#/components/schemas/AiCostBreakdown",
+            "description" : "Vision calls: receipt analysis. Usually the smaller request count and the larger bill."
+          }
+        },
+        "type" : "object"
+      },
+      "AiCostByUserItem" : {
+        "description" : "Cost to serve one user over the reporting period.",
+        "properties" : {
+          "plan" : {
+            "description" : "The plan the user is on now — `FREE`, `PREMIUM` or `TRIAL`. This is the plan at report time, not necessarily the plan held during the period.",
+            "example" : "PREMIUM",
+            "type" : "string"
+          },
+          "text" : {
+            "$ref" : "#/components/schemas/AiCostBreakdown",
+            "description" : "Text-only calls: chat, insights, summaries, category suggestions."
+          },
+          "totalCostUsd" : {
+            "description" : "Text plus vision, in USD.",
+            "example" : 0.183921,
+            "type" : "number"
+          },
+          "userId" : {
+            "description" : "The user's id.",
+            "example" : 42,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "vision" : {
+            "$ref" : "#/components/schemas/AiCostBreakdown",
+            "description" : "Vision calls: receipt analysis."
+          }
+        },
+        "type" : "object"
+      },
+      "AiCostPricing" : {
+        "description" : "The per-token prices used to compute this report, and when they were last checked.",
+        "properties" : {
+          "pricesLastCheckedOn" : {
+            "description" : "The date a human last reconciled these rates against the provider's published pricing. Treat the report as an estimate that ages from this date.",
+            "example" : "2026-08-24",
+            "format" : "date",
+            "type" : "string"
+          },
+          "pricesSource" : {
+            "description" : "Where the rates were checked.",
+            "example" : "OpenAI API pricing page",
+            "type" : "string"
+          },
+          "textInputPerMtokUsd" : {
+            "description" : "USD per million prompt tokens for text calls.",
+            "example" : 0.15,
+            "type" : "number"
+          },
+          "textOutputPerMtokUsd" : {
+            "description" : "USD per million completion tokens for text calls.",
+            "example" : 0.6,
+            "type" : "number"
+          },
+          "visionInputPerMtokUsd" : {
+            "description" : "USD per million prompt tokens for vision (receipt) calls. An order of magnitude above the text rate — an image is billed as a large token block.",
+            "example" : 2.5,
+            "type" : "number"
+          },
+          "visionOutputPerMtokUsd" : {
+            "description" : "USD per million completion tokens for vision (receipt) calls.",
+            "example" : 10.0,
+            "type" : "number"
+          }
+        },
+        "type" : "object"
+      },
+      "AiCostReport" : {
+        "description" : "Cost to serve per user and per plan, recomputed from recorded AI usage.",
+        "properties" : {
+          "byPlan" : {
+            "description" : "Every plan with recorded usage in the period.",
+            "items" : {
+              "$ref" : "#/components/schemas/AiCostByPlanItem"
+            },
+            "type" : "array"
+          },
+          "byUser" : {
+            "description" : "Every user with recorded usage in the period, most expensive first.",
+            "items" : {
+              "$ref" : "#/components/schemas/AiCostByUserItem"
+            },
+            "type" : "array"
+          },
+          "periodEnd" : {
+            "description" : "Last day counted, inclusive, in Asia/Manila.",
+            "example" : "2026-08-24",
+            "format" : "date",
+            "type" : "string"
+          },
+          "periodStart" : {
+            "description" : "First day counted, inclusive, in Asia/Manila.",
+            "example" : "2026-08-01",
+            "format" : "date",
+            "type" : "string"
+          },
+          "pricing" : {
+            "$ref" : "#/components/schemas/AiCostPricing",
+            "description" : "The per-token prices used, and when they were last checked."
+          }
+        },
+        "type" : "object"
+      },
       "AiQueryRequest" : {
         "properties" : {
           "mode" : {
@@ -2602,6 +2769,48 @@
   },
   "openapi" : "3.1.0",
   "paths" : {
+    "/admin/ai-usage/cost-report" : {
+      "get" : {
+        "description" : "Recomputes USD cost from recorded token counts, keeping text and vision apart, and states the per-token prices used and when they were last checked. Defaults to month-to-date in Asia/Manila.",
+        "operationId" : "costReport",
+        "parameters" : [ {
+          "description" : "First day counted, inclusive (`YYYY-MM-DD`, Asia/Manila).",
+          "in" : "query",
+          "name" : "from",
+          "required" : false,
+          "schema" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        }, {
+          "description" : "Last day counted, inclusive (`YYYY-MM-DD`, Asia/Manila).",
+          "in" : "query",
+          "name" : "to",
+          "required" : false,
+          "schema" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AiCostReport"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "Cost to serve per user and per plan",
+        "tags" : [ "admin-ai-usage-controller" ]
+      }
+    },
     "/admin/ai-usage/summary" : {
       "get" : {
         "operationId" : "summary_3",
