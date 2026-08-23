@@ -21,6 +21,7 @@ public class AuthService {
 	private final PasswordEncoder passwordEncoder;
 	private final JwtUtil jwtUtil;
 	private final CategorySeedService categorySeedService;
+	private final SubscriptionService subscriptionService;
 
 	@Transactional
 	public AuthResponse register(RegisterRequest request) {
@@ -34,6 +35,9 @@ public class AuthService {
 				.build();
 		User saved = userRepository.save(user);
 		categorySeedService.seedPredefinedForUser(saved);
+		// Every new account starts on a trial so the paid features are evaluable before deciding.
+		// Enrolment is best-effort by design: it never fails a registration (see startTrial).
+		subscriptionService.startTrial(saved);
 		return sessionFor(saved, true);
 	}
 
