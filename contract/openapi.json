@@ -874,6 +874,13 @@
         },
         "type" : "object"
       },
+      "CategoryResponseList" : {
+        "description" : "The result of a `list_categories` turn: a JSON array of the user's categories, as full CategoryResponse records.",
+        "items" : {
+          "$ref" : "#/components/schemas/CategoryResponse"
+        },
+        "type" : "array"
+      },
       "CategoryTotalChatItem" : {
         "description" : "A category and what was spent in it over the requested window.",
         "properties" : {
@@ -1034,6 +1041,8 @@
               "$ref" : "#/components/schemas/CategoryTotalChatItemList"
             }, {
               "$ref" : "#/components/schemas/ExpenseDisambiguateItemList"
+            }, {
+              "$ref" : "#/components/schemas/CategoryResponseList"
             } ]
           },
           "type" : {

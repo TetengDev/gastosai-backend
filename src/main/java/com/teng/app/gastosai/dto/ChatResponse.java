@@ -52,7 +52,8 @@ public record ChatResponse(
 						AlertChatItemList.class,
 						ExpenseChatItemList.class,
 						CategoryTotalChatItemList.class,
-						ExpenseDisambiguateItemList.class
+						ExpenseDisambiguateItemList.class,
+						CategoryResponseList.class
 				})
 		@JsonInclude(JsonInclude.Include.NON_NULL) Object result,
 

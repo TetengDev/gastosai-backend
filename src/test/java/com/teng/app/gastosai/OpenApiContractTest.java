@@ -265,9 +265,25 @@ class OpenApiContractTest {
 						"MonthlyReportChatResult", "SubscriptionChatResult", "BulkDeleteChatResult",
 						"RecategorizeChatResult", "GoalChatItemList", "AlertChatItemList",
 						"ExpenseChatItemList", "CategoryTotalChatItemList",
-						"ExpenseDisambiguateItemList")),
+						"ExpenseDisambiguateItemList", "CategoryResponseList")),
 				branches,
 				"ChatResponse.result must describe every branch the handler can return.");
+
+		// The set above is a literal, so on its own it only checks the oneOf against itself: a
+		// payload the service returns and nobody described stays invisible to it. That is how
+		// `list_categories` survived the first two passes. This catches the half of the gap a test
+		// can see — a chat payload schema that exists but was never wired into the union. The other
+		// half (a handler branch with no schema at all) is not reachable from the spec, and
+		// ChatActionService is not this issue's to instrument.
+		Set<String> orphaned = new TreeSet<>();
+		schemas.fieldNames().forEachRemaining(name -> {
+			if ((name.endsWith("ChatResult") || name.endsWith("List")) && !branches.contains(name)) {
+				orphaned.add(name);
+			}
+		});
+		assertEquals(Set.of(), orphaned,
+				"Chat payload schemas published but unreachable from ChatResponse.result — a client "
+						+ "can generate the type and never learn which turn delivers it: " + orphaned);
 
 		// The delete-expense disambiguation is not an ExpenseChatItem: it carries no `category` and
 		// its amount is unrounded. Publishing one where the other is served would put a required
@@ -281,7 +297,8 @@ class OpenApiContractTest {
 		// `{type: object, properties: {empty, first, last}}` for an array. That contract would compile
 		// on the client and fail on the first response, so assert the array-ness directly.
 		for (String listSchema : Set.of("GoalChatItemList", "AlertChatItemList",
-				"ExpenseChatItemList", "CategoryTotalChatItemList", "ExpenseDisambiguateItemList")) {
+				"ExpenseChatItemList", "CategoryTotalChatItemList", "ExpenseDisambiguateItemList",
+				"CategoryResponseList")) {
 			JsonNode resolved = schemas.path(listSchema);
 			assertEquals("array", resolved.path("type").asText(""),
 					listSchema + " must be published as a JSON array — the wire returns a bare array.");
