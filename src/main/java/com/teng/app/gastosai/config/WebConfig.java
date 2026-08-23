@@ -55,9 +55,14 @@ public class WebConfig implements WebMvcConfigurer {
 	@Override
 	public void addInterceptors(InterceptorRegistry registry) {
 		registry.addInterceptor(viewAsInterceptor);
+		// /webhooks/paymongo is public and unversioned (see PublicEndpoints), so it is registered
+		// literally rather than through atEveryVersion. It is rate limited on its own budget and its
+		// own bucket — see PublicRateLimitInterceptor#isWebhook — because the interactive limit would
+		// shed genuine PayMongo bursts and their retries.
 		registry.addInterceptor(publicRateLimitInterceptor)
 				.addPathPatterns(PublicEndpoints.atEveryVersion("/auth/login", "/auth/register",
-						"/auth/magic-link", "/auth/magic-link/verify", "/submissions"));
+						"/auth/magic-link", "/auth/magic-link/verify", "/submissions"))
+				.addPathPatterns("/webhooks/paymongo");
 		// /expenses/parse also calls the LLM, so it needs the per-user key (BYO) like /ai/**.
 		// /ai/usage is informational only (no LLM call), so it is exempt from the key and rate-limit gates.
 		registry.addInterceptor(aiKeyContextInterceptor)
