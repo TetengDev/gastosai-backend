@@ -217,6 +217,78 @@ class OpenApiContractTest {
 	}
 
 	/**
+	 * Every payload {@code POST /ai/chat} can put in {@code ChatResponse.result} is published
+	 * (TEN-275).
+	 *
+	 * <p>These shapes were served for months and described nowhere, so both clients hand-wrote them
+	 * and drifted — the web copy carried a {@code "query"} turn type the backend has never emitted.
+	 * {@code result} is typed {@code Object} in Java (the service builds maps), so nothing but this
+	 * test stops the schemas from silently falling out of the spec again: delete the {@code oneOf}
+	 * on {@link com.teng.app.gastosai.dto.ChatResponse} and every assertion below still compiles.
+	 *
+	 * <p>Scoped to v1. {@code /api/v2/ai/chat} delegates to the same handler and returns the same
+	 * object, so it shares this schema; the integer-centavos twins for it are a separate change.
+	 */
+	@Test
+	void specPublishesEveryChatResultPayload() throws Exception {
+		JsonNode spec = new ObjectMapper().readTree(apiDocs());
+		JsonNode schemas = spec.path("components").path("schemas");
+
+		Set<String> expected = new TreeSet<>(Set.of(
+				"ChatPreviewData",
+				"GoalChatItem", "BudgetChatItem", "BudgetSummaryChatResult",
+				"RecurringChatItem", "UpcomingBillChatItem", "RecurringChatResult",
+				"AlertChatItem", "ExpenseChatItem", "CategoryTotalChatItem",
+				"MonthlyReportChatResult"));
+
+		Set<String> missing = new TreeSet<>(expected);
+		schemas.fieldNames().forEachRemaining(missing::remove);
+		assertTrue(missing.isEmpty(),
+				"Chat result payloads absent from the published contract, so `npm run gen:api` "
+						+ "generates nothing for them and clients must hand-type them again: " + missing);
+
+		// The union itself, not just the members: a schema published but unreachable from
+		// ChatResponse.result tells a client the shape exists without saying when it arrives.
+		Set<String> branches = new TreeSet<>();
+		schemas.path("ChatResponse").path("properties").path("result").path("oneOf")
+				.forEach(member -> branches.add(
+						member.path("$ref").asText("").replace("#/components/schemas/", "")));
+
+		assertEquals(
+				new TreeSet<>(Set.of(
+						"ChatPreviewData", "BudgetSummaryChatResult", "RecurringChatResult",
+						"MonthlyReportChatResult", "GoalChatItemList", "AlertChatItemList",
+						"ExpenseChatItemList", "CategoryTotalChatItemList")),
+				branches,
+				"ChatResponse.result must describe every branch the handler can return.");
+
+		// Four branches are bare JSON arrays. springdoc resolves a named list type as an object bean
+		// unless it is told otherwise, and did exactly that on the first attempt here — publishing
+		// `{type: object, properties: {empty, first, last}}` for an array. That contract would compile
+		// on the client and fail on the first response, so assert the array-ness directly.
+		for (String listSchema : Set.of("GoalChatItemList", "AlertChatItemList",
+				"ExpenseChatItemList", "CategoryTotalChatItemList")) {
+			JsonNode resolved = schemas.path(listSchema);
+			assertEquals("array", resolved.path("type").asText(""),
+					listSchema + " must be published as a JSON array — the wire returns a bare array.");
+			assertTrue(resolved.path("items").has("$ref"),
+					listSchema + " must name its item schema, or a client generates `unknown[]`.");
+			assertTrue(resolved.path("properties").isMissingNode(),
+					listSchema + " leaked list bean properties into the contract: "
+							+ resolved.path("properties"));
+		}
+
+		// The turn kind is the one field a client may branch on before reading `result`, so it has to
+		// arrive as a closed set. Published as an open string it generates to `string`, which is how
+		// the web copy acquired a "query" turn that does not exist.
+		Set<String> turnKinds = new TreeSet<>();
+		schemas.path("ChatResponse").path("properties").path("type").path("enum")
+				.forEach(value -> turnKinds.add(value.asText()));
+		assertEquals(new TreeSet<>(Set.of("text", "action", "preview", "disambiguate")), turnKinds,
+				"ChatResponse.type must publish exactly the turn kinds the handler emits.");
+	}
+
+	/**
 	 * The v2 surface's entire reason to exist: money as an integer number of centavos (TEN-135).
 	 *
 	 * <p>The float/double guard above passes trivially for an integer, so it cannot tell a v2 that
