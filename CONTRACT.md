@@ -75,6 +75,15 @@ surface — republishing an unchanged spec under a new number would make the pin
 - **Breaking** (removed/renamed field, changed type, tightened validation, removed
   endpoint, a request field becoming required) → **major** bump **and** a new URL version
   path `/api/v2`. The old version path stays live until every client has migrated.
+- **"Changed type" on an output field means narrowed, not widened.** Widening an output
+  type to admit a value the wire already produced (e.g. `string` → `["string","null"]`
+  when the field could always come back null) is a **minor** bump — the server is
+  promising less than before, not more, and no client that already handled the old
+  type can be surprised by the new one. Narrowing an output type (e.g. dropping `null`
+  from the union, or `number` → `integer`) is still **major**: it forbids a value the
+  client may already be receiving. This applies to output/response types only — a
+  request field's accepted type narrowing or widening follows the general rule above,
+  since the server is the one that has to handle whatever the client sends.
 - **Mobile is the pacing constraint.** Installed apps run old versions for months.
   Never remove a `/api/v1` endpoint until analytics show old app versions have
   drained. This is the single strongest reason breaking changes are additive-first.
