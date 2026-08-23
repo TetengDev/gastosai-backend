@@ -8,6 +8,7 @@ import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.service.AuthService;
 import com.teng.app.gastosai.service.CategorySeedService;
+import com.teng.app.gastosai.service.SubscriptionService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -21,6 +22,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -30,6 +32,7 @@ class AuthServiceTest {
     @Mock PasswordEncoder passwordEncoder;
     @Mock JwtUtil jwtUtil;
     @Mock CategorySeedService categorySeedService;
+    @Mock SubscriptionService subscriptionService;
     @InjectMocks AuthService authService;
 
     @Test
@@ -43,6 +46,8 @@ class AuthServiceTest {
 
         assertThat(r.token()).isEqualTo("token");
         assertThat(r.email()).isEqualTo("a@b.com");
+        // A new account is enrolled into a trial as part of registration.
+        verify(subscriptionService).startTrial(any(User.class));
     }
 
     @Test
