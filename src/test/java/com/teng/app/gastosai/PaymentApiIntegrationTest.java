@@ -133,6 +133,27 @@ class PaymentApiIntegrationTest extends PostgresBackedTest {
         assertThat(checkout.get().getPlanKey()).isEqualTo(PlanKey.PREMIUM);
     }
 
+    /**
+     * The annual half of the same path (TEN-155). The pricing endpoint already advertises ₱1,290,
+     * and BillingPeriodTest pins the arithmetic, but nothing asserted that choosing ANNUAL at
+     * checkout actually persists that period and that amount — so a regression pricing an annual
+     * subscription at the monthly rate would have passed every existing test.
+     */
+    @Test
+    void annualCheckoutPersistsTheAnnualPeriodAndAmount() throws Exception {
+        mockMvc.perform(post("/subscription/checkout")
+                        .header("Authorization", authHeader)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"period\":\"ANNUAL\"}"))
+                .andExpect(status().isOk());
+
+        var checkout = checkoutRepository.findBySessionId("cs_test_session_123");
+        assertThat(checkout).isPresent();
+        assertThat(checkout.get().getBillingPeriod()).isEqualTo(BillingPeriod.ANNUAL);
+        assertThat(checkout.get().getAmountCentavos()).isEqualTo(129_000);
+        assertThat(checkout.get().getPlanKey()).isEqualTo(PlanKey.PREMIUM);
+    }
+
     @Test
     void webhookWithValidSignatureActivatesSubscription() throws Exception {
         PaymentCheckout checkout = checkoutRepository.save(PaymentCheckout.builder()
