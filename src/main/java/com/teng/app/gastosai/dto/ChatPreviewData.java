@@ -11,10 +11,14 @@ import java.util.Map;
  * <p>This shape has always been on the wire; what was missing is a described one. Documentation
  * only — {@code ChatActionService} builds the payload as a map, so nothing here changes the JSON.
  *
+ * <p>Confirm it by posting {@code toolName} and {@code params} back to {@code POST /ai/chat/confirm}
+ * (see {@link ChatConfirmRequest}), which executes this exact action without re-parsing English.
+ *
  * @see ChatResponse
  */
-@Schema(description = "A pending assistant action awaiting confirmation. Echo `params` back on the "
-		+ "confirming turn; the client never interprets them, it only renders and returns them.")
+@Schema(description = "A pending assistant action awaiting confirmation. Echo `toolName` and "
+		+ "`params` back to POST /ai/chat/confirm; the client never interprets them, it only "
+		+ "renders and returns them.")
 public record ChatPreviewData(
 		@Schema(description = "The tool the assistant resolved, e.g. `create_expense`. This is the "
 				+ "one field that says which action is pending.",

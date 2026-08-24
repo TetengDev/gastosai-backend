@@ -193,41 +193,7 @@ public class ChatActionService {
 				return new ChatResponse("preview", buildPreviewMessage(tool, params), previewData);
 			}
 
-			ChatResponse response = switch (tool) {
-				case CREATE_EXPENSE -> handleCreateExpense(params, user, MODE_FORCE.equals(mode));
-				case UPDATE_EXPENSE -> handleUpdateExpense(params, user);
-				case DELETE_EXPENSE -> handleDeleteExpense(params, user);
-				case CREATE_BUDGET -> handleCreateBudget(params, user);
-				case UPDATE_BUDGET -> handleUpdateBudget(params, user);
-				case DELETE_BUDGET -> handleDeleteBudget(params, user);
-				case CREATE_GOAL -> handleCreateGoal(params, user);
-				case UPDATE_GOAL -> handleUpdateGoal(params, user);
-				case DELETE_GOAL -> handleDeleteGoal(params, user);
-				case CREATE_RECURRING -> handleCreateRecurring(params, user);
-				case UPDATE_RECURRING -> handleUpdateRecurring(params, user);
-				case DELETE_RECURRING -> handleDeleteRecurring(params, user);
-				case CREATE_CATEGORY -> handleCreateCategory(params, user);
-				case RENAME_CATEGORY -> handleRenameCategory(params, user);
-				case DELETE_CATEGORY -> handleDeleteCategory(params, user);
-				case LIST_CATEGORIES -> handleListCategories(user);
-				case UPDATE_PROFILE -> handleUpdateProfile(params, user);
-				case GET_SUBSCRIPTION -> handleGetSubscription(user);
-				case LIST_GOALS -> handleListGoals(user);
-				case LIST_BUDGETS -> handleListBudgets(params, user);
-				case LIST_RECURRING -> handleListRecurring(params, user);
-				case LIST_ALERTS -> handleListAlerts(params, user);
-				case SEARCH_EXPENSES -> handleSearchExpenses(params, user);
-				case GET_CATEGORY_TOTALS -> handleGetCategoryTotals(params, user);
-				case GET_MONTHLY_REPORT -> handleGetMonthlyReport(params, user);
-				case MARK_ALERT_READ -> handleMarkAlertRead(params, user);
-				case DISMISS_ALERT -> handleDismissAlert(params, user);
-				case DELETE_ALERT -> handleDeleteAlert(params, user);
-				case SET_DEFAULT_CATEGORY -> handleSetDefaultCategory(params, user);
-				case SET_CATEGORY_ICON -> handleSetCategoryIcon(params, user);
-				case DELETE_EXPENSES -> handleDeleteExpenses(params, user);
-				case RECATEGORIZE_EXPENSES -> handleRecategorizeExpenses(params, user);
-				default -> new ChatResponse("text", call.paramsJson(), null);
-			};
+			ChatResponse response = execute(tool, params, MODE_FORCE.equals(mode), user);
 			aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
 					resolveModel(), AiFeature.CHAT_CRUD_ASSISTANT,
 					llmUsage.inputTokens(), llmUsage.outputTokens(), AiUsageStatus.SUCCESS, null);
@@ -249,6 +215,113 @@ public class ChatActionService {
 			chatAuditService.record(user.getId(), conversationId, resolvedTool.key(), AiUsageStatus.FAILED, e.getClass().getSimpleName());
 			return new ChatResponse("text", "Something went wrong while handling that. Please rephrase and try again.", null);
 		}
+	}
+
+	/**
+	 * Structured confirm path: runs the action the server itself proposed on a {@code "preview"}
+	 * turn, taking the tool and params straight back from the client.
+	 *
+	 * <p>No English is sent, so no classifier runs and nothing is re-parsed — tapping Confirm
+	 * executes exactly what was previewed, and cannot silently resolve to a different tool or to
+	 * plain text. Consequently no LLM tokens are spent and nothing is metered into {@code ai_usage};
+	 * the turn is still written to the chat audit log, tagged {@code confirm}.
+	 *
+	 * @param toolName the preview payload's {@code toolName}; anything unknown is a 400
+	 * @param mode {@code force} to bypass the duplicate-expense check ("add anyway")
+	 */
+	public ChatResponse confirm(String toolName, Map<String, Object> params, String mode,
+			User user, Long conversationId) {
+		ChatTool tool = ChatTool.fromKey(toolName);
+		if (tool == ChatTool.TEXT) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+					"Unknown toolName: " + toolName);
+		}
+
+		Conversation conversation = null;
+		try {
+			conversation = conversationService.getOrCreate(user, conversationId);
+		} catch (Exception e) {
+			log.warn("chat_context_load_failed", e);
+		}
+		Long resolvedConversationId = conversation != null ? conversation.getId() : conversationId;
+
+		ChatResponse response = confirmCore(tool, params, mode, user, resolvedConversationId);
+
+		if (conversation != null) {
+			try {
+				conversationService.recordTurn(conversation, "[confirmed] " + tool.key(), response);
+				captureEntity(conversation, response);
+				return response.withConversation(conversation.getId());
+			} catch (Exception e) {
+				log.warn("chat_history_persist_failed", e);
+			}
+		}
+		return response;
+	}
+
+	private ChatResponse confirmCore(ChatTool tool, Map<String, Object> params, String mode,
+			User user, Long conversationId) {
+		try {
+			JsonNode node = objectMapper.valueToTree(params != null ? params : Map.of());
+			ChatResponse response = execute(tool, node, MODE_FORCE.equals(mode), user);
+			chatAuditService.record(user.getId(), conversationId, tool.key(), AiUsageStatus.SUCCESS, "confirm");
+			return response;
+		}
+		catch (ResourceNotFoundException e) {
+			chatAuditService.record(user.getId(), conversationId, tool.key(), AiUsageStatus.FAILED, "ResourceNotFoundException");
+			return new ChatResponse("text", "I couldn't find that item.", null);
+		}
+		catch (Exception e) {
+			log.warn("chat_confirm_failed", e);
+			chatAuditService.record(user.getId(), conversationId, tool.key(), AiUsageStatus.FAILED, e.getClass().getSimpleName());
+			return new ChatResponse("text", "Something went wrong while handling that. Please rephrase and try again.", null);
+		}
+	}
+
+	/**
+	 * Runs one resolved tool. The only entry point that actually writes, shared by the
+	 * natural-language path and the structured confirm path so the two cannot drift apart.
+	 *
+	 * @param force skip the duplicate-expense check — the user already chose "add anyway"
+	 */
+	private ChatResponse execute(ChatTool tool, JsonNode params, boolean force, User user) {
+		return switch (tool) {
+			case CREATE_EXPENSE -> handleCreateExpense(params, user, force);
+			case UPDATE_EXPENSE -> handleUpdateExpense(params, user);
+			case DELETE_EXPENSE -> handleDeleteExpense(params, user);
+			case CREATE_BUDGET -> handleCreateBudget(params, user);
+			case UPDATE_BUDGET -> handleUpdateBudget(params, user);
+			case DELETE_BUDGET -> handleDeleteBudget(params, user);
+			case CREATE_GOAL -> handleCreateGoal(params, user);
+			case UPDATE_GOAL -> handleUpdateGoal(params, user);
+			case DELETE_GOAL -> handleDeleteGoal(params, user);
+			case CREATE_RECURRING -> handleCreateRecurring(params, user);
+			case UPDATE_RECURRING -> handleUpdateRecurring(params, user);
+			case DELETE_RECURRING -> handleDeleteRecurring(params, user);
+			case CREATE_CATEGORY -> handleCreateCategory(params, user);
+			case RENAME_CATEGORY -> handleRenameCategory(params, user);
+			case DELETE_CATEGORY -> handleDeleteCategory(params, user);
+			case LIST_CATEGORIES -> handleListCategories(user);
+			case UPDATE_PROFILE -> handleUpdateProfile(params, user);
+			case GET_SUBSCRIPTION -> handleGetSubscription(user);
+			case LIST_GOALS -> handleListGoals(user);
+			case LIST_BUDGETS -> handleListBudgets(params, user);
+			case LIST_RECURRING -> handleListRecurring(params, user);
+			case LIST_ALERTS -> handleListAlerts(params, user);
+			case SEARCH_EXPENSES -> handleSearchExpenses(params, user);
+			case GET_CATEGORY_TOTALS -> handleGetCategoryTotals(params, user);
+			case GET_MONTHLY_REPORT -> handleGetMonthlyReport(params, user);
+			case MARK_ALERT_READ -> handleMarkAlertRead(params, user);
+			case DISMISS_ALERT -> handleDismissAlert(params, user);
+			case DELETE_ALERT -> handleDeleteAlert(params, user);
+			case SET_DEFAULT_CATEGORY -> handleSetDefaultCategory(params, user);
+			case SET_CATEGORY_ICON -> handleSetCategoryIcon(params, user);
+			case DELETE_EXPENSES -> handleDeleteExpenses(params, user);
+			case RECATEGORIZE_EXPENSES -> handleRecategorizeExpenses(params, user);
+			// Unreachable: TEXT is answered before dispatch reaches here, and every other
+			// constant is covered above.
+			default -> new ChatResponse("text", params.toString(), null);
+		};
 	}
 
 	private String resolveModel() {
