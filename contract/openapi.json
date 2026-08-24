@@ -1102,6 +1102,37 @@
         },
         "type" : "object"
       },
+      "ChatConfirmRequest" : {
+        "description" : "A confirmation of a previously previewed action. Echo the preview's `toolName` and `params` back unchanged.",
+        "properties" : {
+          "conversationId" : {
+            "description" : "The conversation the confirmed turn belongs to, so it is recorded in the same transcript as the preview. Omit to start a new conversation.",
+            "example" : 42,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "mode" : {
+            "description" : "`force` re-runs a create that was held back by the duplicate check (the user chose \"add anyway\"). Anything else, including omitting it, executes with the duplicate check still on.",
+            "enum" : [ "execute", "force" ],
+            "example" : "execute",
+            "type" : "string"
+          },
+          "params" : {
+            "additionalProperties" : { },
+            "description" : "The tool's arguments, copied from the preview's `params` unchanged. The key set varies by tool and is not part of this contract.",
+            "type" : "object"
+          },
+          "toolName" : {
+            "description" : "The tool to run, copied from the preview's `toolName`. An unknown tool is rejected with 400 rather than answered as prose.",
+            "example" : "create_budget",
+            "maxLength" : 64,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "params", "toolName" ],
+        "type" : "object"
+      },
       "ChatMessageDto" : {
         "properties" : {
           "content" : {
@@ -1128,7 +1159,7 @@
         "type" : "object"
       },
       "ChatPreviewData" : {
-        "description" : "A pending assistant action awaiting confirmation. Echo `params` back on the confirming turn; the client never interprets them, it only renders and returns them.",
+        "description" : "A pending assistant action awaiting confirmation. Echo `toolName` and `params` back to POST /ai/chat/confirm; the client never interprets them, it only renders and returns them.",
         "properties" : {
           "existingId" : {
             "description" : "The id of the expense this one looks like a duplicate of. Present only on the duplicate-confirmation turn, which arrives as `type: \"disambiguate\"` rather than `\"preview\"`; the property is omitted, not null, on every other turn. A client may show it to let the user open the existing row before confirming.",
@@ -3001,6 +3032,39 @@
         "security" : [ {
           "bearerAuth" : [ ]
         } ],
+        "tags" : [ "ai-controller" ]
+      }
+    },
+    "/ai/chat/confirm" : {
+      "post" : {
+        "description" : "Runs the action the server proposed on a `preview` turn. Post that turn's `toolName` and `params` back unchanged; no natural language is sent, so nothing is re-parsed and the executed action is the one that was shown.",
+        "operationId" : "confirmChat",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ChatConfirmRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ChatResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "Execute a previously previewed assistant action",
         "tags" : [ "ai-controller" ]
       }
     },
