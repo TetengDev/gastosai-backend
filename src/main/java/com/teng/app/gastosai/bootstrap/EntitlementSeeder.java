@@ -44,7 +44,10 @@ public class EntitlementSeeder implements CommandLineRunner {
     @Transactional
     public void run(String... args) {
         SubscriptionPlan free = ensurePlan(PlanKey.FREE, "Free", 0);
-        SubscriptionPlan premium = ensurePlan(PlanKey.PREMIUM, "Premium", 14900); // TODO annual price ₱1290
+        // One row per plan, priced monthly. The annual price is not a second row: annual is a
+        // BillingPeriod, and BillingPeriod.ANNUAL.centavos() reads it from PricingProperties.
+        // Seeding an "annual plan" here would give one price two sources of truth.
+        SubscriptionPlan premium = ensurePlan(PlanKey.PREMIUM, "Premium", 14900);
         SubscriptionPlan trial = ensurePlan(PlanKey.TRIAL, "Trial", 0); // Premium-equivalent, time-boxed
         ensureFeatures(free, FREE_FEATURES);
         ensureFeatures(premium, EnumSet.allOf(FeatureKey.class));
