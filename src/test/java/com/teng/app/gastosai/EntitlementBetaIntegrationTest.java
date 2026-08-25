@@ -22,7 +22,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.context.WebApplicationContext;
 
@@ -33,7 +33,9 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doCallRealMethod;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -76,8 +78,12 @@ class EntitlementBetaIntegrationTest extends PostgresBackedTest {
     @Autowired AiQuotaService aiQuotaService;
     @Autowired EntitlementService entitlementService;
 
-    @MockitoBean AiQueryService aiQueryService;
-    @MockitoBean ChatActionService chatActionService;
+    // Spies, not mocks: stubbed by default so a request that passes the gate stops at the boundary
+    // instead of reaching a provider, but the quota tests below put the *real* method back on the
+    // request path with doCallRealMethod(). That is what makes them fail if the
+    // assertWithinQuota call is ever dropped, rather than merely re-asserting it from a stub.
+    @MockitoSpyBean AiQueryService aiQueryService;
+    @MockitoSpyBean ChatActionService chatActionService;
 
     MockMvc mockMvc;
 
@@ -100,10 +106,10 @@ class EntitlementBetaIntegrationTest extends PostgresBackedTest {
         authHeader = "Bearer " + jwtUtil.generate(beta.getEmail());
         adminAuth = "Bearer " + jwtUtil.generate(admin.getEmail());
 
-        when(aiQueryService.runNaturalLanguageQuery(any(), any(), any()))
-                .thenReturn(new AiQueryResponse("stubbed answer"));
-        when(chatActionService.dispatch(any(), any(), any(), any()))
-                .thenReturn(new ChatResponse("text", "stubbed reply", null));
+        doReturn(new AiQueryResponse("stubbed answer"))
+                .when(aiQueryService).runNaturalLanguageQuery(any(), any(), any());
+        doReturn(new ChatResponse("text", "stubbed reply", null))
+                .when(chatActionService).dispatch(any(), any(), any(), any());
     }
 
     @Test
@@ -148,6 +154,54 @@ class EntitlementBetaIntegrationTest extends PostgresBackedTest {
 
         assertThatThrownBy(() -> aiQuotaService.assertWithinQuota(beta, AiFeature.CHAT_CRUD_ASSISTANT))
                 .isInstanceOf(AiQuotaExceededException.class);
+    }
+
+    @Test
+    void aiQuota_isReachedOverHttp_andSurfacesAs429() throws Exception {
+        // The quota is worth nothing if the user is never told it is what stopped them. The real
+        // ChatActionService is on the path here — assertWithinQuota is its first statement, so no
+        // provider is reached — which is what closes the gap the TEN-153 audit raised: drop that
+        // call and this test stops seeing a 429.
+        seedSuccessfulAiUsage(beta, FREE_AI_QUOTA);
+        doCallRealMethod().when(chatActionService).dispatch(any(), any(), any(), any());
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeader)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"how much did I spend\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.title").value("AI Quota Exceeded"))
+                .andExpect(jsonPath("$.detail").value("You've reached your monthly AI limit."));
+    }
+
+    @Test
+    void aiQuota_overHttpOnTheQueryEndpoint_surfacesAs429() throws Exception {
+        // FREE clears the AI_ANALYTICS gate here because enforcement is off, so the quota — not the
+        // 402 — is the first thing this request can hit.
+        seedSuccessfulAiUsage(beta, FREE_AI_QUOTA);
+        doCallRealMethod().when(aiQueryService).runNaturalLanguageQuery(any(), any(), any());
+
+        mockMvc.perform(post("/ai/query")
+                        .header("Authorization", authHeader)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"total spent this month\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.title").value("AI Quota Exceeded"));
+    }
+
+    @Test
+    void providerFailure_stillDegradesTo200() throws Exception {
+        // The breaker's actual job, unchanged: a provider fault is not the user's problem.
+        doThrow(new IllegalStateException("provider down"))
+                .when(chatActionService).dispatch(any(), any(), any(), any());
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeader)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"how much did I spend\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message")
+                        .value("The AI assistant is temporarily unavailable. Please try again shortly."));
     }
 
     @Test
