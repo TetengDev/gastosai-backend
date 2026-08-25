@@ -257,10 +257,10 @@ class EntitlementEnforcementIntegrationTest extends PostgresBackedTest {
 
     /**
      * Pins a live gap rather than endorsing it. Every registration path — password, magic link and
-     * Google — calls {@code CategorySeedService.seedPredefinedForUser}, which creates 12 categories.
+     * Google — calls {@code CategorySeedService.seedPredefinedForUser}, which creates 13 categories.
      * The FREE cap is 5. So a real FREE user is over the cap from the moment they sign up and can
      * never create a category, while the 402 tells them their "plan is limited to 5 categories"
-     * as they look at 12 of them.
+     * as they look at 13 of them.
      *
      * <p>Found by walking the matrix by hand against a booted API, which is exactly the state the
      * test above cannot reach: it builds its user through the repository, so no seeding runs.
