@@ -12,6 +12,7 @@ import com.teng.app.gastosai.dto.PageResponse;
 import com.teng.app.gastosai.dto.ParseExpenseRequest;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
 import com.teng.app.gastosai.config.RequiresFeature;
+import com.teng.app.gastosai.entity.ExpenseSource;
 import com.teng.app.gastosai.entity.FeatureKey;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.service.CsvImportService;
@@ -59,8 +60,18 @@ public class ExpenseController {
 	@GetMapping
 	public List<ExpenseResponse> list(@RequestParam(required = false) LocalDate from,
 			@RequestParam(required = false) LocalDate to,
+			@RequestParam(required = false) ExpenseSource source,
 			@AuthenticationPrincipal User user) {
-		return expenseService.findAll(user, from, to);
+		return expenseService.findAll(user, from, to, source);
+	}
+
+	/**
+	 * The pre-{@code source} arity, kept for {@code ExpenseV2Controller}, which delegates to this
+	 * controller by method call. Not a request mapping — Spring MVC registers only the annotated
+	 * method above, so this adds no endpoint and nothing to the contract.
+	 */
+	public List<ExpenseResponse> list(LocalDate from, LocalDate to, User user) {
+		return list(from, to, null, user);
 	}
 
 	@GetMapping("/page")
@@ -69,8 +80,14 @@ public class ExpenseController {
 			@RequestParam(defaultValue = "50") int size,
 			@RequestParam(required = false) LocalDate from,
 			@RequestParam(required = false) LocalDate to,
+			@RequestParam(required = false) ExpenseSource source,
 			@AuthenticationPrincipal User user) {
-		return expenseService.findPage(user, from, to, page, size);
+		return expenseService.findPage(user, from, to, source, page, size);
+	}
+
+	/** @see #list(LocalDate, LocalDate, User) — the same arity-preserving overload, for paging. */
+	public PageResponse<ExpenseResponse> page(int page, int size, LocalDate from, LocalDate to, User user) {
+		return page(page, size, from, to, null, user);
 	}
 
 	@GetMapping("/{id}")

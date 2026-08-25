@@ -81,4 +81,13 @@ public class Expense {
 	@Column(name = "category_overridden", nullable = false)
 	@Builder.Default
 	private boolean categoryOverridden = false;
+
+	/**
+	 * Which route created this expense. Set once, at creation; {@code ExpenseService#update} leaves
+	 * it alone on purpose — see {@link ExpenseSource}.
+	 */
+	@Enumerated(EnumType.STRING)
+	@Column(name = "source", nullable = false, length = 20)
+	@Builder.Default
+	private ExpenseSource source = ExpenseSource.MANUAL;
 }

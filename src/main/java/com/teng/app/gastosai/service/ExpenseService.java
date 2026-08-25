@@ -10,10 +10,12 @@ import com.teng.app.gastosai.dto.PageResponse;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
+import com.teng.app.gastosai.entity.ExpenseSource;
 import com.teng.app.gastosai.entity.ExpenseType;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.ExpenseRepository;
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.csv.CSVFormat;
 import org.springframework.cache.annotation.CacheEvict;
@@ -22,6 +24,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,7 +39,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -47,10 +52,55 @@ public class ExpenseService {
 	private final ExpenseRepository expenseRepository;
 	private final CategoryService categoryService;
 
+	/**
+	 * Create an expense a client asked for directly, recording the source the client declared.
+	 *
+	 * <p>A client may only declare a source the server cannot tell apart from a plain manual
+	 * write — see {@link ExpenseSource}. Anything else is a 400 rather than a silent downgrade to
+	 * {@code MANUAL}: a client that names {@code IMPORT} has misunderstood the field, and a quiet
+	 * correction would leave it believing the value it sent is the one stored.
+	 */
 	// Insights are advisory + writes are infrequent, so evict all insight entries on any change (TTL backstops it).
 	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
 	@Transactional
 	public ExpenseResponse create(ExpenseRequest request, User user) {
+		return create(request, user, clientDeclaredSource(request));
+	}
+
+	private static ExpenseSource clientDeclaredSource(ExpenseRequest request) {
+		String declared = request.source();
+		if (declared == null || declared.isBlank()) {
+			return ExpenseSource.MANUAL;
+		}
+		ExpenseSource source;
+		try {
+			source = ExpenseSource.valueOf(declared.trim().toUpperCase(Locale.ROOT));
+		} catch (IllegalArgumentException e) {
+			throw badSource(declared);
+		}
+		if (!source.isClientDeclarable()) {
+			throw badSource(declared);
+		}
+		return source;
+	}
+
+	/**
+	 * One message for both refusals. Telling a client that {@code IMPORT} exists but is not for it
+	 * would only invite the next request to try {@code RECURRING}; the answer it needs is the same
+	 * either way — here are the two values you may send.
+	 */
+	private static ResponseStatusException badSource(String declared) {
+		return new ResponseStatusException(HttpStatus.BAD_REQUEST,
+				"source must be MANUAL or RECEIPT_SCAN — got '" + declared + "'.");
+	}
+
+	/**
+	 * Create an expense on behalf of a route that knows how it got here — quick-add, the assistant,
+	 * an import. The {@code source} argument wins over anything on the request.
+	 */
+	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
+	@Transactional
+	public ExpenseResponse create(ExpenseRequest request, User user, ExpenseSource source) {
 		Categorisation categorisation = categorise(request, user);
 		Category category = categorisation.category();
 		ExpenseType expenseType = request.expenseType() != null
@@ -72,6 +122,7 @@ public class ExpenseService {
 				.exchangeRate(rate)
 				.amountInBaseCurrency(base)
 				.categoryOverridden(categorisation.overridden())
+				.source(source)
 				.build();
 		return toResponse(expenseRepository.save(expense));
 	}
@@ -119,7 +170,7 @@ public class ExpenseService {
 				null,
 				null,
 				null);
-		return create(request, user);
+		return create(request, user, ExpenseSource.QUICK_ADD);
 	}
 
 	private static ResponseStatusException unparseable(String detail) {
@@ -187,6 +238,12 @@ public class ExpenseService {
 				.orElseThrow(() -> new ResourceNotFoundException("Expense not found: " + id));
 	}
 
+	/**
+	 * Edit an expense. {@code request.source()} is deliberately ignored: the source is a fact about
+	 * how the row was created, and correcting an amount a receipt scan misread does not make the
+	 * expense manually entered — it makes it a corrected scan, which is exactly what the field
+	 * should keep saying.
+	 */
 	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
 	@Transactional
 	public ExpenseResponse update(Long id, ExpenseRequest request, User user) {
@@ -254,6 +311,27 @@ public class ExpenseService {
 
 	@Transactional(readOnly = true)
 	public List<ExpenseResponse> findAll(User user, LocalDate from, LocalDate to) {
+		return findAll(user, from, to, null);
+	}
+
+	/**
+	 * The unfiltered reads keep their derived queries and the source filter goes through a
+	 * {@link Specification}, rather than one path for both.
+	 *
+	 * <p>Source multiplies against the four date shapes and the admin/non-admin split: expressing
+	 * it as derived queries would mean twelve more repository methods for one optional parameter.
+	 * A specification expresses "and this source too" as one predicate. The unfiltered path is left
+	 * exactly as it was because it is the hot one and there is nothing to gain by rewriting it.
+	 */
+	@Transactional(readOnly = true)
+	public List<ExpenseResponse> findAll(User user, LocalDate from, LocalDate to, ExpenseSource source) {
+		if (source != null) {
+			return expenseRepository
+					.findAll(filter(user, from, to, source), Sort.by(Sort.Direction.DESC, "date"))
+					.stream()
+					.map(this::toResponse)
+					.toList();
+		}
 		if (from == null && to == null) {
 			return findAll(user);
 		}
@@ -283,9 +361,21 @@ public class ExpenseService {
 
 	@Transactional(readOnly = true)
 	public PageResponse<ExpenseResponse> findPage(User user, LocalDate from, LocalDate to, int page, int size) {
+		return findPage(user, from, to, null, page, size);
+	}
+
+	/** @see #findAll(User, LocalDate, LocalDate, ExpenseSource) for why source takes its own path. */
+	@Transactional(readOnly = true)
+	public PageResponse<ExpenseResponse> findPage(User user, LocalDate from, LocalDate to,
+			ExpenseSource source, int page, int size) {
 		int safeSize = (size <= 0) ? DEFAULT_PAGE_SIZE : Math.min(size, MAX_PAGE_SIZE);
 		int safePage = Math.max(page, 0);
 		Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "date"));
+
+		if (source != null) {
+			return PageResponse.of(expenseRepository.findAll(filter(user, from, to, source), pageable)
+					.map(this::toResponse));
+		}
 
 		Page<Expense> result;
 		if (from == null && to == null) {
@@ -310,6 +400,30 @@ public class ExpenseService {
 					: expenseRepository.findByUserAndDateLessThan(user, toDt, pageable);
 		}
 		return PageResponse.of(result.map(this::toResponse));
+	}
+
+	/**
+	 * The same scope, range and ordering the derived queries apply, plus the source predicate.
+	 *
+	 * <p>The date bounds are half-open — {@code [from 00:00, to+1day 00:00)} — so a {@code to} of
+	 * the same calendar day includes everything recorded on it, exactly as the unfiltered path
+	 * does. An admin is not scoped to a user, mirroring {@code findAll(User)}.
+	 */
+	private static Specification<Expense> filter(User user, LocalDate from, LocalDate to, ExpenseSource source) {
+		return (root, query, cb) -> {
+			List<Predicate> predicates = new ArrayList<>();
+			predicates.add(cb.equal(root.get("source"), source));
+			if (!user.isAdmin()) {
+				predicates.add(cb.equal(root.get("user"), user));
+			}
+			if (from != null) {
+				predicates.add(cb.greaterThanOrEqualTo(root.get("date"), from.atStartOfDay()));
+			}
+			if (to != null) {
+				predicates.add(cb.lessThan(root.get("date"), to.plusDays(1).atStartOfDay()));
+			}
+			return cb.and(predicates.toArray(new Predicate[0]));
+		};
 	}
 
 	@Transactional(readOnly = true)
@@ -443,7 +557,8 @@ public class ExpenseService {
 				e.isReimbursable(),
 				e.getCurrency(),
 				e.getExchangeRate().setScale(6, RoundingMode.HALF_UP),
-				e.getAmountInBaseCurrency().setScale(2, RoundingMode.HALF_UP));
+				e.getAmountInBaseCurrency().setScale(2, RoundingMode.HALF_UP),
+				e.getSource());
 	}
 
 	private static BigDecimal toBigDecimal(Object value) {

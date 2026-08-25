@@ -2,6 +2,7 @@ package com.teng.app.gastosai;
 
 import com.teng.app.gastosai.config.JacksonTimeConfig;
 import com.teng.app.gastosai.dto.ExpenseResponse;
+import com.teng.app.gastosai.entity.ExpenseSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -38,7 +39,7 @@ class TimestampOffsetTest {
 		ExpenseResponse response = new ExpenseResponse(
 				1L, new BigDecimal("150.75"), "Food",
 				LocalDateTime.of(2026, 6, 26, 12, 0, 0),
-				"Lunch", "EXPENSE", false, "PHP", null, null);
+				"Lunch", "EXPENSE", false, "PHP", null, null, ExpenseSource.MANUAL);
 
 		String json = objectMapper.writeValueAsString(response);
 
@@ -50,7 +51,8 @@ class TimestampOffsetTest {
 	void serializedTimestampParsesAsTheSameInstant() {
 		LocalDateTime wallClock = LocalDateTime.of(2026, 6, 26, 12, 0, 0);
 		ExpenseResponse response = new ExpenseResponse(
-				1L, BigDecimal.ONE, "Food", wallClock, "Lunch", "EXPENSE", false, "PHP", null, null);
+				1L, BigDecimal.ONE, "Food", wallClock, "Lunch", "EXPENSE", false, "PHP", null, null,
+				ExpenseSource.MANUAL);
 
 		String date = objectMapper.readTree(objectMapper.writeValueAsString(response)).get("date").asString();
 		OffsetDateTime parsed = OffsetDateTime.parse(date);

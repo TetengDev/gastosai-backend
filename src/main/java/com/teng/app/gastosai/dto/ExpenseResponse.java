@@ -1,5 +1,8 @@
 package com.teng.app.gastosai.dto;
 
+import com.teng.app.gastosai.entity.ExpenseSource;
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
@@ -16,5 +19,8 @@ public record ExpenseResponse(
 		boolean reimbursable,
 		String currency,
 		BigDecimal exchangeRate,
-		BigDecimal amountInBaseCurrency
+		BigDecimal amountInBaseCurrency,
+		@Schema(description = "The route that created this expense. Rows written before the field "
+				+ "existed report MANUAL.")
+		ExpenseSource source
 ) {}

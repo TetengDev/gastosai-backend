@@ -13,6 +13,7 @@ import com.teng.app.gastosai.dto.ChatResponse;
 import com.teng.app.gastosai.dto.ExpenseResponse;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
+import com.teng.app.gastosai.entity.ExpenseSource;
 import com.teng.app.gastosai.entity.Role;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
@@ -129,8 +130,8 @@ class ChatActionServiceTest {
         ExpenseResponse mockResult = new ExpenseResponse(
                 1L, new BigDecimal("500.00"), "Food",
                 LocalDateTime.now(), "Lunch", "PERSONAL", false, "PHP",
-                BigDecimal.ONE, new BigDecimal("500.00"));
-        when(expenseService.create(any(), any())).thenReturn(mockResult);
+                BigDecimal.ONE, new BigDecimal("500.00"), ExpenseSource.QUICK_ADD);
+        when(expenseService.create(any(), any(), any())).thenReturn(mockResult);
 
         ChatResponse response = chatActionService.dispatch("Add lunch ₱500", "execute", user());
 
@@ -260,8 +261,8 @@ class ChatActionServiceTest {
         ExpenseResponse created = new ExpenseResponse(
                 1L, new BigDecimal("500.00"), "Food",
                 LocalDateTime.now(), "Lunch", "PERSONAL", false, "PHP",
-                BigDecimal.ONE, new BigDecimal("500.00"));
-        when(expenseService.create(any(), any())).thenReturn(created);
+                BigDecimal.ONE, new BigDecimal("500.00"), ExpenseSource.QUICK_ADD);
+        when(expenseService.create(any(), any(), any())).thenReturn(created);
 
         ChatResponse response = chatActionService.confirm("create_expense",
                 Map.of("amount", 500, "description", "Lunch", "category", "Food"),

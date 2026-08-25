@@ -3,6 +3,7 @@ package com.teng.app.gastosai.service;
 import com.teng.app.gastosai.dto.ImportResult;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
+import com.teng.app.gastosai.entity.ExpenseSource;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import lombok.RequiredArgsConstructor;
@@ -174,6 +175,7 @@ public class CsvImportService {
 				.currency("PHP")
 				.exchangeRate(BigDecimal.ONE)
 				.amountInBaseCurrency(row.amount())
+				.source(ExpenseSource.IMPORT)
 				.build());
 	}
 
