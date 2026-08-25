@@ -52,6 +52,31 @@ Be terse: run each command once, report the table, do not re-explain checks that
    is part of the deploy path.
 9. **Rollback** — state the answer to "how do I revert this in under 5 minutes?" An image
    rollback does not undo a schema change.
+10. **New routes and the registries keyed by path** — only when the diff adds a `@*Mapping` path
+    that did not exist before. Protections here are registered centrally *by literal path*, not
+    declared on the handler, so a sibling route inherits nothing by proximity.
+
+    For each new path, name the registries its nearest neighbour appears in and confirm the new
+    path is in each, or say plainly that its absence is deliberate:
+
+    - `WebConfig` interceptors — the AI key context and AI rate limit lists especially
+    - `PublicEndpoints` — public, or authenticated?
+    - `SecurityConfig.ADMIN_RULES` — admin surfaces
+    - the public rate-limit path list
+
+    ```bash
+    grep -n "addPathPatterns\|requestMatchers\|RULES" \
+      src/main/java/com/teng/app/gastosai/config/{WebConfig,SecurityConfig,PublicEndpoints}.java
+    ```
+
+    **This one has no failing signal, which is why it is a checklist item rather than a test.**
+    A route missing a gate works, passes its own tests, and the missing line sits in a file the
+    diff never touches. TEN-176 added `/expenses/quick-add` beside `/expenses/parse` and was on
+    neither AI list: a bring-your-own-key user's parse would have been billed to the platform key,
+    unmetered. `AiRouteInterceptorCoverageTest` now pins the model-backed routes specifically; the
+    other registries are still on you.
+
+    Do not trust a brief's claim about how an existing gate behaves — read the config.
 
 ## Report
 
