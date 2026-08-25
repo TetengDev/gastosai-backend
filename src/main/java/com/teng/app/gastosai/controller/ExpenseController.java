@@ -136,6 +136,25 @@ public class ExpenseController {
 		return expenseParser.parse(request.text()).value();
 	}
 
+	/**
+	 * Parse free text and save the expense it describes in one round trip.
+	 *
+	 * <p>Additive: {@code /expenses/parse} is untouched, so a client that wants to show the draft
+	 * for confirmation before saving keeps the two-step flow it already has. This endpoint is for
+	 * the client that does not — quick-add, where the confirmation step is the thing being removed.
+	 *
+	 * <p>The parse happens here rather than in the service so the LLM round trip stays outside the
+	 * transaction; the same shape as {@link #parse} above. Everything that decides whether the draft
+	 * is worth keeping is {@code ExpenseService}'s, and a draft it rejects is a 422 that writes
+	 * nothing.
+	 */
+	@PostMapping("/quick-add")
+	@ResponseStatus(HttpStatus.CREATED)
+	public ExpenseResponse quickAdd(@Valid @RequestBody ParseExpenseRequest request,
+			@AuthenticationPrincipal User user) {
+		return expenseService.createFromParsed(expenseParser.parse(request.text()).value(), user);
+	}
+
 	@GetMapping("/report/monthly")
 	public List<MonthlyReportItem> monthlyReport(@AuthenticationPrincipal User user) {
 		return expenseService.monthlyReport(user);

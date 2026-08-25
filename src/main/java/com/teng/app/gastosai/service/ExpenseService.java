@@ -7,6 +7,7 @@ import com.teng.app.gastosai.dto.ExpenseResponse;
 import com.teng.app.gastosai.dto.MonthlyComparisonResponse;
 import com.teng.app.gastosai.dto.MonthlyReportItem;
 import com.teng.app.gastosai.dto.PageResponse;
+import com.teng.app.gastosai.dto.ParsedExpenseResult;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
 import com.teng.app.gastosai.entity.ExpenseType;
@@ -73,6 +74,65 @@ public class ExpenseService {
 				.categoryOverridden(categorisation.overridden())
 				.build();
 		return toResponse(expenseRepository.save(expense));
+	}
+
+	/**
+	 * Persist the expense a parser read out of free text, so quick-add is one round trip.
+	 *
+	 * <p>The parse itself happens before this call — the LLM round trip must not sit inside the
+	 * transaction, holding a pooled connection for the second or two it takes. What lives here is
+	 * the decision the two-step flow used to leave to the client: whether the draft is good enough
+	 * to keep, and what to say when it is not.
+	 *
+	 * <p>A draft that is not saveable is rejected with 422 and nothing is written. The parser already
+	 * phrases the reason for a human — {@code rejectionMessage} when it has one, {@code hint}
+	 * otherwise — so its own words are preferred over a generic message. The amount and description
+	 * checks are not redundant with {@code saveable}: {@link ExpenseRequest}'s bean validation never
+	 * runs on this path (nothing binds the draft through {@code @Valid}), so a model that claims
+	 * {@code saveable} while omitting the amount would otherwise reach the database.
+	 *
+	 * <p>Category and date are deliberately left to {@link #create}: a null category means the
+	 * merchant rules get their say, and a null date means "now", exactly as on the two-step path.
+	 */
+	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
+	@Transactional
+	public ExpenseResponse createFromParsed(ParsedExpenseResult draft, User user) {
+		if (draft == null) {
+			throw unparseable("Could not read an expense from that text.");
+		}
+		if (!draft.saveable()) {
+			throw unparseable(firstNonBlank(draft.rejectionMessage(), draft.hint(),
+					"Could not read an expense from that text."));
+		}
+		if (draft.amount() == null || draft.amount().compareTo(BigDecimal.ZERO) <= 0) {
+			throw unparseable("Could not read an amount from that text.");
+		}
+		if (draft.description() == null || draft.description().isBlank()) {
+			throw unparseable("Could not read what the expense was for.");
+		}
+		ExpenseRequest request = new ExpenseRequest(
+				draft.amount(),
+				draft.category(),
+				draft.date(),
+				draft.description(),
+				null,
+				null,
+				null,
+				null);
+		return create(request, user);
+	}
+
+	private static ResponseStatusException unparseable(String detail) {
+		return new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, detail);
+	}
+
+	private static String firstNonBlank(String... candidates) {
+		for (String candidate : candidates) {
+			if (candidate != null && !candidate.isBlank()) {
+				return candidate;
+			}
+		}
+		return null;
 	}
 
 	/** The category this expense lands in, and whether that choice contradicts a merchant rule. */
