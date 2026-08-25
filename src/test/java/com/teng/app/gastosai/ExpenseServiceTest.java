@@ -33,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -519,5 +520,146 @@ class ExpenseServiceTest {
         assertThat(content).contains("Lunch at cafe");
         assertThat(content).contains("Meal Plan");
         assertThat(content).doesNotContain("'Lunch at cafe");
+    }
+
+    // ------------------------------------------- merchant rules (TEN-173)
+
+    /**
+     * The assertions below are about what create/update BUILDS, so hand the saved argument straight
+     * back rather than pinning a fixed row that would hide the field under test.
+     */
+    private void echoSaved() {
+        when(expenseRepository.save(any(Expense.class))).thenAnswer(inv -> inv.getArgument(0));
+    }
+
+    @Test
+    void create_learnsTheMerchant_whenCategorisedByHandForTheFirstTime() {
+        User user = regularUser();
+        Category food = Category.builder().id(7L).name("Food").build();
+        when(categoryService.getOrCreateByName("Food", user)).thenReturn(food);
+        when(categoryService.resolveByMerchant("Jollibee 150", user)).thenReturn(Optional.empty());
+        echoSaved();
+
+        ExpenseResponse response = expenseService.create(
+                new ExpenseRequest(new BigDecimal("150"), "Food", null, "Jollibee 150", null, null, null, null), user);
+
+        assertThat(response.category()).isEqualTo("Food");
+        verify(categoryService).learnMerchantRule("Jollibee 150", food, user);
+        verify(expenseRepository).save(argThat(e -> !e.isCategoryOverridden()));
+    }
+
+    @Test
+    void create_categorisesItself_onTheSecondExpenseFromTheSameMerchant() {
+        User user = regularUser();
+        Category food = Category.builder().id(7L).name("Food").build();
+        when(categoryService.resolveByMerchant("Jollibee 200", user)).thenReturn(Optional.of(food));
+        echoSaved();
+
+        // No category on the request — exactly what a quick-add sends the second time.
+        ExpenseResponse response = expenseService.create(
+                new ExpenseRequest(new BigDecimal("200"), null, null, "Jollibee 200", null, null, null, null), user);
+
+        assertThat(response.category()).isEqualTo("Food");
+        verify(categoryService, never()).getOrCreateByName(eq("Uncategorized"), any());
+    }
+
+    @Test
+    void create_fallsBackToUncategorized_whenNoRuleMatches() {
+        User user = regularUser();
+        Category uncategorized = Category.builder().id(1L).name("Uncategorized").build();
+        when(categoryService.resolveByMerchant("Some New Shop 90", user)).thenReturn(Optional.empty());
+        when(categoryService.getOrCreateByName("Uncategorized", user)).thenReturn(uncategorized);
+        echoSaved();
+
+        ExpenseResponse response = expenseService.create(
+                new ExpenseRequest(new BigDecimal("90"), null, null, "Some New Shop 90", null, null, null, null), user);
+
+        assertThat(response.category()).isEqualTo("Uncategorized");
+        verify(categoryService, never()).learnMerchantRule(any(), any(), any());
+    }
+
+    @Test
+    void create_overridesOneExpense_withoutRewritingTheRule() {
+        User user = regularUser();
+        Category food = Category.builder().id(7L).name("Food").build();
+        Category gifts = Category.builder().id(9L).name("Gifts").build();
+        when(categoryService.resolveByMerchant("Jollibee 900", user)).thenReturn(Optional.of(food));
+        when(categoryService.getOrCreateByName("Gifts", user)).thenReturn(gifts);
+        echoSaved();
+
+        ExpenseResponse response = expenseService.create(
+                new ExpenseRequest(new BigDecimal("900"), "Gifts", null, "Jollibee 900", null, null, null, null), user);
+
+        assertThat(response.category()).isEqualTo("Gifts");
+        verify(expenseRepository).save(argThat(Expense::isCategoryOverridden));
+        verify(categoryService, never()).learnMerchantRule(any(), any(), any());
+    }
+
+    @Test
+    void create_doesNotFlagOverride_whenTheExplicitCategoryAgreesWithTheRule() {
+        User user = regularUser();
+        Category food = Category.builder().id(7L).name("Food").build();
+        when(categoryService.resolveByMerchant("Jollibee 150", user)).thenReturn(Optional.of(food));
+        when(categoryService.getOrCreateByName("Food", user)).thenReturn(food);
+        echoSaved();
+
+        expenseService.create(
+                new ExpenseRequest(new BigDecimal("150"), "Food", null, "Jollibee 150", null, null, null, null), user);
+
+        verify(expenseRepository).save(argThat(e -> !e.isCategoryOverridden()));
+        verify(categoryService).learnMerchantRule("Jollibee 150", food, user);
+    }
+
+    @Test
+    void update_recategorisingByHand_flagsTheRowAndLeavesTheRuleAlone() {
+        User user = regularUser();
+        Category food = Category.builder().id(7L).name("Food").build();
+        Category gifts = Category.builder().id(9L).name("Gifts").build();
+        Expense existing = Expense.builder()
+                .id(3L)
+                .amount(new BigDecimal("900.0000"))
+                .user(user)
+                .category(food)
+                .date(LocalDateTime.of(2026, 6, 2, 9, 0))
+                .description("Jollibee 900")
+                .amountInBaseCurrency(new BigDecimal("900.0000"))
+                .build();
+        when(expenseRepository.findByIdAndUser(3L, user)).thenReturn(Optional.of(existing));
+        when(categoryService.resolveByMerchant("Jollibee 900", user)).thenReturn(Optional.of(food));
+        when(categoryService.getOrCreateByName("Gifts", user)).thenReturn(gifts);
+        echoSaved();
+
+        ExpenseResponse response = expenseService.update(3L,
+                new ExpenseRequest(new BigDecimal("900"), "Gifts", null, "Jollibee 900", null, null, null, null), user);
+
+        assertThat(response.category()).isEqualTo("Gifts");
+        assertThat(existing.isCategoryOverridden()).isTrue();
+        verify(categoryService, never()).learnMerchantRule(any(), any(), any());
+    }
+
+    @Test
+    void update_clearsTheOverride_whenTheCategoryIsLeftToTheRuleAgain() {
+        User user = regularUser();
+        Category food = Category.builder().id(7L).name("Food").build();
+        Category gifts = Category.builder().id(9L).name("Gifts").build();
+        Expense existing = Expense.builder()
+                .id(3L)
+                .amount(new BigDecimal("900.0000"))
+                .user(user)
+                .category(gifts)
+                .date(LocalDateTime.of(2026, 6, 2, 9, 0))
+                .description("Jollibee 900")
+                .categoryOverridden(true)
+                .amountInBaseCurrency(new BigDecimal("900.0000"))
+                .build();
+        when(expenseRepository.findByIdAndUser(3L, user)).thenReturn(Optional.of(existing));
+        when(categoryService.resolveByMerchant("Jollibee 900", user)).thenReturn(Optional.of(food));
+        echoSaved();
+
+        ExpenseResponse response = expenseService.update(3L,
+                new ExpenseRequest(new BigDecimal("900"), null, null, "Jollibee 900", null, null, null, null), user);
+
+        assertThat(response.category()).isEqualTo("Food");
+        assertThat(existing.isCategoryOverridden()).isFalse();
     }
 }

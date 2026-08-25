@@ -50,9 +50,8 @@ public class ExpenseService {
 	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
 	@Transactional
 	public ExpenseResponse create(ExpenseRequest request, User user) {
-		String categoryName = (request.category() == null || request.category().isBlank())
-				? DEFAULT_CATEGORY : request.category();
-		Category category = categoryService.getOrCreateByName(categoryName, user);
+		Categorisation categorisation = categorise(request, user);
+		Category category = categorisation.category();
 		ExpenseType expenseType = request.expenseType() != null
 				? ExpenseType.valueOf(request.expenseType())
 				: ExpenseType.PERSONAL;
@@ -71,8 +70,44 @@ public class ExpenseService {
 				.currency(currency)
 				.exchangeRate(rate)
 				.amountInBaseCurrency(base)
+				.categoryOverridden(categorisation.overridden())
 				.build();
 		return toResponse(expenseRepository.save(expense));
+	}
+
+	/** The category this expense lands in, and whether that choice contradicts a merchant rule. */
+	private record Categorisation(Category category, boolean overridden) {}
+
+	/**
+	 * Decide an expense's category, and keep the merchant rules learning as a side effect.
+	 *
+	 * <p>No category on the request means "you tell me": a merchant rule answers if one matches,
+	 * {@code Uncategorized} otherwise. An explicit category is obeyed either way, but what happens
+	 * to the rule differs — with no rule yet, the first hand-categorisation of a merchant
+	 * <em>becomes</em> the rule, which is the whole point of the feature; with a rule that says
+	 * something else, this is a deliberate one-off and the expense is flagged
+	 * {@code categoryOverridden} while the rule is left exactly as it was. Silently rewriting the
+	 * rule on every disagreement would mean a single unusual purchase at a familiar shop
+	 * re-categorises every future one.
+	 */
+	private Categorisation categorise(ExpenseRequest request, User user) {
+		boolean explicit = request.category() != null && !request.category().isBlank();
+		if (!explicit) {
+			return new Categorisation(
+					categoryService.resolveByMerchant(request.description(), user)
+							.orElseGet(() -> categoryService.getOrCreateByName(DEFAULT_CATEGORY, user)),
+					false);
+		}
+
+		Category chosen = categoryService.getOrCreateByName(request.category(), user);
+		Category ruled = categoryService.resolveByMerchant(request.description(), user).orElse(null);
+		boolean overridden = ruled != null
+				&& ruled.getId() != null
+				&& !ruled.getId().equals(chosen.getId());
+		if (!overridden) {
+			categoryService.learnMerchantRule(request.description(), chosen, user);
+		}
+		return new Categorisation(chosen, overridden);
 	}
 
 	@Transactional(readOnly = true)
@@ -100,11 +135,10 @@ public class ExpenseService {
 				: expenseRepository.findByIdAndUser(id, user))
 				.orElseThrow(() -> new ResourceNotFoundException("Expense not found: " + id));
 
-		String categoryName = (request.category() == null || request.category().isBlank())
-				? DEFAULT_CATEGORY : request.category();
-		Category category = categoryService.getOrCreateByName(categoryName, user);
+		Categorisation categorisation = categorise(request, user);
 		expense.setAmount(request.amount());
-		expense.setCategory(category);
+		expense.setCategory(categorisation.category());
+		expense.setCategoryOverridden(categorisation.overridden());
 		expense.setDate(request.date() != null ? request.date() : expense.getDate());
 		expense.setDescription(request.description());
 		if (request.expenseType() != null) {
