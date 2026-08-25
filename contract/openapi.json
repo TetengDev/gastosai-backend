@@ -1456,6 +1456,11 @@
           },
           "reimbursable" : {
             "type" : "boolean"
+          },
+          "source" : {
+            "description" : "How this expense was created. Only MANUAL and RECEIPT_SCAN may be declared by a client — the other values belong to routes that write the row themselves, and naming one here is rejected with 400. Omitted means MANUAL. Ignored on update: a source is recorded once, at creation.",
+            "enum" : [ "MANUAL", "RECEIPT_SCAN" ],
+            "type" : "string"
           }
         },
         "required" : [ "amount", "description" ],
@@ -1496,6 +1501,11 @@
           },
           "reimbursable" : {
             "type" : "boolean"
+          },
+          "source" : {
+            "description" : "How this expense was created. Only MANUAL and RECEIPT_SCAN may be declared by a client — the other values belong to routes that write the row themselves, and naming one here is rejected with 400. Omitted means MANUAL. Ignored on update: a source is recorded once, at creation.",
+            "enum" : [ "MANUAL", "RECEIPT_SCAN" ],
+            "type" : "string"
           }
         },
         "required" : [ "amount", "description" ],
@@ -1534,6 +1544,11 @@
           },
           "reimbursable" : {
             "type" : "boolean"
+          },
+          "source" : {
+            "description" : "The route that created this expense. Rows written before the field existed report MANUAL.",
+            "enum" : [ "MANUAL", "QUICK_ADD", "RECEIPT_SCAN", "RECURRING", "IMPORT" ],
+            "type" : "string"
           }
         },
         "type" : "object"
@@ -1573,6 +1588,10 @@
           },
           "reimbursable" : {
             "type" : "boolean"
+          },
+          "source" : {
+            "enum" : [ "MANUAL", "QUICK_ADD", "RECEIPT_SCAN", "RECURRING", "IMPORT" ],
+            "type" : "string"
           }
         },
         "type" : "object"
@@ -6440,6 +6459,14 @@
             "format" : "date",
             "type" : "string"
           }
+        }, {
+          "in" : "query",
+          "name" : "source",
+          "required" : false,
+          "schema" : {
+            "enum" : [ "MANUAL", "QUICK_ADD", "RECEIPT_SCAN", "RECURRING", "IMPORT" ],
+            "type" : "string"
+          }
         } ],
         "responses" : {
           "200" : {
@@ -6633,6 +6660,14 @@
           "required" : false,
           "schema" : {
             "format" : "date",
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "source",
+          "required" : false,
+          "schema" : {
+            "enum" : [ "MANUAL", "QUICK_ADD", "RECEIPT_SCAN", "RECURRING", "IMPORT" ],
             "type" : "string"
           }
         } ],

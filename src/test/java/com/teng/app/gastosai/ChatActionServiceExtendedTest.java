@@ -455,7 +455,7 @@ class ChatActionServiceExtendedTest {
                 """;
         when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("create_expense", paramsJson)));
         when(expenseRepository.findByUserAndDateAfterOrderByDateDesc(any(), any())).thenReturn(List.of());
-        when(expenseService.create(any(), any())).thenReturn(null);
+        when(expenseService.create(any(), any(), any())).thenReturn(null);
 
         ChatResponse resp = chatActionService.dispatch("Add lunch ₱500", "execute", user());
 
@@ -476,7 +476,7 @@ class ChatActionServiceExtendedTest {
                 .date(LocalDateTime.now().minusDays(1))
                 .build();
         when(expenseRepository.findByUserAndDateAfterOrderByDateDesc(any(), any())).thenReturn(List.of(notDupe));
-        when(expenseService.create(any(), any())).thenReturn(null);
+        when(expenseService.create(any(), any(), any())).thenReturn(null);
 
         ChatResponse resp = chatActionService.dispatch("Add lunch ₱500", "execute", user());
 
@@ -496,7 +496,7 @@ class ChatActionServiceExtendedTest {
                 .date(LocalDateTime.now().minusDays(1))
                 .build();
         lenient().when(expenseRepository.findByUserAndDateAfterOrderByDateDesc(any(), any())).thenReturn(List.of(duplicate));
-        when(expenseService.create(any(), any())).thenReturn(null);
+        when(expenseService.create(any(), any(), any())).thenReturn(null);
 
         ChatResponse resp = chatActionService.dispatch("Add lunch ₱500", "force", user());
 

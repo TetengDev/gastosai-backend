@@ -30,6 +30,7 @@ import com.teng.app.gastosai.entity.Budget;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Conversation;
 import com.teng.app.gastosai.entity.Expense;
+import com.teng.app.gastosai.entity.ExpenseSource;
 import com.teng.app.gastosai.entity.Frequency;
 import com.teng.app.gastosai.entity.RecurringExpense;
 import com.teng.app.gastosai.entity.SavingsGoal;
@@ -391,8 +392,10 @@ public class ChatActionService {
 					confirmData);
 		}
 
+		// QUICK_ADD, not MANUAL: the amount and the merchant came out of a parser reading free
+		// text, which is the same provenance as /expenses/quick-add and carries the same caveat.
 		ExpenseRequest req = new ExpenseRequest(amount, category, date, description, null, null, null, null);
-		Object result = expenseService.create(req, user);
+		Object result = expenseService.create(req, user, ExpenseSource.QUICK_ADD);
 		return new ChatResponse("action", "Expense created: ₱" + amount.toPlainString() + " — " + description, result);
 	}
 

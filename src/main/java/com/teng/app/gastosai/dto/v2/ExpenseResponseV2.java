@@ -1,6 +1,7 @@
 package com.teng.app.gastosai.dto.v2;
 
 import com.teng.app.gastosai.dto.ExpenseResponse;
+import com.teng.app.gastosai.entity.ExpenseSource;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -22,7 +23,8 @@ public record ExpenseResponseV2(
 		boolean reimbursable,
 		String currency,
 		BigDecimal exchangeRate,
-		Long amountInBaseCurrency
+		Long amountInBaseCurrency,
+		ExpenseSource source
 ) {
 
 	public static ExpenseResponseV2 from(ExpenseResponse v1) {
@@ -36,6 +38,7 @@ public record ExpenseResponseV2(
 				v1.reimbursable(),
 				v1.currency(),
 				v1.exchangeRate(),
-				Money.toCentavos(v1.amountInBaseCurrency()));
+				Money.toCentavos(v1.amountInBaseCurrency()),
+				v1.source());
 	}
 }
