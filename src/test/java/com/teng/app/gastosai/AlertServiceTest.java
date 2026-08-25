@@ -1,5 +1,6 @@
 package com.teng.app.gastosai;
 
+import com.teng.app.gastosai.config.ViewAsContext;
 import com.teng.app.gastosai.entity.*;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.AlertRepository;
@@ -19,6 +20,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -261,6 +263,35 @@ class AlertServiceTest {
         assertThat(message).doesNotContain("unusual against");
         // the baseline is never even queried when the feature is locked
         verify(expenseRepository, never()).sumForMonth(u, 2026, 4);
+    }
+
+    /**
+     * An admin "View As" preview must not decide what gets written: the explanation is persisted
+     * into the alert row, so a preview at FREE would rewrite the admin's own stored alert.
+     */
+    @Test
+    void spendingSpike_asksTheRealPlan_notTheAdminViewAsSimulation() {
+        User u = user();
+        AtomicReference<PlanKey> planSeenByTheCheck = new AtomicReference<>(PlanKey.FREE);
+        when(entitlementService.canAccessFeature(u, FeatureKey.ANOMALY_DETECTION)).thenAnswer(call -> {
+            planSeenByTheCheck.set(ViewAsContext.plan());
+            return true;
+        });
+        when(expenseRepository.sumForMonth(u, 2026, 5)).thenReturn(new BigDecimal("1000.00"));
+        when(expenseRepository.sumForMonth(u, 2026, 4)).thenReturn(new BigDecimal("800.00"));
+        when(expenseRepository.sumForMonth(u, 2026, 3)).thenReturn(new BigDecimal("600.00"));
+
+        ViewAsContext.set(PlanKey.FREE, Boolean.FALSE);
+        try {
+            String message = spikeMessage(u);
+
+            assertThat(message).contains("unusual against your previous 3 months");
+            assertThat(planSeenByTheCheck.get()).isNull();          // the simulation was suspended
+            assertThat(ViewAsContext.plan()).isEqualTo(PlanKey.FREE);  // and restored for the rest
+            assertThat(ViewAsContext.aiEnabled()).isFalse();           // of the request
+        } finally {
+            ViewAsContext.clear();
+        }
     }
 
     // --- markRead ---

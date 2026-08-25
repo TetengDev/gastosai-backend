@@ -1,5 +1,6 @@
 package com.teng.app.gastosai.service;
 
+import com.teng.app.gastosai.config.ViewAsContext;
 import com.teng.app.gastosai.dto.AlertResponse;
 import com.teng.app.gastosai.entity.Alert;
 import com.teng.app.gastosai.entity.AlertSeverity;
@@ -7,6 +8,7 @@ import com.teng.app.gastosai.entity.AlertType;
 import com.teng.app.gastosai.entity.Budget;
 import com.teng.app.gastosai.entity.FeatureKey;
 import com.teng.app.gastosai.entity.Frequency;
+import com.teng.app.gastosai.entity.PlanKey;
 import com.teng.app.gastosai.entity.RecurringExpense;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
@@ -144,7 +146,7 @@ public class AlertService {
      * against.
      */
     private String explainSpike(User user, int year, int monthInt, BigDecimal currentTotal) {
-        if (!entitlementService.canAccessFeature(user, FeatureKey.ANOMALY_DETECTION)) {
+        if (!mayExplain(user)) {
             return "";
         }
 
@@ -168,6 +170,31 @@ public class AlertService {
         return String.format(
                 "This is unusual against your previous %d months, which averaged ₱%.2f — this month is %.1f× that.",
                 monthsWithSpending, average, timesAverage);
+    }
+
+    /**
+     * Whether this user's plan grants the explanation — asked of their real plan, never of an admin
+     * "View As" simulation.
+     *
+     * <p>{@link ViewAsContext} is a read-only preview: an admin previewing FREE is meant to see the
+     * app as a free user, not to change anything. But the explanation is not rendered per request,
+     * it is persisted into {@code Alert.message} by the upsert below, so honouring the simulated
+     * plan here would let a preview rewrite the admin's own stored alert — and the next preview at
+     * a different tier would rewrite it again. The simulation is suspended for the length of the
+     * check and restored immediately, so everything else in the request still sees it.
+     */
+    private boolean mayExplain(User user) {
+        PlanKey simulated = ViewAsContext.plan();
+        if (simulated == null) {
+            return entitlementService.canAccessFeature(user, FeatureKey.ANOMALY_DETECTION);
+        }
+        Boolean simulatedAi = ViewAsContext.aiEnabled();
+        ViewAsContext.clear();
+        try {
+            return entitlementService.canAccessFeature(user, FeatureKey.ANOMALY_DETECTION);
+        } finally {
+            ViewAsContext.set(simulated, simulatedAi);
+        }
     }
 
     private void generateRecurringDueAlerts(User user, String month) {
