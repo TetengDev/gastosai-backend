@@ -72,4 +72,13 @@ public class Expense {
 
 	@Column(nullable = false, precision = 19, scale = 4)
 	private BigDecimal amountInBaseCurrency;
+
+	/**
+	 * True when a human set this expense's category by hand against a merchant rule that said
+	 * something else. It records the disagreement on the one row instead of rewriting the rule, so
+	 * the rule keeps categorising every later expense from that merchant.
+	 */
+	@Column(name = "category_overridden", nullable = false)
+	@Builder.Default
+	private boolean categoryOverridden = false;
 }
