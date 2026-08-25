@@ -6685,6 +6685,37 @@
         "tags" : [ "expense-controller" ]
       }
     },
+    "/expenses/quick-add" : {
+      "post" : {
+        "operationId" : "quickAdd",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ParseExpenseRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ExpenseResponse"
+                }
+              }
+            },
+            "description" : "Created"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-controller" ]
+      }
+    },
     "/expenses/report/category" : {
       "get" : {
         "operationId" : "categoryReport",
