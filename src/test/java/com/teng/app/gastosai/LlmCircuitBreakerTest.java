@@ -1,11 +1,13 @@
 package com.teng.app.gastosai;
 
 import com.teng.app.gastosai.ai.LlmCircuitBreaker;
+import com.teng.app.gastosai.exception.AiQuotaExceededException;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LlmCircuitBreakerTest {
 
@@ -42,5 +44,36 @@ class LlmCircuitBreakerTest {
             assertThat(breaker.execute(failing, () -> "fallback")).isEqualTo("fallback");
         }
         assertThat(calls.get()).isEqualTo(callsBeforeOpen);
+    }
+
+    @Test
+    void rethrowsQuotaExceeded_insteadOfDegrading() {
+        // The 429 has to reach the client; the degraded 200 would tell the user the wrong thing.
+        assertThatThrownBy(() -> breaker.execute(
+                () -> { throw new AiQuotaExceededException(); },
+                () -> "fallback"))
+                .isInstanceOf(AiQuotaExceededException.class);
+    }
+
+    @Test
+    void quotaExceeded_doesNotCountAsAProviderFailure() {
+        AtomicInteger calls = new AtomicInteger();
+
+        // Well past minimumNumberOfCalls=5 at a 50% threshold: if these were recorded as failures
+        // the breaker would be OPEN by now.
+        for (int i = 0; i < 10; i++) {
+            assertThatThrownBy(() -> breaker.execute(
+                    () -> { throw new AiQuotaExceededException(); },
+                    () -> "fallback"))
+                    .isInstanceOf(AiQuotaExceededException.class);
+        }
+
+        String result = breaker.execute(() -> {
+            calls.incrementAndGet();
+            return "ok";
+        }, () -> "fallback");
+
+        assertThat(result).isEqualTo("ok");
+        assertThat(calls.get()).as("the provider is still being called").isEqualTo(1);
     }
 }
