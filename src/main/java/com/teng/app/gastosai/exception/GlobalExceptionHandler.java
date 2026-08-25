@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -16,6 +17,11 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 
+import tools.jackson.databind.DatabindException;
+import tools.jackson.databind.exc.InvalidFormatException;
+import tools.jackson.databind.exc.MismatchedInputException;
+
+import java.util.Arrays;
 import java.util.stream.Collectors;
 
 @RestControllerAdvice
@@ -125,6 +131,65 @@ public class GlobalExceptionHandler {
 		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
 		pd.setTitle("Validation Failed");
 		return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd);
+	}
+
+	/**
+	 * A body Jackson cannot bind — an unknown enum name, a string where a number belongs, JSON that
+	 * does not parse. Without this the failure reaches the catch-all below and answers 500, because
+	 * an {@code @ExceptionHandler} on this advice wins over Spring's default resolver, which would
+	 * otherwise have made it a 400 on its own.
+	 *
+	 * <p>The detail names the offending field, and for an enum the values it accepts — both are
+	 * already public in {@code openapi.json}. Jackson's own message is never echoed: it quotes the
+	 * rejected input and the target class, which is the client's data and our package layout.
+	 */
+	@ExceptionHandler(HttpMessageNotReadableException.class)
+	public ResponseEntity<ProblemDetail> unreadableBody(HttpMessageNotReadableException ex) {
+		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, describe(ex));
+		pd.setTitle("Bad Request");
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd);
+	}
+
+	private static String describe(HttpMessageNotReadableException ex) {
+		if (ex.getCause() instanceof InvalidFormatException cause) {
+			String field = fieldPath(cause);
+			Class<?> target = cause.getTargetType();
+			if (field == null) {
+				return "Request body could not be read.";
+			}
+			// getEnumConstants() rather than isEnum(): an enum whose constants have bodies is
+			// compiled as anonymous subclasses, and isEnum() is false for those.
+			Object[] allowed = target == null ? null : target.getEnumConstants();
+			if (allowed != null) {
+				return "Invalid value for field '" + field + "'. Allowed values: "
+						+ Arrays.stream(allowed).map(String::valueOf).collect(Collectors.joining(", "))
+						+ ".";
+			}
+			return "Invalid value for field '" + field + "'.";
+		}
+		if (ex.getCause() instanceof MismatchedInputException cause) {
+			String field = fieldPath(cause);
+			if (field != null) {
+				return "Invalid value for field '" + field + "'.";
+			}
+		}
+		return "Request body could not be read.";
+	}
+
+	/** Dotted path to the field Jackson choked on, e.g. {@code frequency} or {@code items[2].amount}. */
+	private static String fieldPath(DatabindException ex) {
+		StringBuilder path = new StringBuilder();
+		for (DatabindException.Reference ref : ex.getPath()) {
+			if (ref.getPropertyName() != null) {
+				if (!path.isEmpty()) {
+					path.append('.');
+				}
+				path.append(ref.getPropertyName());
+			} else {
+				path.append('[').append(ref.getIndex()).append(']');
+			}
+		}
+		return path.isEmpty() ? null : path.toString();
 	}
 
 	/**
