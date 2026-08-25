@@ -2,6 +2,7 @@ package com.teng.app.gastosai.controller;
 
 import com.teng.app.gastosai.dto.AiQueryRequest;
 import com.teng.app.gastosai.dto.AiQueryResponse;
+import com.teng.app.gastosai.dto.ChatConfirmRequest;
 import com.teng.app.gastosai.dto.ChatRequest;
 import com.teng.app.gastosai.dto.ChatResponse;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
@@ -13,6 +14,7 @@ import com.teng.app.gastosai.service.AiQueryService;
 import com.teng.app.gastosai.service.ChatActionService;
 import com.teng.app.gastosai.service.EntitlementService;
 import com.teng.app.gastosai.service.VisionService;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -73,5 +75,23 @@ public class AiController {
 		return ResponseEntity.ok(llmCircuitBreaker.execute(
 				() -> chatActionService.dispatch(req.message(), mode, user, req.conversationId()),
 				() -> new ChatResponse("text", DEGRADED_MESSAGE, null)));
+	}
+
+	/**
+	 * Confirms a previewed action by echoing back the tool and params the server proposed.
+	 *
+	 * <p>Deliberately not behind {@link LlmCircuitBreaker}: no model is called, so a degraded
+	 * provider is no reason to refuse a confirmation the user has already seen and approved.
+	 */
+	@PostMapping("/chat/confirm")
+	@RequiresFeature(FeatureKey.NL_CHATBOT)
+	@Operation(summary = "Execute a previously previewed assistant action",
+			description = "Runs the action the server proposed on a `preview` turn. Post that "
+					+ "turn's `toolName` and `params` back unchanged; no natural language is sent, "
+					+ "so nothing is re-parsed and the executed action is the one that was shown.")
+	public ResponseEntity<ChatResponse> confirmChat(@Valid @RequestBody ChatConfirmRequest req,
+			@AuthenticationPrincipal User user) {
+		return ResponseEntity.ok(chatActionService.confirm(
+				req.toolName(), req.params(), req.mode(), user, req.conversationId()));
 	}
 }
