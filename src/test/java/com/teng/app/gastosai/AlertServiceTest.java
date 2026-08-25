@@ -7,6 +7,7 @@ import com.teng.app.gastosai.repository.BudgetRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import com.teng.app.gastosai.repository.RecurringExpenseRepository;
 import com.teng.app.gastosai.service.AlertService;
+import com.teng.app.gastosai.service.EntitlementService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -32,6 +33,7 @@ class AlertServiceTest {
     @Mock BudgetRepository budgetRepository;
     @Mock ExpenseRepository expenseRepository;
     @Mock RecurringExpenseRepository recurringExpenseRepository;
+    @Mock EntitlementService entitlementService;
 
     @InjectMocks AlertService alertService;
 
@@ -194,6 +196,71 @@ class AlertServiceTest {
         alertService.getOrGenerate(u, "2026-06");
 
         verify(alertRepository, never()).save(any());
+    }
+
+    // --- spike explanation (TEN-174) ---
+
+    /** Sets up a 1600-vs-1000 spike in 2026-06 and returns the message the alert was saved with. */
+    private String spikeMessage(User u) {
+        when(budgetRepository.findAllByUserAndMonth(u, "2026-06")).thenReturn(List.of());
+        when(expenseRepository.sumForMonth(u, 2026, 6)).thenReturn(new BigDecimal("1600.00"));
+        when(alertRepository.findByUserAndTypeAndMonthAndCategoryName(u, AlertType.SPENDING_SPIKE, "2026-06", ""))
+                .thenReturn(Optional.empty());
+        when(alertRepository.findAllByUserAndMonthAndDismissedFalseOrderBySeverityDescCreatedAtDesc(u, "2026-06"))
+                .thenReturn(List.of());
+
+        alertService.getOrGenerate(u, "2026-06");
+
+        ArgumentCaptor<Alert> cap = ArgumentCaptor.forClass(Alert.class);
+        verify(alertRepository, atLeastOnce()).save(cap.capture());
+        return cap.getAllValues().stream()
+                .filter(a -> a.getType() == AlertType.SPENDING_SPIKE)
+                .findFirst().orElseThrow()
+                .getMessage();
+    }
+
+    @Test
+    void spendingSpike_withThreeMonthBaseline_explainsTheComparison() {
+        User u = user();
+        when(entitlementService.canAccessFeature(u, FeatureKey.ANOMALY_DETECTION)).thenReturn(true);
+        when(expenseRepository.sumForMonth(u, 2026, 5)).thenReturn(new BigDecimal("1000.00"));
+        when(expenseRepository.sumForMonth(u, 2026, 4)).thenReturn(new BigDecimal("800.00"));
+        when(expenseRepository.sumForMonth(u, 2026, 3)).thenReturn(new BigDecimal("600.00"));
+
+        String message = spikeMessage(u);
+
+        assertThat(message).contains("Spending spike");
+        // baseline = (1000 + 800 + 600) / 3 = 800.00; 1600 / 800 = 2.0x
+        assertThat(message).contains("unusual against your previous 3 months, which averaged ₱800.00");
+        assertThat(message).contains("2.0×");
+    }
+
+    @Test
+    void spendingSpike_withThinHistory_flagsWithoutExplanation() {
+        User u = user();
+        when(entitlementService.canAccessFeature(u, FeatureKey.ANOMALY_DETECTION)).thenReturn(true);
+        when(expenseRepository.sumForMonth(u, 2026, 5)).thenReturn(new BigDecimal("1000.00"));
+        when(expenseRepository.sumForMonth(u, 2026, 4)).thenReturn(null);
+        when(expenseRepository.sumForMonth(u, 2026, 3)).thenReturn(BigDecimal.ZERO);
+
+        String message = spikeMessage(u);
+
+        assertThat(message).contains("Spending spike");
+        assertThat(message).doesNotContain("unusual against");
+    }
+
+    @Test
+    void spendingSpike_withoutAnomalyDetection_flagsWithoutExplanation() {
+        User u = user();
+        when(entitlementService.canAccessFeature(u, FeatureKey.ANOMALY_DETECTION)).thenReturn(false);
+        when(expenseRepository.sumForMonth(u, 2026, 5)).thenReturn(new BigDecimal("1000.00"));
+
+        String message = spikeMessage(u);
+
+        assertThat(message).contains("Spending spike");
+        assertThat(message).doesNotContain("unusual against");
+        // the baseline is never even queried when the feature is locked
+        verify(expenseRepository, never()).sumForMonth(u, 2026, 4);
     }
 
     // --- markRead ---

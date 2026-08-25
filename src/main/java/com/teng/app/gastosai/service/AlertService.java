@@ -5,6 +5,7 @@ import com.teng.app.gastosai.entity.Alert;
 import com.teng.app.gastosai.entity.AlertSeverity;
 import com.teng.app.gastosai.entity.AlertType;
 import com.teng.app.gastosai.entity.Budget;
+import com.teng.app.gastosai.entity.FeatureKey;
 import com.teng.app.gastosai.entity.Frequency;
 import com.teng.app.gastosai.entity.RecurringExpense;
 import com.teng.app.gastosai.entity.User;
@@ -31,18 +32,30 @@ public class AlertService {
 
     private static final int RECURRING_DUE_DAYS_AHEAD = 3;
 
+    /** How many months before the flagged one the "unusual against what?" baseline looks at. */
+    private static final int BASELINE_MONTHS = 3;
+
+    /**
+     * How many of those months must actually carry spending. Below this the baseline is a guess
+     * dressed up as a comparison, so the anomaly is flagged with no explanation at all.
+     */
+    private static final int MIN_BASELINE_MONTHS = 3;
+
     private final AlertRepository alertRepository;
     private final BudgetRepository budgetRepository;
     private final ExpenseRepository expenseRepository;
     private final RecurringExpenseRepository recurringExpenseRepository;
+    private final EntitlementService entitlementService;
 
     public AlertService(AlertRepository alertRepository, BudgetRepository budgetRepository,
                         ExpenseRepository expenseRepository,
-                        RecurringExpenseRepository recurringExpenseRepository) {
+                        RecurringExpenseRepository recurringExpenseRepository,
+                        EntitlementService entitlementService) {
         this.alertRepository = alertRepository;
         this.budgetRepository = budgetRepository;
         this.expenseRepository = expenseRepository;
         this.recurringExpenseRepository = recurringExpenseRepository;
+        this.entitlementService = entitlementService;
     }
 
     @Transactional
@@ -108,13 +121,53 @@ public class AlertService {
 
         BigDecimal threshold = prevTotal.multiply(BigDecimal.valueOf(1.5));
         if (currentTotal.compareTo(threshold) > 0) {
-            upsertAlert(user, AlertType.SPENDING_SPIKE, AlertSeverity.WARNING, month, "",
-                    String.format("Spending spike detected: ₱%.2f this month vs ₱%.2f last month (+%.0f%%).",
-                            currentTotal, prevTotal,
-                            currentTotal.subtract(prevTotal)
-                                    .divide(prevTotal, 4, RoundingMode.HALF_UP)
-                                    .multiply(BigDecimal.valueOf(100))));
+            String message = String.format("Spending spike detected: ₱%.2f this month vs ₱%.2f last month (+%.0f%%).",
+                    currentTotal, prevTotal,
+                    currentTotal.subtract(prevTotal)
+                            .divide(prevTotal, 4, RoundingMode.HALF_UP)
+                            .multiply(BigDecimal.valueOf(100)));
+
+            String explanation = explainSpike(user, year, monthInt, currentTotal);
+            if (!explanation.isEmpty()) {
+                message = message + " " + explanation;
+            }
+
+            upsertAlert(user, AlertType.SPENDING_SPIKE, AlertSeverity.WARNING, month, "", message);
         }
+    }
+
+    /**
+     * One sentence naming the comparison the month is unusual against, so a user can tell a real
+     * problem from a normally irregular month. Returns an empty string — the alert is still raised,
+     * just unexplained — when the user's plan lacks {@link FeatureKey#ANOMALY_DETECTION}, or when
+     * fewer than {@link #MIN_BASELINE_MONTHS} of the preceding months carry any spending to compare
+     * against.
+     */
+    private String explainSpike(User user, int year, int monthInt, BigDecimal currentTotal) {
+        if (!entitlementService.canAccessFeature(user, FeatureKey.ANOMALY_DETECTION)) {
+            return "";
+        }
+
+        YearMonth flagged = YearMonth.of(year, monthInt);
+        BigDecimal baselineSum = BigDecimal.ZERO;
+        int monthsWithSpending = 0;
+        for (int back = 1; back <= BASELINE_MONTHS; back++) {
+            YearMonth previous = flagged.minusMonths(back);
+            BigDecimal total = expenseRepository.sumForMonth(user, previous.getYear(), previous.getMonthValue());
+            if (total == null || total.signum() <= 0) continue;
+            baselineSum = baselineSum.add(total);
+            monthsWithSpending++;
+        }
+
+        if (monthsWithSpending < MIN_BASELINE_MONTHS) return "";
+
+        BigDecimal average = baselineSum.divide(BigDecimal.valueOf(monthsWithSpending), 2, RoundingMode.HALF_UP);
+        if (average.signum() <= 0) return "";
+
+        BigDecimal timesAverage = currentTotal.divide(average, 1, RoundingMode.HALF_UP);
+        return String.format(
+                "This is unusual against your previous %d months, which averaged ₱%.2f — this month is %.1f× that.",
+                monthsWithSpending, average, timesAverage);
     }
 
     private void generateRecurringDueAlerts(User user, String month) {
