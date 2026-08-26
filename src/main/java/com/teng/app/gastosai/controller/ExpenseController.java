@@ -11,12 +11,16 @@ import com.teng.app.gastosai.dto.MonthlyReportItem;
 import com.teng.app.gastosai.dto.PageResponse;
 import com.teng.app.gastosai.dto.ParseExpenseRequest;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
+import com.teng.app.gastosai.dto.ProjectReportItem;
+import com.teng.app.gastosai.dto.ProjectRequest;
+import com.teng.app.gastosai.dto.ProjectResponse;
 import com.teng.app.gastosai.config.RequiresFeature;
 import com.teng.app.gastosai.entity.ExpenseSource;
 import com.teng.app.gastosai.entity.FeatureKey;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.service.CsvImportService;
 import com.teng.app.gastosai.service.ExpenseService;
+import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -61,9 +65,13 @@ public class ExpenseController {
 	public List<ExpenseResponse> list(@RequestParam(required = false) LocalDate from,
 			@RequestParam(required = false) LocalDate to,
 			@RequestParam(required = false) ExpenseSource source,
+			@Parameter(description = "Only expenses tagged to this project or client. By id, so a "
+					+ "saved filter survives a rename.")
+			@RequestParam(required = false) Long projectId,
 			@AuthenticationPrincipal User user) {
-		return expenseService.findAll(user, from, to, source);
+		return expenseService.findAll(user, from, to, source, projectId);
 	}
+
 
 	/**
 	 * The pre-{@code source} arity, kept for {@code ExpenseV2Controller}, which delegates to this
@@ -71,7 +79,7 @@ public class ExpenseController {
 	 * method above, so this adds no endpoint and nothing to the contract.
 	 */
 	public List<ExpenseResponse> list(LocalDate from, LocalDate to, User user) {
-		return list(from, to, null, user);
+		return list(from, to, null, null, user);
 	}
 
 	@GetMapping("/page")
@@ -81,13 +89,15 @@ public class ExpenseController {
 			@RequestParam(required = false) LocalDate from,
 			@RequestParam(required = false) LocalDate to,
 			@RequestParam(required = false) ExpenseSource source,
+			@Parameter(description = "Only expenses tagged to this project or client, by id.")
+			@RequestParam(required = false) Long projectId,
 			@AuthenticationPrincipal User user) {
-		return expenseService.findPage(user, from, to, source, page, size);
+		return expenseService.findPage(user, from, to, source, projectId, page, size);
 	}
 
 	/** @see #list(LocalDate, LocalDate, User) — the same arity-preserving overload, for paging. */
 	public PageResponse<ExpenseResponse> page(int page, int size, LocalDate from, LocalDate to, User user) {
-		return page(page, size, from, to, null, user);
+		return page(page, size, from, to, null, null, user);
 	}
 
 	@GetMapping("/{id}")
@@ -170,6 +180,32 @@ public class ExpenseController {
 	public ExpenseResponse quickAdd(@Valid @RequestBody ParseExpenseRequest request,
 			@AuthenticationPrincipal User user) {
 		return expenseService.createFromParsed(expenseParser.parse(request.text()).value(), user);
+	}
+
+	/**
+	 * The project and client tags this user has, for a filter control or a rename.
+	 *
+	 * <p>Under {@code /expenses} rather than at a resource of its own: a tag exists only as an
+	 * attribute of an expense, is created by tagging one, and has nothing to say on its own.
+	 */
+	@GetMapping("/projects")
+	public List<ProjectResponse> projects(@AuthenticationPrincipal User user) {
+		return expenseService.projects(user);
+	}
+
+	/** Rename a tag. The id is unchanged, so every expense tagged to it stays tagged to it. */
+	@PutMapping("/projects/{id}")
+	public ProjectResponse renameProject(@PathVariable Long id,
+			@Valid @RequestBody ProjectRequest request,
+			@AuthenticationPrincipal User user) {
+		return expenseService.renameProject(id, request, user);
+	}
+
+	/** What each project or client has cost, all time or for one {@code YYYY-MM} month. */
+	@GetMapping("/report/project")
+	public List<ProjectReportItem> projectReport(@RequestParam(required = false) String month,
+			@AuthenticationPrincipal User user) {
+		return expenseService.projectReport(user, month);
 	}
 
 	@GetMapping("/report/monthly")

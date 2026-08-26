@@ -22,5 +22,23 @@ public record ExpenseResponse(
 		BigDecimal amountInBaseCurrency,
 		@Schema(description = "The route that created this expense. Rows written before the field "
 				+ "existed report MANUAL.")
-		ExpenseSource source
-) {}
+		ExpenseSource source,
+		@Schema(description = "Id of the project or client this expense is billable to; null when "
+				+ "it carries no tag. Stable across renames — filter by this, not by the name.")
+		Long projectId,
+		@Schema(description = "Name of the project or client this expense is billable to; null "
+				+ "when it carries no tag.")
+		String project
+) {
+
+	/**
+	 * The pre-{@code project} arity, for the callers that build a response without a tag — the same
+	 * arity-preserving overload {@link ExpenseRequest} keeps, and for the same reason.
+	 */
+	public ExpenseResponse(Long id, BigDecimal amount, String category, LocalDateTime date,
+			String description, String expenseType, boolean reimbursable, String currency,
+			BigDecimal exchangeRate, BigDecimal amountInBaseCurrency, ExpenseSource source) {
+		this(id, amount, category, date, description, expenseType, reimbursable, currency,
+				exchangeRate, amountInBaseCurrency, source, null, null);
+	}
+}
