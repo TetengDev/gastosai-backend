@@ -55,8 +55,13 @@ public class Expense {
 	 * first-class row rather than being forced into a catch-all tag. Deleting a tag detaches the
 	 * expenses instead of taking them with it (ON DELETE SET NULL in V28); losing an expense
 	 * because a tag was tidied away would be the worse failure by far.
+	 *
+	 * <p>Fetched the same way {@code category} is, and deliberately not {@code LAZY}: every list,
+	 * page and report path reads the tag's name to build the response, so a lazy association would
+	 * buy nothing and cost a per-row select on exactly the hot paths — including the specification
+	 * query, where a declared {@code @EntityGraph} would not reach.
 	 */
-	@ManyToOne(fetch = FetchType.LAZY)
+	@ManyToOne
 	@JoinColumn(name = "project_id")
 	@OnDelete(action = OnDeleteAction.SET_NULL)
 	private Project project;

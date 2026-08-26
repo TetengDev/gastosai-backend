@@ -49,6 +49,7 @@ class ExpenseProjectTagApiIntegrationTest extends PostgresBackedTest {
 
 	MockMvc mockMvc;
 	String authHeader;
+	String otherAuthHeader;
 
 	@BeforeEach
 	void setUp() {
@@ -62,12 +63,24 @@ class ExpenseProjectTagApiIntegrationTest extends PostgresBackedTest {
 				.password(passwordEncoder.encode("password"))
 				.build());
 
+		// A second, unrelated freelancer. Tags are per user, and that is a claim worth a witness.
+		User other = userRepository.save(User.builder()
+				.name("Other Freelancer")
+				.email("other@test.com")
+				.password(passwordEncoder.encode("password"))
+				.build());
+
 		authHeader = "Bearer " + jwtUtil.generate(user.getEmail());
+		otherAuthHeader = "Bearer " + jwtUtil.generate(other.getEmail());
 	}
 
 	private String createExpense(String body) throws Exception {
+		return createExpense(body, authHeader);
+	}
+
+	private String createExpense(String body, String asUser) throws Exception {
 		return mockMvc.perform(post("/expenses")
-						.header("Authorization", authHeader)
+						.header("Authorization", asUser)
 						.contentType(MediaType.APPLICATION_JSON)
 						.content(body))
 				.andExpect(status().isCreated())
@@ -227,6 +240,65 @@ class ExpenseProjectTagApiIntegrationTest extends PostgresBackedTest {
 		// Refused, not half-applied.
 		mockMvc.perform(get("/expenses/projects").header("Authorization", authHeader))
 				.andExpect(jsonPath("$.length()").value(2));
+	}
+
+	/**
+	 * One user's tag is unreachable from another's session — not merely absent from their list.
+	 *
+	 * <p>Every new query is scoped by user, but "scoped by inspection" is the claim that stops
+	 * being true the first time someone adds a path. Naming another user's `projectId` must return
+	 * nothing rather than their expenses, and renaming their tag must 404 rather than succeed.
+	 */
+	@Test
+	void oneUsersTagIsUnreachableFromAnothersSession() throws Exception {
+		String mine = createExpense("""
+				{"amount": 1000.00, "date": "2026-05-13T09:00:00", "description": "Acme retainer",
+				 "project": "Acme Corp"}
+				""");
+		int myProjectId = JsonPath.read(mine, "$.projectId");
+
+		// The other user's identically named tag is their own row, not a shared one.
+		String theirs = createExpense("""
+				{"amount": 40.00, "date": "2026-05-13T10:00:00", "description": "Their coffee",
+				 "project": "Acme Corp"}
+				""", otherAuthHeader);
+		assertThat(JsonPath.<Integer>read(theirs, "$.projectId")).isNotEqualTo(myProjectId);
+
+		mockMvc.perform(get("/expenses/projects").header("Authorization", otherAuthHeader))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(1))
+				.andExpect(jsonPath("$[0].id").value(JsonPath.<Integer>read(theirs, "$.projectId")));
+
+		// Naming my tag id from their session leaks nothing — the user predicate still applies.
+		mockMvc.perform(get("/expenses")
+						.header("Authorization", otherAuthHeader)
+						.param("projectId", String.valueOf(myProjectId)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(0));
+		mockMvc.perform(get("/expenses/page")
+						.header("Authorization", otherAuthHeader)
+						.param("projectId", String.valueOf(myProjectId)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.totalElements").value(0));
+
+		// And they cannot rename it.
+		mockMvc.perform(put("/expenses/projects/" + myProjectId)
+						.header("Authorization", otherAuthHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"name": "Hijacked"}
+								"""))
+				.andExpect(status().isNotFound());
+
+		mockMvc.perform(get("/expenses/projects").header("Authorization", authHeader))
+				.andExpect(jsonPath("$[0].id").value(myProjectId))
+				.andExpect(jsonPath("$[0].name").value("Acme Corp"));
+
+		// Their totals are theirs alone.
+		mockMvc.perform(get("/expenses/report/project").header("Authorization", otherAuthHeader))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(1))
+				.andExpect(jsonPath("$[0].total").value(40.00));
 	}
 
 	@Test

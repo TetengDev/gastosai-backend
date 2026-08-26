@@ -217,7 +217,15 @@ public class ExpenseService {
 						.build()));
 	}
 
-	/** Every tag this user has, for a filter dropdown or a rename. */
+	/**
+	 * Every tag this user has, for a filter dropdown or a rename.
+	 *
+	 * <p>Scoped to the caller even for an admin, unlike {@code findAll} and {@code categoryReport}
+	 * in this class. That asymmetry is deliberate and is the same argument {@link #projectReport}
+	 * makes: a tag belongs to one user, so a list pooled across users would offer an admin two
+	 * unrelated people's "Acme" as one entry — and {@link #renameProject} would then rename
+	 * whichever of them it happened to resolve.
+	 */
 	@Transactional(readOnly = true)
 	public List<ProjectResponse> projects(User user) {
 		return projectRepository.findAllByUserOrderByNameAsc(user).stream()
@@ -231,6 +239,9 @@ public class ExpenseService {
 	 * <p>The rename is one UPDATE against one row: expenses reference the tag by id, so none of
 	 * them is touched, and none of them is orphaned. That is the whole reason the tag is a row
 	 * rather than a string on each expense.
+	 *
+	 * <p>Scoped to the caller even for an admin — {@code findByIdAndUser}, not {@code findById} —
+	 * for the reason given on {@link #projects}.
 	 *
 	 * <p>Renaming onto a name the user already has is a 409 rather than a silent merge. Merging two
 	 * engagements' history together is not something to infer from a typo, and it cannot be undone
