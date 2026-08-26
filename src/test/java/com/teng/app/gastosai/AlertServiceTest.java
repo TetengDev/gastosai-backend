@@ -294,6 +294,117 @@ class AlertServiceTest {
         }
     }
 
+    // --- retiring an alert whose condition no longer holds (TEN-313) ---
+
+    /**
+     * The whole transition in one test: a month that clears the 1.5x threshold raises the alert,
+     * and the same month after the expenses behind the spike are deleted no longer carries it.
+     */
+    @Test
+    void spendingSpike_whenTheSpikeStopsHolding_theAlertIsRetired() {
+        User u = user();
+        List<Alert> stored = new ArrayList<>();
+
+        when(budgetRepository.findAllByUserAndMonth(u, "2026-06")).thenReturn(List.of());
+        when(expenseRepository.sumForMonth(u, 2026, 5)).thenReturn(new BigDecimal("1000.00"));
+        when(expenseRepository.sumForMonth(u, 2026, 6))
+                .thenReturn(new BigDecimal("1600.00"), new BigDecimal("1100.00"));
+        when(alertRepository.save(any(Alert.class))).thenAnswer(call -> {
+            Alert a = call.getArgument(0);
+            if (!stored.contains(a)) stored.add(a);
+            return a;
+        });
+        when(alertRepository.findByUserAndTypeAndMonthAndCategoryName(u, AlertType.SPENDING_SPIKE, "2026-06", ""))
+                .thenAnswer(call -> stored.stream()
+                        .filter(a -> a.getType() == AlertType.SPENDING_SPIKE)
+                        .findFirst());
+        when(alertRepository.findAllByUserAndMonthAndDismissedFalseOrderBySeverityDescCreatedAtDesc(u, "2026-06"))
+                .thenAnswer(call -> List.copyOf(stored));
+        doAnswer(call -> {
+            stored.remove((Alert) call.getArgument(0));
+            return null;
+        }).when(alertRepository).delete(any(Alert.class));
+
+        // 1600 vs 1000 — the spike holds
+        assertThat(alertService.getOrGenerate(u, "2026-06"))
+                .singleElement()
+                .satisfies(a -> assertThat(a.message()).contains("Spending spike"));
+
+        // 1100 vs 1000 — it does not any more, and the stored row goes with it
+        assertThat(alertService.getOrGenerate(u, "2026-06")).isEmpty();
+        assertThat(stored).isEmpty();
+    }
+
+    @Test
+    void spendingSpike_whenTheSpikeStopsHolding_aDismissedAlertIsNotResurrected() {
+        User u = user();
+        Alert dismissed = alert(AlertType.SPENDING_SPIKE, AlertSeverity.WARNING);
+        dismissed.setCategoryName("");
+        dismissed.setDismissed(true);
+
+        when(budgetRepository.findAllByUserAndMonth(u, "2026-06")).thenReturn(List.of());
+        when(expenseRepository.sumForMonth(u, 2026, 6)).thenReturn(new BigDecimal("1100.00"));
+        when(expenseRepository.sumForMonth(u, 2026, 5)).thenReturn(new BigDecimal("1000.00"));
+        when(alertRepository.findByUserAndTypeAndMonthAndCategoryName(u, AlertType.SPENDING_SPIKE, "2026-06", ""))
+                .thenReturn(Optional.of(dismissed));
+        when(alertRepository.findAllByUserAndMonthAndDismissedFalseOrderBySeverityDescCreatedAtDesc(u, "2026-06"))
+                .thenReturn(List.of());
+
+        assertThat(alertService.getOrGenerate(u, "2026-06")).isEmpty();
+
+        // left exactly as the user left it: still dismissed, not deleted, not rewritten
+        assertThat(dismissed.isDismissed()).isTrue();
+        verify(alertRepository, never()).delete(any(Alert.class));
+        verify(alertRepository, never()).save(any());
+    }
+
+    @Test
+    void budgetAlert_whenSpendingDropsBackUnderTheThreshold_theAlertIsRetired() {
+        User u = user();
+        Category cat = category(10L, "Food");
+        Budget b = budget(u, cat, "2026-06", new BigDecimal("1000.00"));
+        Alert stale = alert(AlertType.BUDGET_EXCEEDED, AlertSeverity.CRITICAL);
+
+        when(budgetRepository.findAllByUserAndMonth(u, "2026-06")).thenReturn(List.of(b));
+        ArrayList<Object[]> spent = new ArrayList<>();
+        spent.add(new Object[]{10L, new BigDecimal("500.00")});
+        when(expenseRepository.sumByCategoryAndMonth(u, 2026, 6)).thenReturn(spent);
+        when(alertRepository.findByUserAndTypeAndMonthAndCategoryName(u, AlertType.BUDGET_EXCEEDED, "2026-06", "Food"))
+                .thenReturn(Optional.of(stale));
+        when(expenseRepository.sumForMonth(u, 2026, 6)).thenReturn(null);
+        when(alertRepository.findAllByUserAndMonthAndDismissedFalseOrderBySeverityDescCreatedAtDesc(u, "2026-06"))
+                .thenReturn(List.of());
+
+        alertService.getOrGenerate(u, "2026-06");
+
+        verify(alertRepository).delete(stale);
+        verify(alertRepository, never()).save(any());
+    }
+
+    @Test
+    void budgetAlert_whenTheWarningBecomesAnExceeded_theWarningIsRetired() {
+        User u = user();
+        Category cat = category(10L, "Food");
+        Budget b = budget(u, cat, "2026-06", new BigDecimal("1000.00"));
+        Alert staleWarning = alert(AlertType.BUDGET_WARNING, AlertSeverity.WARNING);
+
+        when(budgetRepository.findAllByUserAndMonth(u, "2026-06")).thenReturn(List.of(b));
+        ArrayList<Object[]> spent = new ArrayList<>();
+        spent.add(new Object[]{10L, new BigDecimal("1100.00")});
+        when(expenseRepository.sumByCategoryAndMonth(u, 2026, 6)).thenReturn(spent);
+        when(alertRepository.findByUserAndTypeAndMonthAndCategoryName(u, AlertType.BUDGET_EXCEEDED, "2026-06", "Food"))
+                .thenReturn(Optional.empty());
+        when(alertRepository.findByUserAndTypeAndMonthAndCategoryName(u, AlertType.BUDGET_WARNING, "2026-06", "Food"))
+                .thenReturn(Optional.of(staleWarning));
+        when(expenseRepository.sumForMonth(u, 2026, 6)).thenReturn(null);
+        when(alertRepository.findAllByUserAndMonthAndDismissedFalseOrderBySeverityDescCreatedAtDesc(u, "2026-06"))
+                .thenReturn(List.of());
+
+        alertService.getOrGenerate(u, "2026-06");
+
+        verify(alertRepository).delete(staleWarning);
+    }
+
     // --- markRead ---
 
     @Test
