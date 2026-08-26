@@ -79,6 +79,7 @@ public class AlertService {
 
     private void generateBudgetAlerts(User user, String month, int year, int monthInt) {
         List<Budget> budgets = budgetRepository.findAllByUserAndMonth(user, month);
+
         if (budgets.isEmpty()) return;
 
         List<Object[]> spentRows = expenseRepository.sumByCategoryAndMonth(user, year, monthInt);
@@ -89,26 +90,36 @@ public class AlertService {
                 ));
 
         for (Budget budget : budgets) {
+            String categoryName = budget.getCategory().getName();
+
             BigDecimal limit = budget.getAmountLimit().setScale(2, RoundingMode.HALF_UP);
             BigDecimal spent = spentByCategory
                     .getOrDefault(budget.getCategory().getId(), BigDecimal.ZERO)
                     .setScale(2, RoundingMode.HALF_UP);
 
-            if (limit.compareTo(BigDecimal.ZERO) == 0) continue;
+            if (limit.compareTo(BigDecimal.ZERO) == 0) {
+                // No limit to breach, so neither condition can hold any more.
+                retireAlert(user, AlertType.BUDGET_EXCEEDED, month, categoryName);
+                retireAlert(user, AlertType.BUDGET_WARNING, month, categoryName);
+                continue;
+            }
 
             BigDecimal percentUsed = spent.divide(limit, 4, RoundingMode.HALF_UP)
                     .multiply(BigDecimal.valueOf(100));
-
-            String categoryName = budget.getCategory().getName();
 
             if (percentUsed.compareTo(BigDecimal.valueOf(100)) >= 0) {
                 upsertAlert(user, AlertType.BUDGET_EXCEEDED, AlertSeverity.CRITICAL, month, categoryName,
                         String.format("Budget exceeded for %s: spent ₱%.2f of ₱%.2f budget.",
                                 categoryName, spent, limit));
+                retireAlert(user, AlertType.BUDGET_WARNING, month, categoryName);
             } else if (percentUsed.compareTo(BigDecimal.valueOf(80)) >= 0) {
                 upsertAlert(user, AlertType.BUDGET_WARNING, AlertSeverity.WARNING, month, categoryName,
                         String.format("Approaching budget limit for %s: spent ₱%.2f of ₱%.2f (%.0f%%).",
                                 categoryName, spent, limit, percentUsed));
+                retireAlert(user, AlertType.BUDGET_EXCEEDED, month, categoryName);
+            } else {
+                retireAlert(user, AlertType.BUDGET_EXCEEDED, month, categoryName);
+                retireAlert(user, AlertType.BUDGET_WARNING, month, categoryName);
             }
         }
     }
@@ -118,24 +129,29 @@ public class AlertService {
         BigDecimal currentTotal = expenseRepository.sumForMonth(user, year, monthInt);
         BigDecimal prevTotal = expenseRepository.sumForMonth(user, prevYM.getYear(), prevYM.getMonthValue());
 
-        if (prevTotal == null || prevTotal.compareTo(BigDecimal.ZERO) == 0) return;
-        if (currentTotal == null) return;
+        if (prevTotal == null || prevTotal.compareTo(BigDecimal.ZERO) == 0 || currentTotal == null) {
+            retireAlert(user, AlertType.SPENDING_SPIKE, month, "");
+            return;
+        }
 
         BigDecimal threshold = prevTotal.multiply(BigDecimal.valueOf(1.5));
-        if (currentTotal.compareTo(threshold) > 0) {
-            String message = String.format("Spending spike detected: ₱%.2f this month vs ₱%.2f last month (+%.0f%%).",
-                    currentTotal, prevTotal,
-                    currentTotal.subtract(prevTotal)
-                            .divide(prevTotal, 4, RoundingMode.HALF_UP)
-                            .multiply(BigDecimal.valueOf(100)));
-
-            String explanation = explainSpike(user, year, monthInt, currentTotal);
-            if (!explanation.isEmpty()) {
-                message = message + " " + explanation;
-            }
-
-            upsertAlert(user, AlertType.SPENDING_SPIKE, AlertSeverity.WARNING, month, "", message);
+        if (currentTotal.compareTo(threshold) <= 0) {
+            retireAlert(user, AlertType.SPENDING_SPIKE, month, "");
+            return;
         }
+
+        String message = String.format("Spending spike detected: ₱%.2f this month vs ₱%.2f last month (+%.0f%%).",
+                currentTotal, prevTotal,
+                currentTotal.subtract(prevTotal)
+                        .divide(prevTotal, 4, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal.valueOf(100)));
+
+        String explanation = explainSpike(user, year, monthInt, currentTotal);
+        if (!explanation.isEmpty()) {
+            message = message + " " + explanation;
+        }
+
+        upsertAlert(user, AlertType.SPENDING_SPIKE, AlertSeverity.WARNING, month, "", message);
     }
 
     /**
@@ -251,6 +267,23 @@ public class AlertService {
     private String buildRecurringMessage(RecurringExpense expense, LocalDate dueDate) {
         return expense.getName() + " is due on " + dueDate
                 + " (₱" + expense.getAmount().setScale(2, RoundingMode.HALF_UP) + ")";
+    }
+
+    /**
+     * Deletes an alert whose condition no longer holds, so it stops being shown for a month it is
+     * no longer true of. An alert is derived state — it is recomputed on every read of the month —
+     * so a row that no longer describes the data is not worth keeping; there is no "resolved" state
+     * on {@link Alert} and adding one would only put stale text somewhere else.
+     *
+     * <p>A <em>dismissed</em> alert is deliberately left alone. It is already out of the user's
+     * list, so retiring it buys nothing, and deleting it would throw away the user's decision: if
+     * the condition later starts holding again, the upsert refreshes that same row and it stays
+     * silenced, instead of resurfacing an alert the user had silenced.
+     */
+    private void retireAlert(User user, AlertType type, String month, String categoryName) {
+        alertRepository.findByUserAndTypeAndMonthAndCategoryName(user, type, month, categoryName)
+                .filter(existing -> !existing.isDismissed())
+                .ifPresent(alertRepository::delete);
     }
 
     private void upsertAlert(User user, AlertType type, AlertSeverity severity,
