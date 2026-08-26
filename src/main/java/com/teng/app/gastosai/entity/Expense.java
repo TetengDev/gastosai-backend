@@ -48,6 +48,19 @@ public class Expense {
 	@OnDelete(action = OnDeleteAction.CASCADE)
 	private Category category;
 
+	/**
+	 * The project or client this expense is billable to, or null when it is not billable to one.
+	 *
+	 * <p>Nullable by design — most expenses carry no tag, and an untagged expense must stay a
+	 * first-class row rather than being forced into a catch-all tag. Deleting a tag detaches the
+	 * expenses instead of taking them with it (ON DELETE SET NULL in V28); losing an expense
+	 * because a tag was tidied away would be the worse failure by far.
+	 */
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "project_id")
+	@OnDelete(action = OnDeleteAction.SET_NULL)
+	private Project project;
+
 	private LocalDateTime date;
 
 	@Column(nullable = false, columnDefinition = "text")

@@ -8,13 +8,18 @@ import com.teng.app.gastosai.dto.MonthlyComparisonResponse;
 import com.teng.app.gastosai.dto.MonthlyReportItem;
 import com.teng.app.gastosai.dto.PageResponse;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
+import com.teng.app.gastosai.dto.ProjectReportItem;
+import com.teng.app.gastosai.dto.ProjectRequest;
+import com.teng.app.gastosai.dto.ProjectResponse;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
 import com.teng.app.gastosai.entity.ExpenseSource;
 import com.teng.app.gastosai.entity.ExpenseType;
+import com.teng.app.gastosai.entity.Project;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.ExpenseRepository;
+import com.teng.app.gastosai.repository.ProjectRepository;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.csv.CSVFormat;
@@ -51,6 +56,7 @@ public class ExpenseService {
 
 	private final ExpenseRepository expenseRepository;
 	private final CategoryService categoryService;
+	private final ProjectRepository projectRepository;
 
 	/**
 	 * Create an expense a client asked for directly, recording the source the client declared.
@@ -123,6 +129,7 @@ public class ExpenseService {
 				.amountInBaseCurrency(base)
 				.categoryOverridden(categorisation.overridden())
 				.source(source)
+				.project(resolveProject(request, user))
 				.build();
 		return toResponse(expenseRepository.save(expense));
 	}
@@ -184,6 +191,94 @@ public class ExpenseService {
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * The project or client tag this expense should carry, or null for none.
+	 *
+	 * <p>Tags are created on first use and matched case-insensitively afterwards, the same bargain
+	 * categories strike: a freelancer types "Acme" on the expense form rather than creating a tag
+	 * first, and typing "acme" the next week lands on the same tag instead of quietly starting a
+	 * second one that splits the engagement's total in half.
+	 *
+	 * <p>A null or blank name means no tag. On update that is how a tag is removed — a PUT states
+	 * the whole expense, so an absent tag means the expense has none, not that the old one stands.
+	 */
+	private Project resolveProject(ExpenseRequest request, User user) {
+		String name = request.project();
+		if (name == null || name.isBlank()) {
+			return null;
+		}
+		String trimmed = name.trim();
+		return projectRepository.findByUserAndNameIgnoreCase(user, trimmed)
+				.orElseGet(() -> projectRepository.save(Project.builder()
+						.name(trimmed)
+						.user(user)
+						.build()));
+	}
+
+	/** Every tag this user has, for a filter dropdown or a rename. */
+	@Transactional(readOnly = true)
+	public List<ProjectResponse> projects(User user) {
+		return projectRepository.findAllByUserOrderByNameAsc(user).stream()
+				.map(p -> new ProjectResponse(p.getId(), p.getName()))
+				.toList();
+	}
+
+	/**
+	 * Rename a tag, keeping every expense attributed to it.
+	 *
+	 * <p>The rename is one UPDATE against one row: expenses reference the tag by id, so none of
+	 * them is touched, and none of them is orphaned. That is the whole reason the tag is a row
+	 * rather than a string on each expense.
+	 *
+	 * <p>Renaming onto a name the user already has is a 409 rather than a silent merge. Merging two
+	 * engagements' history together is not something to infer from a typo, and it cannot be undone
+	 * from the outside once the tags are one.
+	 */
+	@Transactional
+	public ProjectResponse renameProject(Long id, ProjectRequest request, User user) {
+		Project project = projectRepository.findByIdAndUser(id, user)
+				.orElseThrow(() -> new ResourceNotFoundException("Project not found: " + id));
+		String trimmed = request.name().trim();
+		if (trimmed.isEmpty()) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name must not be blank");
+		}
+		projectRepository.findByUserAndNameIgnoreCase(user, trimmed)
+				.filter(other -> !other.getId().equals(project.getId()))
+				.ifPresent(other -> {
+					throw new ResponseStatusException(HttpStatus.CONFLICT,
+							"A project or client named '" + other.getName() + "' already exists.");
+				});
+		project.setName(trimmed);
+		return new ProjectResponse(project.getId(), projectRepository.save(project).getName());
+	}
+
+	/**
+	 * What each engagement has cost, newest-costliest first, in the user's base currency.
+	 *
+	 * <p>Scoped to the caller even for an admin, unlike the category reports: a tag belongs to one
+	 * user, so a total summed across users would add up two people's unrelated "Acme" tags into one
+	 * meaningless number.
+	 */
+	@Transactional(readOnly = true)
+	public List<ProjectReportItem> projectReport(User user, String month) {
+		List<Object[]> rows;
+		if (month == null || month.isBlank()) {
+			rows = expenseRepository.sumByProject(user);
+		} else {
+			if (!month.matches("\\d{4}-\\d{2}")) {
+				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "month must be in YYYY-MM format");
+			}
+			YearMonth ym = YearMonth.parse(month);
+			rows = expenseRepository.sumByProjectForMonth(user, ym.getYear(), ym.getMonthValue());
+		}
+		return rows.stream()
+				.map(row -> new ProjectReportItem(
+						((Number) row[0]).longValue(),
+						(String) row[1],
+						toBigDecimal(row[2])))
+				.toList();
 	}
 
 	/** The category this expense lands in, and whether that choice contradicts a merchant rule. */
@@ -270,6 +365,7 @@ public class ExpenseService {
 		expense.setCurrency(currency);
 		expense.setExchangeRate(rate);
 		expense.setAmountInBaseCurrency(base);
+		expense.setProject(resolveProject(request, user));
 		return toResponse(expenseRepository.save(expense));
 	}
 
@@ -325,9 +421,16 @@ public class ExpenseService {
 	 */
 	@Transactional(readOnly = true)
 	public List<ExpenseResponse> findAll(User user, LocalDate from, LocalDate to, ExpenseSource source) {
-		if (source != null) {
+		return findAll(user, from, to, source, null);
+	}
+
+	/** @see #findAll(User, LocalDate, LocalDate, ExpenseSource) — plus the project tag filter. */
+	@Transactional(readOnly = true)
+	public List<ExpenseResponse> findAll(User user, LocalDate from, LocalDate to, ExpenseSource source,
+			Long projectId) {
+		if (source != null || projectId != null) {
 			return expenseRepository
-					.findAll(filter(user, from, to, source), Sort.by(Sort.Direction.DESC, "date"))
+					.findAll(filter(user, from, to, source, projectId), Sort.by(Sort.Direction.DESC, "date"))
 					.stream()
 					.map(this::toResponse)
 					.toList();
@@ -368,12 +471,19 @@ public class ExpenseService {
 	@Transactional(readOnly = true)
 	public PageResponse<ExpenseResponse> findPage(User user, LocalDate from, LocalDate to,
 			ExpenseSource source, int page, int size) {
+		return findPage(user, from, to, source, null, page, size);
+	}
+
+	/** @see #findPage(User, LocalDate, LocalDate, ExpenseSource, int, int) — plus the tag filter. */
+	@Transactional(readOnly = true)
+	public PageResponse<ExpenseResponse> findPage(User user, LocalDate from, LocalDate to,
+			ExpenseSource source, Long projectId, int page, int size) {
 		int safeSize = (size <= 0) ? DEFAULT_PAGE_SIZE : Math.min(size, MAX_PAGE_SIZE);
 		int safePage = Math.max(page, 0);
 		Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "date"));
 
-		if (source != null) {
-			return PageResponse.of(expenseRepository.findAll(filter(user, from, to, source), pageable)
+		if (source != null || projectId != null) {
+			return PageResponse.of(expenseRepository.findAll(filter(user, from, to, source, projectId), pageable)
 					.map(this::toResponse));
 		}
 
@@ -403,16 +513,26 @@ public class ExpenseService {
 	}
 
 	/**
-	 * The same scope, range and ordering the derived queries apply, plus the source predicate.
+	 * The same scope, range and ordering the derived queries apply, plus the optional source and
+	 * project-tag predicates.
 	 *
 	 * <p>The date bounds are half-open — {@code [from 00:00, to+1day 00:00)} — so a {@code to} of
 	 * the same calendar day includes everything recorded on it, exactly as the unfiltered path
 	 * does. An admin is not scoped to a user, mirroring {@code findAll(User)}.
+	 *
+	 * <p>The tag is matched by id, not by name: a filter a client saved keeps meaning the same
+	 * engagement after the tag is renamed.
 	 */
-	private static Specification<Expense> filter(User user, LocalDate from, LocalDate to, ExpenseSource source) {
+	private static Specification<Expense> filter(User user, LocalDate from, LocalDate to,
+			ExpenseSource source, Long projectId) {
 		return (root, query, cb) -> {
 			List<Predicate> predicates = new ArrayList<>();
-			predicates.add(cb.equal(root.get("source"), source));
+			if (source != null) {
+				predicates.add(cb.equal(root.get("source"), source));
+			}
+			if (projectId != null) {
+				predicates.add(cb.equal(root.get("project").get("id"), projectId));
+			}
 			if (!user.isAdmin()) {
 				predicates.add(cb.equal(root.get("user"), user));
 			}
@@ -558,7 +678,9 @@ public class ExpenseService {
 				e.getCurrency(),
 				e.getExchangeRate().setScale(6, RoundingMode.HALF_UP),
 				e.getAmountInBaseCurrency().setScale(2, RoundingMode.HALF_UP),
-				e.getSource());
+				e.getSource(),
+				e.getProject() != null ? e.getProject().getId() : null,
+				e.getProject() != null ? e.getProject().getName() : null);
 	}
 
 	private static BigDecimal toBigDecimal(Object value) {

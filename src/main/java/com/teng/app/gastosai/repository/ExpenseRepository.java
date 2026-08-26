@@ -84,6 +84,35 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long>, JpaSpec
 			""")
 	List<Object[]> sumByCategoryAll();
 
+	/**
+	 * What each project or client has cost this user.
+	 *
+	 * <p>An inner join on the tag, so untagged expenses are absent rather than collapsed into a
+	 * catch-all row — see {@code ProjectReportItem}. Grouped by id as well as name so the total
+	 * belongs to the tag rather than to whatever it is called today.
+	 */
+	@Query("""
+			SELECT p.id, p.name, COALESCE(SUM(e.amountInBaseCurrency), 0)
+			FROM Expense e
+			JOIN e.project p
+			WHERE e.user = :user
+			GROUP BY p.id, p.name
+			ORDER BY SUM(e.amountInBaseCurrency) DESC
+			""")
+	List<Object[]> sumByProject(@Param("user") User user);
+
+	/** @see #sumByProject(User) — the same total, narrowed to one calendar month. */
+	@Query("""
+			SELECT p.id, p.name, COALESCE(SUM(e.amountInBaseCurrency), 0)
+			FROM Expense e
+			JOIN e.project p
+			WHERE e.user = :user AND YEAR(e.date) = :year AND MONTH(e.date) = :month
+			GROUP BY p.id, p.name
+			ORDER BY SUM(e.amountInBaseCurrency) DESC
+			""")
+	List<Object[]> sumByProjectForMonth(@Param("user") User user, @Param("year") int year,
+			@Param("month") int month);
+
 	Optional<Expense> findTopByUserOrderByDateDesc(User user);
 
 	List<Expense> findByUserAndDescriptionContainingIgnoreCase(User user, String keyword);
