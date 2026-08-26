@@ -19,6 +19,7 @@ import com.teng.app.gastosai.entity.ExpenseSource;
 import com.teng.app.gastosai.entity.FeatureKey;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.service.CsvImportService;
+import com.teng.app.gastosai.service.ExpensePdfExportService;
 import com.teng.app.gastosai.service.ExpenseService;
 import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
@@ -52,6 +53,7 @@ public class ExpenseController {
 
 	private final ExpenseService expenseService;
 	private final CsvImportService csvImportService;
+	private final ExpensePdfExportService expensePdfExportService;
 	private final ExpenseParser expenseParser;
 
 	@PostMapping
@@ -135,6 +137,28 @@ public class ExpenseController {
 				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"expenses.csv\"")
 				.contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
 				.body(csv);
+	}
+
+	/**
+	 * The same rows as {@code GET /expenses}, rendered as a PDF to attach to an invoice.
+	 *
+	 * <p>Additive and separate from {@code /expenses/export}: CSV is a spreadsheet import and is
+	 * granted to FREE, this is a document to send a client and is gated on {@code EXPORT_PDF}.
+	 */
+	@GetMapping("/export/pdf")
+	@RequiresFeature(FeatureKey.EXPORT_PDF)
+	public ResponseEntity<byte[]> exportPdf(
+			@RequestParam(required = false) LocalDate from,
+			@RequestParam(required = false) LocalDate to,
+			@Parameter(description = "Only expenses tagged to this project or client, by id. Omit "
+					+ "for every expense in the range.")
+			@RequestParam(required = false) Long projectId,
+			@AuthenticationPrincipal User user) throws IOException {
+		byte[] pdf = expensePdfExportService.exportPdf(user, from, to, projectId);
+		return ResponseEntity.ok()
+				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"expenses.pdf\"")
+				.contentType(MediaType.APPLICATION_PDF)
+				.body(pdf);
 	}
 
 	@PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

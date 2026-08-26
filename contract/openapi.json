@@ -6621,6 +6621,54 @@
         "tags" : [ "expense-controller" ]
       }
     },
+    "/expenses/export/pdf" : {
+      "get" : {
+        "operationId" : "exportPdf",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "from",
+          "required" : false,
+          "schema" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "to",
+          "required" : false,
+          "schema" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        }, {
+          "description" : "Only expenses tagged to this project or client, by id. Omit for every expense in the range.",
+          "in" : "query",
+          "name" : "projectId",
+          "required" : false,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "format" : "byte",
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-controller" ]
+      }
+    },
     "/expenses/import" : {
       "post" : {
         "operationId" : "importCsv",

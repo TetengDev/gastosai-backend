@@ -90,6 +90,15 @@
 			<artifactId>commons-csv</artifactId>
 			<version>1.14.1</version>
 		</dependency>
+		<!-- PDF export (TEN-179). PDFBox is a plain library: Apache 2.0, no Spring coupling and
+		     no Framework-7 surface to be incompatible with, and it logs through slf4j-api which
+		     Boot already provides. Chosen over OpenPDF/iText, whose LGPL/AGPL split is a licensing
+		     question this proprietary repo does not need to answer. -->
+		<dependency>
+			<groupId>org.apache.pdfbox</groupId>
+			<artifactId>pdfbox</artifactId>
+			<version>3.0.5</version>
+		</dependency>
 		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
