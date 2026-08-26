@@ -203,17 +203,23 @@ public class ExpenseService {
 	 *
 	 * <p>A null or blank name means no tag. On update that is how a tag is removed — a PUT states
 	 * the whole expense, so an absent tag means the expense has none, not that the old one stands.
+	 *
+	 * <p>{@code owner} is the expense's own user, never the caller. The two differ on exactly one
+	 * path — an ADMIN editing someone else's row, which {@link #update} allows — and resolving
+	 * against the caller there would file the tag under the admin: the owner could never see or
+	 * rename it, because {@link #projects} and {@link #renameProject} are scoped to the caller, and
+	 * the admin's own tag list would silently gain an entry created on someone else's behalf.
 	 */
-	private Project resolveProject(ExpenseRequest request, User user) {
+	private Project resolveProject(ExpenseRequest request, User owner) {
 		String name = request.project();
 		if (name == null || name.isBlank()) {
 			return null;
 		}
 		String trimmed = name.trim();
-		return projectRepository.findByUserAndNameIgnoreCase(user, trimmed)
+		return projectRepository.findByUserAndNameIgnoreCase(owner, trimmed)
 				.orElseGet(() -> projectRepository.save(Project.builder()
 						.name(trimmed)
-						.user(user)
+						.user(owner)
 						.build()));
 	}
 
@@ -306,23 +312,30 @@ public class ExpenseService {
 	 * {@code categoryOverridden} while the rule is left exactly as it was. Silently rewriting the
 	 * rule on every disagreement would mean a single unusual purchase at a familiar shop
 	 * re-categorises every future one.
+	 *
+	 * <p>Every lookup here is scoped to {@code owner} — the expense's own user, never the caller —
+	 * for the reason {@link #resolveProject} gives. Categories, merchant rules and aliases all
+	 * belong to one user, so an ADMIN editing someone else's row must read and write that person's
+	 * rules: a rule learned against the admin would teach the wrong account, and a category created
+	 * against the admin would leave {@code expense.user} and {@code expense.category.user}
+	 * disagreeing.
 	 */
-	private Categorisation categorise(ExpenseRequest request, User user) {
+	private Categorisation categorise(ExpenseRequest request, User owner) {
 		boolean explicit = request.category() != null && !request.category().isBlank();
 		if (!explicit) {
 			return new Categorisation(
-					categoryService.resolveByMerchant(request.description(), user)
-							.orElseGet(() -> categoryService.getOrCreateByName(DEFAULT_CATEGORY, user)),
+					categoryService.resolveByMerchant(request.description(), owner)
+							.orElseGet(() -> categoryService.getOrCreateByName(DEFAULT_CATEGORY, owner)),
 					false);
 		}
 
-		Category chosen = categoryService.getOrCreateByName(request.category(), user);
-		Category ruled = categoryService.resolveByMerchant(request.description(), user).orElse(null);
+		Category chosen = categoryService.getOrCreateByName(request.category(), owner);
+		Category ruled = categoryService.resolveByMerchant(request.description(), owner).orElse(null);
 		boolean overridden = ruled != null
 				&& ruled.getId() != null
 				&& !ruled.getId().equals(chosen.getId());
 		if (!overridden) {
-			categoryService.learnMerchantRule(request.description(), chosen, user);
+			categoryService.learnMerchantRule(request.description(), chosen, owner);
 		}
 		return new Categorisation(chosen, overridden);
 	}
@@ -349,6 +362,10 @@ public class ExpenseService {
 	 * how the row was created, and correcting an amount a receipt scan misread does not make the
 	 * expense manually entered — it makes it a corrected scan, which is exactly what the field
 	 * should keep saying.
+	 *
+	 * <p>The category and the tag are resolved against the row's own {@code user}, not against
+	 * {@code user} — an ADMIN may reach another person's expense here, and everything an edit
+	 * attaches to it has to belong to whoever owns it. See {@link #resolveProject}.
 	 */
 	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
 	@Transactional
@@ -358,7 +375,8 @@ public class ExpenseService {
 				: expenseRepository.findByIdAndUser(id, user))
 				.orElseThrow(() -> new ResourceNotFoundException("Expense not found: " + id));
 
-		Categorisation categorisation = categorise(request, user);
+		User owner = expense.getUser();
+		Categorisation categorisation = categorise(request, owner);
 		expense.setAmount(request.amount());
 		expense.setCategory(categorisation.category());
 		expense.setCategoryOverridden(categorisation.overridden());
@@ -376,7 +394,7 @@ public class ExpenseService {
 		expense.setCurrency(currency);
 		expense.setExchangeRate(rate);
 		expense.setAmountInBaseCurrency(base);
-		expense.setProject(resolveProject(request, user));
+		expense.setProject(resolveProject(request, owner));
 		return toResponse(expenseRepository.save(expense));
 	}
 
