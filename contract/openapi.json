@@ -1454,6 +1454,12 @@
           "expenseType" : {
             "type" : "string"
           },
+          "project" : {
+            "description" : "The project or client this expense is billable to, by name. Created on first use and matched case-insensitively afterwards, like a category. Omit it — or send null or an empty string — for an untagged expense; on update that removes a tag the expense already carried.",
+            "maxLength" : 60,
+            "minLength" : 0,
+            "type" : "string"
+          },
           "reimbursable" : {
             "type" : "boolean"
           },
@@ -1539,6 +1545,15 @@
             "type" : "string"
           },
           "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "project" : {
+            "description" : "Name of the project or client this expense is billable to; null when it carries no tag.",
+            "type" : "string"
+          },
+          "projectId" : {
+            "description" : "Id of the project or client this expense is billable to; null when it carries no tag. Stable across renames — filter by this, not by the name.",
             "format" : "int64",
             "type" : "integer"
           },
@@ -2198,6 +2213,46 @@
           },
           "planKey" : {
             "enum" : [ "FREE", "PREMIUM", "TRIAL" ],
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ProjectReportItem" : {
+        "properties" : {
+          "project" : {
+            "type" : "string"
+          },
+          "projectId" : {
+            "description" : "Stable across renames.",
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "total" : {
+            "type" : "number"
+          }
+        },
+        "type" : "object"
+      },
+      "ProjectRequest" : {
+        "properties" : {
+          "name" : {
+            "maxLength" : 60,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "name" ],
+        "type" : "object"
+      },
+      "ProjectResponse" : {
+        "properties" : {
+          "id" : {
+            "description" : "Stable across renames. Filter and report by this, not by the name.",
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "name" : {
             "type" : "string"
           }
         },
@@ -6467,6 +6522,15 @@
             "enum" : [ "MANUAL", "QUICK_ADD", "RECEIPT_SCAN", "RECURRING", "IMPORT" ],
             "type" : "string"
           }
+        }, {
+          "description" : "Only expenses tagged to this project or client. By id, so a saved filter survives a rename.",
+          "in" : "query",
+          "name" : "projectId",
+          "required" : false,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
         } ],
         "responses" : {
           "200" : {
@@ -6670,6 +6734,15 @@
             "enum" : [ "MANUAL", "QUICK_ADD", "RECEIPT_SCAN", "RECURRING", "IMPORT" ],
             "type" : "string"
           }
+        }, {
+          "description" : "Only expenses tagged to this project or client, by id.",
+          "in" : "query",
+          "name" : "projectId",
+          "required" : false,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
         } ],
         "responses" : {
           "200" : {
@@ -6708,6 +6781,70 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/ParsedExpenseResult"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-controller" ]
+      }
+    },
+    "/expenses/projects" : {
+      "get" : {
+        "operationId" : "projects",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/ProjectResponse"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-controller" ]
+      }
+    },
+    "/expenses/projects/{id}" : {
+      "put" : {
+        "operationId" : "renameProject",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ProjectRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProjectResponse"
                 }
               }
             },
@@ -6848,6 +6985,38 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/MonthlyComparisonResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "expense-controller" ]
+      }
+    },
+    "/expenses/report/project" : {
+      "get" : {
+        "operationId" : "projectReport",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "month",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/ProjectReportItem"
+                  },
+                  "type" : "array"
                 }
               }
             },
