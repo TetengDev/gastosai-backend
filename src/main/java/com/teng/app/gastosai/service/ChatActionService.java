@@ -19,6 +19,7 @@ import com.teng.app.gastosai.dto.CategoryReportItem;
 import com.teng.app.gastosai.dto.CategoryResponse;
 import com.teng.app.gastosai.dto.ChatResponse;
 import com.teng.app.gastosai.dto.ExpenseRequest;
+import com.teng.app.gastosai.dto.ExpenseResponse;
 import com.teng.app.gastosai.dto.GoalRequest;
 import com.teng.app.gastosai.dto.GoalResponse;
 import com.teng.app.gastosai.dto.RecurringExpenseRequest;
@@ -44,7 +45,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
@@ -84,6 +87,7 @@ public class ChatActionService {
 	private final RecurringExpenseRepository recurringExpenseRepository;
 	private final BudgetRepository budgetRepository;
 	private final SavingsGoalRepository savingsGoalRepository;
+	private final PlatformTransactionManager transactionManager;
 	private final ObjectMapper objectMapper;
 	private final AiQuotaService aiQuotaService;
 	private final AiUsageService aiUsageService;
@@ -448,9 +452,23 @@ public class ChatActionService {
 				existing.getExchangeRate(),
 				null,
 				existing.getProject() != null ? existing.getProject().getName() : null);
-		Object result = expenseService.update(id, req, user);
-		if (!categoryStated) {
-			restoreCategoryOverride(id, overriddenBefore);
+		Object result;
+		if (categoryStated) {
+			result = expenseService.update(id, req, user);
+		} else {
+			// One transaction, not two. The restore corrects a flag update() has just written, so a
+			// commit in between would publish a categoryOverridden the user never asked for — and
+			// leave it there permanently if the request died in the window.
+			//
+			// Programmatic rather than @Transactional: this method is private and every route to it
+			// is a same-bean call, which Spring's proxy does not intercept, and the public entry
+			// points that would be intercepted wrap the LLM classification call — holding a database
+			// connection across that is worse than the problem. Same idiom as PaymentService.
+			result = new TransactionTemplate(transactionManager).execute(status -> {
+				ExpenseResponse updated = expenseService.update(id, req, user);
+				restoreCategoryOverride(id, overriddenBefore);
+				return updated;
+			});
 		}
 		return new ChatResponse("action", "Expense #" + id + " updated.", result);
 	}
@@ -473,6 +491,10 @@ public class ChatActionService {
 	 * left alone: that is exactly what {@code PUT /expenses/{id}} does when a client re-states the
 	 * category it already had, and teaching the rule the category the row genuinely has is a far
 	 * smaller claim than the {@code Uncategorized} this path used to teach.
+	 *
+	 * <p>Called only from the one place above, inside its transaction and after its owner-scoped
+	 * lookup has already thrown for a caller who may not reach this row — which is why the re-read
+	 * here does not repeat that check. Do not call it from anywhere that has not made it.
 	 */
 	private void restoreCategoryOverride(long id, boolean overridden) {
 		expenseRepository.findById(id).ifPresent(expense -> {
