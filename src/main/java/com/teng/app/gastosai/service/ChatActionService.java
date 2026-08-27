@@ -58,6 +58,7 @@ import java.time.YearMonth;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 @Service
 @Slf4j
@@ -424,8 +425,19 @@ public class ChatActionService {
 	 * reading it as {@code Uncategorized} stated a category the user never asked for. It too is
 	 * re-stated from the row — with the caveat {@link #restoreCategoryOverride} explains, because
 	 * {@code update} re-runs {@code categorise} over whatever category it is handed.
+	 *
+	 * <p>The whole body runs in {@link #inOneTransaction} because re-stating the row is a
+	 * read-then-write: the read that decides what to carry forward and the write that applies it
+	 * have to see one state of the row, or the values carried forward are the ones from a moment
+	 * ago rather than the ones being written over. Inside the single transaction the entity read
+	 * here and the entity {@code update} loads are the same managed instance, and the whole edit
+	 * commits once (TEN-323).
 	 */
 	private ChatResponse handleUpdateExpense(JsonNode params, User user) {
+		return inOneTransaction(() -> updateExpense(params, user));
+	}
+
+	private ChatResponse updateExpense(JsonNode params, User user) {
 		long id = params.get("id").asLong();
 		BigDecimal amount = params.get("amount").decimalValue();
 		String statedCategory = params.path("category").asText(null);
@@ -452,25 +464,45 @@ public class ChatActionService {
 				existing.getExchangeRate(),
 				null,
 				existing.getProject() != null ? existing.getProject().getName() : null);
-		Object result;
-		if (categoryStated) {
-			result = expenseService.update(id, req, user);
-		} else {
-			// One transaction, not two. The restore corrects a flag update() has just written, so a
-			// commit in between would publish a categoryOverridden the user never asked for — and
-			// leave it there permanently if the request died in the window.
-			//
-			// Programmatic rather than @Transactional: this method is private and every route to it
-			// is a same-bean call, which Spring's proxy does not intercept, and the public entry
-			// points that would be intercepted wrap the LLM classification call — holding a database
-			// connection across that is worse than the problem. Same idiom as PaymentService.
-			result = new TransactionTemplate(transactionManager).execute(status -> {
-				ExpenseResponse updated = expenseService.update(id, req, user);
-				restoreCategoryOverride(id, overriddenBefore);
-				return updated;
-			});
+		ExpenseResponse result = expenseService.update(id, req, user);
+		if (!categoryStated) {
+			// The restore corrects a flag update() has just written, and shares the caller's
+			// transaction (TEN-322): a commit in between would publish a categoryOverridden the user
+			// never asked for — and leave it there permanently if the request died in the window.
+			restoreCategoryOverride(id, overriddenBefore);
 		}
 		return new ChatResponse("action", "Expense #" + id + " updated.", result);
+	}
+
+	/**
+	 * Run a read-then-write chat handler as a single transaction.
+	 *
+	 * <p>Applied to the four update handlers that resolve an entity and then hand its values to a
+	 * service that is itself {@code @Transactional} — expense, budget, goal and recurring. Each read
+	 * the row in one transaction and wrote in another, so the values re-stated from the read could
+	 * already be stale by the time the write ran (TEN-323).
+	 *
+	 * <p>The remaining handlers are ruled out rather than covered. Creates take every value from the
+	 * tool call. The delete handlers do resolve a row first, but carry nothing forward from it —
+	 * a concurrent edit landing in that window changes which values the row held, not which row the
+	 * user named, and the row is deleted either way. The read tools are already
+	 * {@code @Transactional(readOnly = true)}. {@code handleUpdateProfile} re-states from the
+	 * authenticated {@code User} the request was resolved from, not from a read of its own.
+	 *
+	 * <p>Programmatic rather than {@code @Transactional}, and per handler rather than on
+	 * {@link #execute}: these methods are private and every route to them is a same-bean call, which
+	 * Spring's proxy does not intercept, so an annotation here would do nothing. The public entry
+	 * point that <em>would</em> be intercepted wraps the LLM classification call, and holding a
+	 * database connection open across a model round-trip is worse than the race it would close. Same
+	 * idiom as {@code PaymentService}.
+	 *
+	 * <p>What this does not do is detect a lost update at the row level: with no {@code @Version} on
+	 * the entities, two transactions that read and write concurrently still resolve last-writer-wins
+	 * under {@code READ COMMITTED}. That is true of {@code PUT /expenses/{id}} too, so the chat path
+	 * is now no weaker than the REST one; closing it for both is an entity change, not a change here.
+	 */
+	private ChatResponse inOneTransaction(Supplier<ChatResponse> handler) {
+		return new TransactionTemplate(transactionManager).execute(status -> handler.get());
 	}
 
 	/**
@@ -746,7 +778,12 @@ public class ChatActionService {
 		return new ChatResponse("text", "Which recurring expense would you like to remove? You can say 'delete latest recurring', 'delete recurring [name]', or provide an ID.", null);
 	}
 
+	/** Reads a budget (by id, or by category and month) and then writes it — see {@link #inOneTransaction}. */
 	private ChatResponse handleUpdateBudget(JsonNode params, User user) {
+		return inOneTransaction(() -> updateBudget(params, user));
+	}
+
+	private ChatResponse updateBudget(JsonNode params, User user) {
 		long id = params.path("id").asLong(0);
 		BigDecimal amountLimit = params.get("amountLimit").decimalValue();
 		String month = params.path("month").asText(YearMonth.now().toString());
@@ -778,7 +815,12 @@ public class ChatActionService {
 		return new ChatResponse("text", "Please specify a budget ID or category name to update.", null);
 	}
 
+	/** Resolves a goal and then writes it — see {@link #inOneTransaction}. */
 	private ChatResponse handleUpdateGoal(JsonNode params, User user) {
+		return inOneTransaction(() -> updateGoal(params, user));
+	}
+
+	private ChatResponse updateGoal(JsonNode params, User user) {
 		SavingsGoal goal = resolveGoal(params, user);
 		if (goal == null) {
 			return new ChatResponse("text", "No goal found. Please specify a goal ID or name.", null);
@@ -817,7 +859,12 @@ public class ChatActionService {
 		return null;
 	}
 
+	/** Resolves a recurring expense and then writes it — see {@link #inOneTransaction}. */
 	private ChatResponse handleUpdateRecurring(JsonNode params, User user) {
+		return inOneTransaction(() -> updateRecurring(params, user));
+	}
+
+	private ChatResponse updateRecurring(JsonNode params, User user) {
 		RecurringExpense recurring = resolveRecurring(params, user);
 		if (recurring == null) {
 			return new ChatResponse("text", "No recurring expense found. Please specify an ID or name.", null);

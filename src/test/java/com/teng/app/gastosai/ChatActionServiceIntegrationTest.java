@@ -29,8 +29,10 @@ import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.context.WebApplicationContext;
 
 import java.math.BigDecimal;
@@ -67,6 +69,9 @@ class ChatActionServiceIntegrationTest extends PostgresBackedTest {
     @Autowired SavingsGoalRepository savingsGoalRepository;
     @Autowired AlertRepository alertRepository;
     @Autowired ExpenseRepository expenseRepository;
+    // Spied so the TEN-323 test can see which transaction the write runs in. The spy replaces the
+    // target inside the transactional proxy and delegates to it, so every other test is unaffected.
+    @MockitoSpyBean com.teng.app.gastosai.service.ExpenseService expenseService;
     @Autowired CategoryRepository categoryRepository;
     @Autowired ProjectRepository projectRepository;
     @Autowired PasswordEncoder passwordEncoder;
@@ -474,6 +479,71 @@ class ChatActionServiceIntegrationTest extends PostgresBackedTest {
         org.assertj.core.api.Assertions.assertThat(
                         categoryService.resolveByMerchant("Jollibee", user1).orElseThrow().getId())
                 .isEqualTo(food.getId());
+    }
+
+    /**
+     * TEN-323: the read that decides which values to carry forward and the write that applies them
+     * are one transaction, not two.
+     *
+     * <p>What identifies the transaction is its name. The spy replaces the {@code ExpenseService}
+     * target inside its transactional proxy, so the answer runs in whatever transaction the write
+     * ended up in: if {@code update} started that transaction itself — the read having committed
+     * before it — Spring names it {@code ExpenseService.update}, which is exactly what this test
+     * observes when the handler's {@code inOneTransaction} wrapper is removed. Finding it unnamed
+     * instead means the write joined a transaction opened programmatically further out, and the only
+     * thing that opens one on this path is the handler, before its read: nothing in
+     * {@code AiController.chat} → {@code dispatch} → {@code execute} is transactional.
+     *
+     * <p>One transaction also means one persistence context, so the entity the handler read and the
+     * entity {@code update} loads are the same managed instance — the values re-stated from the read
+     * are the values being written.
+     */
+    @Test
+    void updateExpense_readAndWrite_shareOneTransaction() throws Exception {
+        Category food = categoryNamed("Food");
+        Expense e = expenseRepository.save(Expense.builder()
+                .user(user1)
+                .amount(new BigDecimal("400.0000"))
+                .amountInBaseCurrency(new BigDecimal("400.0000"))
+                .category(food)
+                .date(LocalDateTime.now())
+                .description("Dinner")
+                .currency("PHP")
+                .exchangeRate(BigDecimal.ONE)
+                .build());
+
+        java.util.concurrent.atomic.AtomicBoolean transactionActive =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        java.util.concurrent.atomic.AtomicReference<String> transactionName =
+                new java.util.concurrent.atomic.AtomicReference<>("not recorded");
+
+        org.mockito.Mockito.doAnswer(invocation -> {
+            transactionActive.set(TransactionSynchronizationManager.isActualTransactionActive());
+            transactionName.set(TransactionSynchronizationManager.getCurrentTransactionName());
+            return invocation.callRealMethod();
+        }).when(expenseService).update(org.mockito.ArgumentMatchers.eq(e.getId()),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+
+        when(sqlGenerator.classifyIntent(anyString()))
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("update_expense",
+                        "{\"id\":" + e.getId() + ",\"amount\":400,\"description\":\"Dinner with Ana\"}")));
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"rename that dinner to Dinner with Ana\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("action"));
+
+        org.assertj.core.api.Assertions.assertThat(transactionActive.get())
+                .as("the write runs in a transaction")
+                .isTrue();
+        org.assertj.core.api.Assertions.assertThat(transactionName.get())
+                .as("the write joined the handler's programmatic transaction instead of starting its own")
+                .isNull();
+        org.assertj.core.api.Assertions.assertThat(
+                        expenseRepository.findById(e.getId()).orElseThrow().getDescription())
+                .isEqualTo("Dinner with Ana");
     }
 
     /** Categories are per-user and may already be seeded, so take the existing row when there is one. */
