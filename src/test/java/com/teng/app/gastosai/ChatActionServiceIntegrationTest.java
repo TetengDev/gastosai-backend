@@ -10,12 +10,14 @@ import com.teng.app.gastosai.entity.AlertSeverity;
 import com.teng.app.gastosai.entity.AlertType;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
+import com.teng.app.gastosai.entity.Project;
 import com.teng.app.gastosai.entity.Role;
 import com.teng.app.gastosai.entity.SavingsGoal;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.AlertRepository;
 import com.teng.app.gastosai.repository.CategoryRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
+import com.teng.app.gastosai.repository.ProjectRepository;
 import com.teng.app.gastosai.repository.SavingsGoalRepository;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.support.PostgresBackedTest;
@@ -66,6 +68,7 @@ class ChatActionServiceIntegrationTest extends PostgresBackedTest {
     @Autowired AlertRepository alertRepository;
     @Autowired ExpenseRepository expenseRepository;
     @Autowired CategoryRepository categoryRepository;
+    @Autowired ProjectRepository projectRepository;
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired JwtUtil jwtUtil;
 
@@ -307,5 +310,49 @@ class ChatActionServiceIntegrationTest extends PostgresBackedTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.type").value("text"))
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("which expenses")));
+    }
+
+    /**
+     * TEN-317: a chat edit states only the fields the user named, and the update_expense tool
+     * schema has no currency, exchange-rate or project property at all. Before the fix, editing
+     * the description of a $100 expense redenominated it to ₱100 at rate 1 and dropped its tag.
+     */
+    @Test
+    void updateExpense_foreignCurrency_preservesCurrencyRateBaseAmountAndProject() throws Exception {
+        Category food = categoryRepository.findByUserAndNameIgnoreCase(user1, "Food")
+                .orElseGet(() -> categoryRepository.save(Category.builder().name("Food").user(user1).build()));
+        Project acme = projectRepository.save(Project.builder().name("Acme").user(user1).build());
+        Expense e = expenseRepository.save(Expense.builder()
+                .user(user1)
+                .amount(new BigDecimal("100.0000"))
+                .category(food)
+                .project(acme)
+                .date(LocalDateTime.now())
+                .description("Dinner")
+                .currency("USD")
+                .exchangeRate(new BigDecimal("56.500000"))
+                .amountInBaseCurrency(new BigDecimal("5650.0000"))
+                .build());
+
+        when(sqlGenerator.classifyIntent(anyString()))
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("update_expense",
+                        "{\"id\":" + e.getId() + ",\"amount\":100,\"description\":\"Dinner in NYC\"}")));
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"rename that dinner to Dinner in NYC\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("action"));
+
+        Expense reloaded = expenseRepository.findById(e.getId()).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(reloaded.getDescription()).isEqualTo("Dinner in NYC");
+        org.assertj.core.api.Assertions.assertThat(reloaded.getCurrency()).isEqualTo("USD");
+        org.assertj.core.api.Assertions.assertThat(reloaded.getExchangeRate())
+                .isEqualByComparingTo(new BigDecimal("56.500000"));
+        org.assertj.core.api.Assertions.assertThat(reloaded.getAmountInBaseCurrency())
+                .isEqualByComparingTo(new BigDecimal("5650.0000"));
+        org.assertj.core.api.Assertions.assertThat(reloaded.getProject()).isNotNull();
+        org.assertj.core.api.Assertions.assertThat(reloaded.getProject().getName()).isEqualTo("Acme");
     }
 }

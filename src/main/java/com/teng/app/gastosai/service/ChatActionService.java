@@ -399,6 +399,22 @@ public class ChatActionService {
 		return new ChatResponse("action", "Expense created: ₱" + amount.toPlainString() + " — " + description, result);
 	}
 
+	/**
+	 * Edit an expense from chat.
+	 *
+	 * <p>{@code ExpenseService.update} takes PUT semantics — the request states the whole expense,
+	 * so an absent currency means PHP at rate 1 and an absent tag means the expense has none. That
+	 * is right for {@code PUT /expenses/{id}}, whose caller sends the whole row, and wrong here:
+	 * the {@code update_expense} tool schema has no currency, exchange-rate or project property at
+	 * all, so this path can only ever be silent about them, never deliberate. Left as it was, one
+	 * "change the description" redenominated a foreign-currency expense to PHP at rate 1 and
+	 * dropped its project tag.
+	 *
+	 * <p>Fixed on this side rather than by null-guarding {@code update}: a guard there would make
+	 * the REST PUT unable to express "this expense is PHP again" or "remove the tag", which is a
+	 * contract change to a published endpoint. The caller is the one with the missing information,
+	 * so the caller reads the row and re-states what the user did not ask to change.
+	 */
 	private ChatResponse handleUpdateExpense(JsonNode params, User user) {
 		long id = params.get("id").asLong();
 		BigDecimal amount = params.get("amount").decimalValue();
@@ -408,7 +424,19 @@ public class ChatActionService {
 		LocalDateTime date = (dateStr != null && !dateStr.isBlank())
 				? LocalDate.parse(dateStr).atStartOfDay()
 				: null;
-		ExpenseRequest req = new ExpenseRequest(amount, category, date, description, null, null, null, null);
+		// Same lookup rule update() itself applies, so an ADMIN reaching another person's row
+		// reads the values it is about to re-state, and anyone else still gets the 404.
+		Expense existing = (user.isAdmin()
+				? expenseRepository.findById(id)
+				: expenseRepository.findByIdAndUser(id, user))
+				.orElseThrow(() -> new ResourceNotFoundException("Expense not found: " + id));
+		ExpenseRequest req = new ExpenseRequest(amount, category, date, description,
+				existing.getExpenseType() != null ? existing.getExpenseType().name() : null,
+				existing.isReimbursable(),
+				existing.getCurrency(),
+				existing.getExchangeRate(),
+				null,
+				existing.getProject() != null ? existing.getProject().getName() : null);
 		Object result = expenseService.update(id, req, user);
 		return new ChatResponse("action", "Expense #" + id + " updated.", result);
 	}
