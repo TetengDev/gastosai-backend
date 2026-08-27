@@ -74,6 +74,10 @@ class ChatActionServiceTest {
     @Mock RecurringExpenseRepository recurringExpenseRepository;
     @Mock BudgetRepository budgetRepository;
     @Mock SavingsGoalRepository savingsGoalRepository;
+    // Injected so the constructor dependency is satisfied here too: handleUpdateExpense's silent
+    // category path builds a TransactionTemplate from it, and a null field would NPE the first
+    // unit test written for that path rather than failing where the mock is missing.
+    @Mock org.springframework.transaction.PlatformTransactionManager transactionManager;
     @Spy ObjectMapper objectMapper;
     @Mock AiQuotaService aiQuotaService;
     @Mock AiUsageService aiUsageService;
