@@ -6,9 +6,11 @@ import com.teng.app.gastosai.dto.ExpenseResponse;
 import com.teng.app.gastosai.dto.MonthlyComparisonResponse;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
+import com.teng.app.gastosai.entity.Project;
 import com.teng.app.gastosai.entity.Role;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.ExpenseRepository;
+import com.teng.app.gastosai.repository.ProjectRepository;
 import com.teng.app.gastosai.service.CategoryService;
 import com.teng.app.gastosai.service.ExpenseService;
 import org.junit.jupiter.api.Test;
@@ -46,6 +48,9 @@ class ExpenseServiceTest {
     @Mock
     CategoryService categoryService;
 
+    @Mock
+    ProjectRepository projectRepository;
+
     @InjectMocks
     ExpenseService expenseService;
 
@@ -56,6 +61,16 @@ class ExpenseServiceTest {
                 .email("user@test.com")
                 .password("hash")
                 .role(Role.USER)
+                .build();
+    }
+
+    private User adminUser() {
+        return User.builder()
+                .id(2L)
+                .name("Admin")
+                .email("admin@test.com")
+                .password("hash")
+                .role(Role.ADMIN)
                 .build();
     }
 
@@ -180,6 +195,7 @@ class ExpenseServiceTest {
         Expense existing = Expense.builder()
                 .id(7L)
                 .amount(new BigDecimal("80.0000"))
+                .user(user)
                 .category(oldCat)
                 .date(LocalDateTime.now())
                 .description("Old desc")
@@ -661,5 +677,84 @@ class ExpenseServiceTest {
 
         assertThat(response.category()).isEqualTo("Food");
         assertThat(existing.isCategoryOverridden()).isFalse();
+    }
+
+    // ------------------------------------ owner-scoped tag and category (TEN-314)
+
+    /**
+     * An ADMIN may edit anyone's expense, so the caller and the row's owner come apart on exactly
+     * this path. Everything the edit attaches has to belong to the owner: a tag filed under the
+     * admin is one the owner can never see or rename — {@code GET /expenses/projects} and
+     * {@code PUT /expenses/projects/{id}} are scoped to the caller — while the admin's own list
+     * silently gains an entry it never asked for.
+     */
+    @Test
+    void update_byAdmin_createsTheTagAndCategoryAgainstTheExpenseOwner() {
+        User owner = regularUser();
+        User admin = adminUser();
+        Category mealPlan = Category.builder().id(2L).name("Meal Plan").user(owner).build();
+        Expense existing = Expense.builder()
+                .id(7L)
+                .amount(new BigDecimal("80.0000"))
+                .user(owner)
+                .category(Category.builder().id(1L).name("Extras").user(owner).build())
+                .date(LocalDateTime.of(2026, 6, 2, 9, 0))
+                .description("Old desc")
+                .amountInBaseCurrency(new BigDecimal("80.0000"))
+                .build();
+
+        when(expenseRepository.findById(7L)).thenReturn(Optional.of(existing));
+        when(categoryService.getOrCreateByName("Meal Plan", owner)).thenReturn(mealPlan);
+        when(categoryService.resolveByMerchant("New desc", owner)).thenReturn(Optional.empty());
+        when(projectRepository.findByUserAndNameIgnoreCase(owner, "Acme")).thenReturn(Optional.empty());
+        when(projectRepository.save(any(Project.class))).thenAnswer(inv -> inv.getArgument(0));
+        echoSaved();
+
+        expenseService.update(7L, new ExpenseRequest(
+                new BigDecimal("90"), "Meal Plan", null, "New desc", null, null, null, null, null, "Acme"), admin);
+
+        assertThat(existing.getProject().getName()).isEqualTo("Acme");
+        assertThat(existing.getProject().getUser()).isEqualTo(owner);
+        assertThat(existing.getCategory().getUser()).isEqualTo(owner);
+        // expense.user must equal both, which is the invariant the whole fix exists to keep.
+        assertThat(existing.getUser()).isEqualTo(existing.getProject().getUser());
+        assertThat(existing.getUser()).isEqualTo(existing.getCategory().getUser());
+
+        // Nothing was looked up or filed against the admin's own lists.
+        verify(projectRepository, never()).findByUserAndNameIgnoreCase(eq(admin), any());
+        verify(projectRepository, never()).save(argThat(p -> admin.equals(p.getUser())));
+        verify(categoryService, never()).getOrCreateByName(any(), eq(admin));
+        verify(categoryService, never()).resolveByMerchant(any(), eq(admin));
+        verify(categoryService, never()).learnMerchantRule(any(), any(), eq(admin));
+    }
+
+    /** The owner's existing tag is reused rather than duplicated — the admin never creates one. */
+    @Test
+    void update_byAdmin_reusesTheOwnersExistingTag() {
+        User owner = regularUser();
+        User admin = adminUser();
+        Category food = Category.builder().id(7L).name("Food").user(owner).build();
+        Project ownersAcme = Project.builder().id(4L).name("Acme").user(owner).build();
+        Expense existing = Expense.builder()
+                .id(8L)
+                .amount(new BigDecimal("120.0000"))
+                .user(owner)
+                .category(food)
+                .date(LocalDateTime.of(2026, 6, 3, 9, 0))
+                .description("Jollibee 120")
+                .amountInBaseCurrency(new BigDecimal("120.0000"))
+                .build();
+
+        when(expenseRepository.findById(8L)).thenReturn(Optional.of(existing));
+        when(categoryService.resolveByMerchant("Jollibee 120", owner)).thenReturn(Optional.of(food));
+        when(projectRepository.findByUserAndNameIgnoreCase(owner, "acme")).thenReturn(Optional.of(ownersAcme));
+        echoSaved();
+
+        expenseService.update(8L, new ExpenseRequest(
+                new BigDecimal("120"), null, null, "Jollibee 120", null, null, null, null, null, "acme"), admin);
+
+        assertThat(existing.getProject()).isSameAs(ownersAcme);
+        verify(projectRepository, never()).save(any(Project.class));
+        verify(projectRepository, never()).findByUserAndNameIgnoreCase(eq(admin), any());
     }
 }

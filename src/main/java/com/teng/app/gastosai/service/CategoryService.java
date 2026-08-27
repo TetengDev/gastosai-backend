@@ -179,13 +179,21 @@ public class CategoryService {
 		};
 	}
 
+	/**
+	 * The named category belonging to {@code owner}, created if it does not exist yet.
+	 *
+	 * <p>{@code owner} is who the category is <em>for</em>, which is not always who asked. An ADMIN
+	 * editing another user's expense passes that expense's owner, so the row and its category keep
+	 * agreeing on whose they are; a caller that hands in its own principal by reflex would file a
+	 * category the owner can never see.
+	 */
 	@Transactional
-	public Category getOrCreateByName(String categoryName, User user) {
+	public Category getOrCreateByName(String categoryName, User owner) {
 		String trimmed = categoryName.trim();
-		return resolveByName(trimmed, user)
+		return resolveByName(trimmed, owner)
 				.orElseGet(() -> categoryRepository.save(Category.builder()
 						.name(trimmed)
-						.user(user)
+						.user(owner)
 						.build()));
 	}
 
