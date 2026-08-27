@@ -80,6 +80,9 @@ class ChatActionServiceReadToolsTest {
     @Mock RecurringExpenseRepository recurringExpenseRepository;
     @Mock BudgetRepository budgetRepository;
     @Mock SavingsGoalRepository savingsGoalRepository;
+    // See ChatActionServiceTest: the silent category path in handleUpdateExpense builds a
+    // TransactionTemplate from this, so the constructor dependency is mocked here too.
+    @Mock org.springframework.transaction.PlatformTransactionManager transactionManager;
     @Spy ObjectMapper objectMapper;
     @Mock AiQuotaService aiQuotaService;
     @Mock AiUsageService aiUsageService;

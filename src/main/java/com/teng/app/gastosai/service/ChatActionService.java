@@ -19,6 +19,7 @@ import com.teng.app.gastosai.dto.CategoryReportItem;
 import com.teng.app.gastosai.dto.CategoryResponse;
 import com.teng.app.gastosai.dto.ChatResponse;
 import com.teng.app.gastosai.dto.ExpenseRequest;
+import com.teng.app.gastosai.dto.ExpenseResponse;
 import com.teng.app.gastosai.dto.GoalRequest;
 import com.teng.app.gastosai.dto.GoalResponse;
 import com.teng.app.gastosai.dto.RecurringExpenseRequest;
@@ -44,7 +45,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
@@ -84,6 +87,7 @@ public class ChatActionService {
 	private final RecurringExpenseRepository recurringExpenseRepository;
 	private final BudgetRepository budgetRepository;
 	private final SavingsGoalRepository savingsGoalRepository;
+	private final PlatformTransactionManager transactionManager;
 	private final ObjectMapper objectMapper;
 	private final AiQuotaService aiQuotaService;
 	private final AiUsageService aiUsageService;
@@ -414,11 +418,18 @@ public class ChatActionService {
 	 * the REST PUT unable to express "this expense is PHP again" or "remove the tag", which is a
 	 * contract change to a published endpoint. The caller is the one with the missing information,
 	 * so the caller reads the row and re-states what the user did not ask to change.
+	 *
+	 * <p>The category is the same defect one field over: the tool schema requires only {@code id},
+	 * {@code amount} and {@code description}, so "rename that dinner" arrives with no category and
+	 * reading it as {@code Uncategorized} stated a category the user never asked for. It too is
+	 * re-stated from the row — with the caveat {@link #restoreCategoryOverride} explains, because
+	 * {@code update} re-runs {@code categorise} over whatever category it is handed.
 	 */
 	private ChatResponse handleUpdateExpense(JsonNode params, User user) {
 		long id = params.get("id").asLong();
 		BigDecimal amount = params.get("amount").decimalValue();
-		String category = params.path("category").asText("Uncategorized");
+		String statedCategory = params.path("category").asText(null);
+		boolean categoryStated = statedCategory != null && !statedCategory.isBlank();
 		String description = params.get("description").asText();
 		String dateStr = params.path("date").asText(null);
 		LocalDateTime date = (dateStr != null && !dateStr.isBlank())
@@ -430,6 +441,10 @@ public class ChatActionService {
 				? expenseRepository.findById(id)
 				: expenseRepository.findByIdAndUser(id, user))
 				.orElseThrow(() -> new ResourceNotFoundException("Expense not found: " + id));
+		String category = categoryStated
+				? statedCategory
+				: (existing.getCategory() != null ? existing.getCategory().getName() : null);
+		boolean overriddenBefore = existing.isCategoryOverridden();
 		ExpenseRequest req = new ExpenseRequest(amount, category, date, description,
 				existing.getExpenseType() != null ? existing.getExpenseType().name() : null,
 				existing.isReimbursable(),
@@ -437,8 +452,57 @@ public class ChatActionService {
 				existing.getExchangeRate(),
 				null,
 				existing.getProject() != null ? existing.getProject().getName() : null);
-		Object result = expenseService.update(id, req, user);
+		Object result;
+		if (categoryStated) {
+			result = expenseService.update(id, req, user);
+		} else {
+			// One transaction, not two. The restore corrects a flag update() has just written, so a
+			// commit in between would publish a categoryOverridden the user never asked for — and
+			// leave it there permanently if the request died in the window.
+			//
+			// Programmatic rather than @Transactional: this method is private and every route to it
+			// is a same-bean call, which Spring's proxy does not intercept, and the public entry
+			// points that would be intercepted wrap the LLM classification call — holding a database
+			// connection across that is worse than the problem. Same idiom as PaymentService.
+			result = new TransactionTemplate(transactionManager).execute(status -> {
+				ExpenseResponse updated = expenseService.update(id, req, user);
+				restoreCategoryOverride(id, overriddenBefore);
+				return updated;
+			});
+		}
 		return new ChatResponse("action", "Expense #" + id + " updated.", result);
+	}
+
+	/**
+	 * Put back the {@code categoryOverridden} flag on an edit that never mentioned a category.
+	 *
+	 * <p>{@code ExpenseService.categorise} reads an explicit category as a hand-categorisation and
+	 * decides the flag from it: set when the category contradicts the merchant rule matching the
+	 * description, cleared (and the rule taught) when it does not. That is right when the user named
+	 * a category — the case above still goes through it untouched, so naming one still learns the
+	 * rule and still records an override. It is wrong for a category this handler re-stated only to
+	 * keep it: renaming "Dinner" to "Grab ride" would then flag the row as a deliberate override of
+	 * a rule the user never argued with. The flag is not on {@code ExpenseRequest}, so it cannot be
+	 * re-stated with the rest of the row and is put back here instead.
+	 *
+	 * <p>It is not on {@code ExpenseResponse} either, so the response already returned is accurate.
+	 *
+	 * <p>The merchant rule {@code categorise} may learn from the re-stated category is deliberately
+	 * left alone: that is exactly what {@code PUT /expenses/{id}} does when a client re-states the
+	 * category it already had, and teaching the rule the category the row genuinely has is a far
+	 * smaller claim than the {@code Uncategorized} this path used to teach.
+	 *
+	 * <p>Called only from the one place above, inside its transaction and after its owner-scoped
+	 * lookup has already thrown for a caller who may not reach this row — which is why the re-read
+	 * here does not repeat that check. Do not call it from anywhere that has not made it.
+	 */
+	private void restoreCategoryOverride(long id, boolean overridden) {
+		expenseRepository.findById(id).ifPresent(expense -> {
+			if (expense.isCategoryOverridden() != overridden) {
+				expense.setCategoryOverridden(overridden);
+				expenseRepository.save(expense);
+			}
+		});
 	}
 
 	private ChatResponse handleDeleteExpense(JsonNode params, User user) {
