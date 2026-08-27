@@ -161,7 +161,7 @@ class CategoryServiceTest {
                 .category(toDelete)
                 .description("Lunch")
                 .build();
-        when(expenseRepository.findByCategory_Id(2L)).thenReturn(List.of(expense));
+        when(expenseRepository.findByCategory_IdAndUser(2L, user)).thenReturn(List.of(expense));
 
         Category uncategorized = Category.builder().id(99L).name("Uncategorized").user(user).build();
         when(categoryRepository.findByUserAndNameIgnoreCase(user, "Uncategorized")).thenReturn(Optional.of(uncategorized));
@@ -178,7 +178,7 @@ class CategoryServiceTest {
         User user = testUser();
         Category toDelete = Category.builder().id(3L).name("Snacks").user(user).build();
         when(categoryRepository.findByIdAndUser(3L, user)).thenReturn(Optional.of(toDelete));
-        when(expenseRepository.findByCategory_Id(3L)).thenReturn(List.of());
+        when(expenseRepository.findByCategory_IdAndUser(3L, user)).thenReturn(List.of());
 
         categoryService.delete(3L, user);
 
@@ -312,7 +312,7 @@ class CategoryServiceTest {
         User user = testUser();
         Category toDelete = Category.builder().id(2L).name("Food").user(user).build();
         when(categoryRepository.findByIdAndUser(2L, user)).thenReturn(Optional.of(toDelete));
-        when(expenseRepository.findByCategory_Id(2L)).thenReturn(List.of());
+        when(expenseRepository.findByCategory_IdAndUser(2L, user)).thenReturn(List.of());
         MerchantRule rule = MerchantRule.builder().id(1L).user(user).merchant("jollibee").category(toDelete).build();
         CategoryAlias alias = CategoryAlias.builder().id(3L).user(user).category(toDelete).alias("pagkain").build();
         when(merchantRuleRepository.findAllByUserAndCategory_Id(user, 2L)).thenReturn(List.of(rule));

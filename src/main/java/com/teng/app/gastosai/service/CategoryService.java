@@ -105,7 +105,10 @@ public class CategoryService {
 			throw new IllegalArgumentException("Default categories cannot be deleted");
 		}
 
-		List<Expense> affected = expenseRepository.findByCategory_Id(toDelete.getId());
+		// Scoped to the category's owner, not to the category alone: the fallback below is created
+		// for `user`, so reassigning a row that belongs to somebody else would hand that row a
+		// category its owner cannot see. See ExpenseRepository#findByCategory_IdAndUser.
+		List<Expense> affected = expenseRepository.findByCategory_IdAndUser(toDelete.getId(), toDelete.getUser());
 		if (!affected.isEmpty()) {
 			Category fallback = getOrCreateByName(DEFAULT_CATEGORY, user);
 			affected.forEach(e -> e.setCategory(fallback));
@@ -125,7 +128,9 @@ public class CategoryService {
 
 		Category fallback = getOrCreateByName(DEFAULT_CATEGORY, user);
 		for (Category cat : toDelete) {
-			List<Expense> affected = expenseRepository.findByCategory_Id(cat.getId());
+			// Owner-scoped for the same reason as delete(): every category here came from
+			// findAllByUser(user), so `user` is the owner.
+			List<Expense> affected = expenseRepository.findByCategory_IdAndUser(cat.getId(), user);
 			if (!affected.isEmpty()) {
 				affected.forEach(e -> e.setCategory(fallback));
 				expenseRepository.saveAll(affected);
