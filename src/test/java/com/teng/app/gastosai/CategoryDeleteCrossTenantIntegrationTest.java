@@ -75,6 +75,35 @@ class CategoryDeleteCrossTenantIntegrationTest extends PostgresBackedTest {
         assertThat(categoryRepository.findById(bobsFood.getId())).isPresent();
     }
 
+    /**
+     * The same guarantee for the bulk path behind {@code DELETE /categories}, where the blast
+     * radius is wider: one unrepaired legacy row on any single category rolls back the whole
+     * bulk delete, so none of Bob's categories are cleared rather than some. Still the right
+     * trade — refusing is recoverable, rewriting Alice's row is not — and V29 removes the state
+     * that reaches it.
+     */
+    @Test
+    void deletingAllCategories_neverTouchesAnotherUsersExpense() {
+        Category bobsFood = categoryRepository.save(Category.builder().name("Food").user(bob).build());
+        Category bobsTravel = categoryRepository.save(Category.builder().name("Travel").user(bob).build());
+        Expense alicesExpense = expenseRepository.save(expense(alice, bobsFood, "Alice lunch"));
+        Expense bobsExpense = expenseRepository.save(expense(bob, bobsTravel, "Bob taxi"));
+
+        assertThatThrownBy(() -> categoryService.deleteAllExceptDefault(bob))
+                .isInstanceOf(DataIntegrityViolationException.class);
+
+        Expense reloaded = expenseRepository.findById(alicesExpense.getId()).orElseThrow();
+        assertThat(reloaded.getUser().getId()).isEqualTo(alice.getId());
+        assertThat(reloaded.getCategory().getId())
+                .as("Alice's expense must survive Bob's bulk delete untouched")
+                .isEqualTo(bobsFood.getId());
+
+        assertThat(expenseRepository.findById(bobsExpense.getId()).orElseThrow().getCategory().getId())
+                .isEqualTo(bobsTravel.getId());
+        assertThat(categoryRepository.findById(bobsFood.getId())).isPresent();
+        assertThat(categoryRepository.findById(bobsTravel.getId())).isPresent();
+    }
+
     /** The ordinary case still works: Bob's own expenses fall back to Bob's Uncategorized. */
     @Test
     void deletingACategory_reassignsOnlyTheOwnersExpenses() {
