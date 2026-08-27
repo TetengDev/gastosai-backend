@@ -18,6 +18,12 @@
 -- the owner has none. Same shape as V11, and for the same reason: the user-visible meaning of the
 -- expense ("Food", "Acme") is preserved, where dropping the link to NULL would silently lose it.
 
+-- The clone deliberately ignores the plan's category cap (CategoryService#enforceCategoryLimit).
+-- The cap governs what a user may create; this is a repair of a row they already have and can
+-- already see the spending of, and refusing it would leave the expense pointing at somebody else's
+-- category — the bug — to protect a limit. A capped user can end up one or two categories over
+-- until they tidy up, which is the lesser of the two surprises.
+
 -- 1. Give every affected owner a category of their own with the same name, where they do not have
 --    one already. DISTINCT ON collapses the candidates to one row per (user, lower(name)) so the
 --    insert cannot collide with uq_categories_user_lower_name; ordering by c.id makes the winner

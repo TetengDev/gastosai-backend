@@ -119,6 +119,14 @@ public class CategoryService {
 		categoryRepository.deleteById(id);
 	}
 
+	/**
+	 * Clear every category but the default, behind {@code DELETE /categories}.
+	 *
+	 * <p>One transaction, so an expense of another user still pointing at one of these categories
+	 * — the legacy shape V29 repairs — rolls the whole bulk delete back rather than clearing some
+	 * categories and not others. Refusing is recoverable; silently reassigning that user's expense
+	 * is not.
+	 */
 	@Transactional
 	public void deleteAllExceptDefault(User user) {
 		List<Category> toDelete = categoryRepository.findAllByUser(user).stream()
