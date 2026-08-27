@@ -119,7 +119,16 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long>, JpaSpec
 
 	long countByCategory_Id(Long categoryId);
 
-	List<Expense> findByCategory_Id(Long categoryId);
+	/**
+	 * The expenses in a category that belong to {@code user}, and only those.
+	 *
+	 * <p>Deliberately not a bare {@code findByCategory_Id}: its only callers reassign the rows they
+	 * get back and save them, so an unscoped lookup is a cross-tenant <em>write</em> primitive. A
+	 * row that carries another user's category — which pre-TEN-314 code could write — would be
+	 * re-pointed at a category its owner cannot see. Scoping the read is what keeps the write
+	 * inside one tenant; V29 repairs the rows the old path already mis-wrote.
+	 */
+	List<Expense> findByCategory_IdAndUser(Long categoryId, User user);
 
 	@Query("SELECT e.category.id, SUM(e.amountInBaseCurrency) FROM Expense e WHERE e.user = :user AND YEAR(e.date) = :year AND MONTH(e.date) = :month GROUP BY e.category.id")
 	List<Object[]> sumByCategoryAndMonth(@Param("user") User user, @Param("year") int year, @Param("month") int month);
