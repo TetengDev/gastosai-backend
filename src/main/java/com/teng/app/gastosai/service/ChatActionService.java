@@ -58,6 +58,7 @@ import java.time.YearMonth;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 @Service
 @Slf4j
@@ -424,8 +425,19 @@ public class ChatActionService {
 	 * reading it as {@code Uncategorized} stated a category the user never asked for. It too is
 	 * re-stated from the row — with the caveat {@link #restoreCategoryOverride} explains, because
 	 * {@code update} re-runs {@code categorise} over whatever category it is handed.
+	 *
+	 * <p>The whole body runs in {@link #inOneTransaction} because re-stating the row is a
+	 * read-then-write: the read that decides what to carry forward and the write that applies it
+	 * have to see one state of the row, or the values carried forward are the ones from a moment
+	 * ago rather than the ones being written over. Inside the single transaction the entity read
+	 * here and the entity {@code update} loads are the same managed instance, and the whole edit
+	 * commits once (TEN-323).
 	 */
 	private ChatResponse handleUpdateExpense(JsonNode params, User user) {
+		return inOneTransaction(() -> updateExpense(params, user));
+	}
+
+	private ChatResponse updateExpense(JsonNode params, User user) {
 		long id = params.get("id").asLong();
 		BigDecimal amount = params.get("amount").decimalValue();
 		String statedCategory = params.path("category").asText(null);
@@ -452,25 +464,90 @@ public class ChatActionService {
 				existing.getExchangeRate(),
 				null,
 				existing.getProject() != null ? existing.getProject().getName() : null);
-		Object result;
-		if (categoryStated) {
-			result = expenseService.update(id, req, user);
-		} else {
-			// One transaction, not two. The restore corrects a flag update() has just written, so a
-			// commit in between would publish a categoryOverridden the user never asked for — and
-			// leave it there permanently if the request died in the window.
-			//
-			// Programmatic rather than @Transactional: this method is private and every route to it
-			// is a same-bean call, which Spring's proxy does not intercept, and the public entry
-			// points that would be intercepted wrap the LLM classification call — holding a database
-			// connection across that is worse than the problem. Same idiom as PaymentService.
-			result = new TransactionTemplate(transactionManager).execute(status -> {
-				ExpenseResponse updated = expenseService.update(id, req, user);
-				restoreCategoryOverride(id, overriddenBefore);
-				return updated;
-			});
+		ExpenseResponse result = expenseService.update(id, req, user);
+		if (!categoryStated) {
+			// The restore corrects a flag update() has just written, and shares the caller's
+			// transaction (TEN-322): a commit in between would publish a categoryOverridden the user
+			// never asked for — and leave it there permanently if the request died in the window.
+			restoreCategoryOverride(id, overriddenBefore);
 		}
 		return new ChatResponse("action", "Expense #" + id + " updated.", result);
+	}
+
+	/**
+	 * Run a read-then-write chat handler as a single transaction.
+	 *
+	 * <p>Applied to the four update handlers that resolve an entity and then hand its values to a
+	 * service that is itself {@code @Transactional} — expense, budget, goal and recurring. Each read
+	 * the row in one transaction and wrote in another, so the values re-stated from the read could
+	 * already be stale by the time the write ran (TEN-323).
+	 *
+	 * <p>Also applied to {@code handleSetCategoryIcon}, which carries the resolved category's name
+	 * forward into its write, and to {@code handleRecategorizeExpenses}, whose wrapper contains the
+	 * category {@code getOrCreateByName} creates so a later {@code saveAll} failure cannot orphan
+	 * it. Neither buys lost-update detection; see the residual below.
+	 *
+	 * <p>The remaining handlers are ruled out rather than covered, and the grounds differ:
+	 *
+	 * <ul>
+	 *   <li><b>Creates</b> carry nothing from a read into a write. Two qualifications:
+	 *       {@code handleCreateExpense} does read, via {@code findRecentDuplicate}, but only to
+	 *       gate — and wrapping would not stop a concurrent duplicate insert under
+	 *       {@code READ COMMITTED}, which needs a unique constraint. {@code handleCreateBudget}
+	 *       is a write-then-write, not a read-then-write: {@code getOrCreateByName} commits a
+	 *       category in its own transaction before the budget is created, so a failure after it
+	 *       leaves a stray empty category. Idempotent and self-healing on retry, so it is left to
+	 *       TEN-324 rather than widened into here.
+	 *   <li><b>Deletes</b> resolve a row first but carry nothing forward that changes the outcome: a
+	 *       concurrent edit changes which values the row held, not which row the user named, and the
+	 *       row is deleted either way. The confirmation message may quote pre-edit values. That
+	 *       ground holds for the single-row deletes only — {@code handleDeleteExpenses} loops
+	 *       {@code expenseService.delete} per id, so a mid-loop failure leaves a partial delete
+	 *       with no rollback and still reports a count. Not fixed here; TEN-324 owns it.
+	 *   <li><b>The read tools</b> perform no write, so there is no read-then-write to protect. The
+	 *       {@code @Transactional(readOnly = true)} some of them carry is <em>inert</em> for the
+	 *       self-invocation reason given below, and two — {@code handleListCategories} and
+	 *       {@code handleGetSubscription} — carry none at all. The exclusion rests on their being
+	 *       read-only, never on the annotation. {@code handleListAlerts} is the exception that
+	 *       proves it: {@code alertService.getOrGenerate} does persist, and is safe because
+	 *       {@code AlertService} carries a live cross-bean {@code @Transactional} of its own.
+	 *   <li><b>{@code handleUpdateProfile}</b> has no read of its own to pair with a write, so a
+	 *       transaction here would fix nothing. It re-states from the authenticated {@code User},
+	 *       a snapshot resolved before the LLM round-trip — a <em>wider</em> staleness window than
+	 *       the one closed here, not an absent one. Tracked as TEN-325; out of scope here because
+	 *       writing only the named fields changes profile-update semantics.
+	 *       {@code handleSetDefaultCategory} shares the stale principal but <em>not</em> the shape:
+	 *       it also write-then-writes through {@code getOrCreateByName}, so it can strand a
+	 *       category the same way {@code handleCreateBudget} can.
+	 *   <li><b>{@code handleRenameCategory}</b> <em>is</em> this shape and is knowingly left
+	 *       uncovered. It catches the {@code IllegalArgumentException} {@code CategoryService.update}
+	 *       throws for a duplicate name; inside a shared transaction that inner
+	 *       {@code @Transactional} marks the transaction rollback-only, so catching it and returning
+	 *       a friendly message would fail the outer commit with {@code UnexpectedRollbackException}.
+	 *       That is a property of putting the catch <em>inside</em> the callback, not a structural
+	 *       obstacle: hoisting it outside {@code inOneTransaction} works, because
+	 *       {@code TransactionTemplate} rolls the transaction back and rethrows the original
+	 *       exception rather than reaching commit. So the deferral is a scope choice, not an
+	 *       impossibility. {@code handleDeleteCategory} catches the same exception from
+	 *       {@code CategoryService.delete} and is the second instance — the hazard is a class of
+	 *       handler, not a special case. Tracked as TEN-324 with the rest of the inert-annotation
+	 *       family.
+	 * </ul>
+	 *
+	 * <p>Programmatic rather than {@code @Transactional}, and per handler rather than on
+	 * {@link #execute}: these methods are private and every route to them is a same-bean call, which
+	 * Spring's proxy does not intercept, so an annotation here would do nothing. The public entry
+	 * point that <em>would</em> be intercepted wraps the LLM classification call, and holding a
+	 * database connection open across a model round-trip is worse than the race it would close. Same
+	 * idiom as {@code PaymentService}.
+	 *
+	 * <p>What this does not do is detect a lost update at the row level: with no {@code @Version} on
+	 * the entities, two transactions that read and write concurrently still resolve last-writer-wins
+	 * under {@code READ COMMITTED}. That is true of {@code PUT /expenses/{id}} too, so the chat path
+	 * is now no weaker than the REST one; closing it for both is an entity change, not a change here.
+	 */
+	private ChatResponse inOneTransaction(Supplier<ChatResponse> handler) {
+		return new TransactionTemplate(transactionManager).execute(status -> handler.get());
 	}
 
 	/**
@@ -746,7 +823,12 @@ public class ChatActionService {
 		return new ChatResponse("text", "Which recurring expense would you like to remove? You can say 'delete latest recurring', 'delete recurring [name]', or provide an ID.", null);
 	}
 
+	/** Reads a budget (by id, or by category and month) and then writes it — see {@link #inOneTransaction}. */
 	private ChatResponse handleUpdateBudget(JsonNode params, User user) {
+		return inOneTransaction(() -> updateBudget(params, user));
+	}
+
+	private ChatResponse updateBudget(JsonNode params, User user) {
 		long id = params.path("id").asLong(0);
 		BigDecimal amountLimit = params.get("amountLimit").decimalValue();
 		String month = params.path("month").asText(YearMonth.now().toString());
@@ -778,7 +860,12 @@ public class ChatActionService {
 		return new ChatResponse("text", "Please specify a budget ID or category name to update.", null);
 	}
 
+	/** Resolves a goal and then writes it — see {@link #inOneTransaction}. */
 	private ChatResponse handleUpdateGoal(JsonNode params, User user) {
+		return inOneTransaction(() -> updateGoal(params, user));
+	}
+
+	private ChatResponse updateGoal(JsonNode params, User user) {
 		SavingsGoal goal = resolveGoal(params, user);
 		if (goal == null) {
 			return new ChatResponse("text", "No goal found. Please specify a goal ID or name.", null);
@@ -817,7 +904,12 @@ public class ChatActionService {
 		return null;
 	}
 
+	/** Resolves a recurring expense and then writes it — see {@link #inOneTransaction}. */
 	private ChatResponse handleUpdateRecurring(JsonNode params, User user) {
+		return inOneTransaction(() -> updateRecurring(params, user));
+	}
+
+	private ChatResponse updateRecurring(JsonNode params, User user) {
 		RecurringExpense recurring = resolveRecurring(params, user);
 		if (recurring == null) {
 			return new ChatResponse("text", "No recurring expense found. Please specify an ID or name.", null);
@@ -1179,8 +1271,17 @@ public class ChatActionService {
 		return new ChatResponse("action", "Default category set to \"" + resolvedName + "\".", null);
 	}
 
-	@Transactional
 	ChatResponse handleSetCategoryIcon(JsonNode params, User user) {
+		return inOneTransaction(() -> setCategoryIcon(params, user));
+	}
+
+	/**
+	 * The {@code @Transactional} that used to sit here was inert — every route in is a same-bean
+	 * call. It carried the name forward from the read into the write all the same, so it is wrapped
+	 * rather than annotated. Safe to wrap because it catches nothing: no inner exception can mark
+	 * the shared transaction rollback-only behind a friendly message.
+	 */
+	private ChatResponse setCategoryIcon(JsonNode params, User user) {
 		String categoryName = params.get("categoryName").asText();
 		String icon = params.get("icon").asText();
 		List<CategoryResponse> all = categoryService.findAll(user);
@@ -1259,8 +1360,21 @@ public class ChatActionService {
 		return new ChatResponse("action", "Deleted " + deleted + " expense(s).", result);
 	}
 
-	@Transactional
 	ChatResponse handleRecategorizeExpenses(JsonNode params, User user) {
+		return inOneTransaction(() -> recategorizeExpenses(params, user));
+	}
+
+	/**
+	 * Wrapped for atomicity, not for lost-update detection — see the residual note on
+	 * {@link #inOneTransaction}. Under {@code READ COMMITTED} the persistence context still
+	 * flushes the snapshot this read produced, so a concurrent edit is still resolved
+	 * last-writer-wins. What the wrapper does buy is containment:
+	 * {@code categoryService.getOrCreateByName} is a live cross-bean {@code @Transactional} that
+	 * would otherwise commit the new category in its own transaction, leaving it orphaned if the
+	 * {@code saveAll} that follows fails. The {@code @Transactional} that used to sit here was
+	 * inert — every route in is a same-bean call (TEN-324).
+	 */
+	private ChatResponse recategorizeExpenses(JsonNode params, User user) {
 		String fromCategory = params.get("fromCategory").asText();
 		String toCategory = params.get("toCategory").asText();
 		String fromStr = params.path("from").asText(null);
