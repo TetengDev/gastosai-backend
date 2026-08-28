@@ -482,12 +482,38 @@ public class ChatActionService {
 	 * the row in one transaction and wrote in another, so the values re-stated from the read could
 	 * already be stale by the time the write ran (TEN-323).
 	 *
-	 * <p>The remaining handlers are ruled out rather than covered. Creates take every value from the
-	 * tool call. The delete handlers do resolve a row first, but carry nothing forward from it —
-	 * a concurrent edit landing in that window changes which values the row held, not which row the
-	 * user named, and the row is deleted either way. The read tools are already
-	 * {@code @Transactional(readOnly = true)}. {@code handleUpdateProfile} re-states from the
-	 * authenticated {@code User} the request was resolved from, not from a read of its own.
+	 * <p>Also applied to {@code handleSetCategoryIcon}, which carries the resolved category's name
+	 * forward into its write and is the same shape.
+	 *
+	 * <p>The remaining handlers are ruled out rather than covered, and the grounds differ:
+	 *
+	 * <ul>
+	 *   <li><b>Creates</b> carry nothing from a read into a write. {@code handleCreateExpense} is an
+	 *       exception to the wording, not to the rule: it reads via {@code findRecentDuplicate}
+	 *       first, but that read only gates, and wrapping would not stop a concurrent duplicate
+	 *       insert under {@code READ COMMITTED} — that needs a unique constraint.
+	 *   <li><b>Deletes</b> resolve a row first but carry nothing forward that changes the outcome: a
+	 *       concurrent edit changes which values the row held, not which row the user named, and the
+	 *       row is deleted either way. The confirmation message may quote pre-edit values.
+	 *   <li><b>The read tools</b> perform no write, so there is no read-then-write to protect. The
+	 *       {@code @Transactional(readOnly = true)} some of them carry is <em>inert</em> for the
+	 *       self-invocation reason given below, and two — {@code handleListCategories} and
+	 *       {@code handleGetSubscription} — carry none at all. The exclusion rests on their being
+	 *       read-only, never on the annotation.
+	 *   <li><b>{@code handleUpdateProfile}</b> has no read of its own to pair with a write, so a
+	 *       transaction here would fix nothing. It re-states from the authenticated {@code User},
+	 *       a snapshot resolved before the LLM round-trip — a <em>wider</em> staleness window than
+	 *       the one closed here, not an absent one. {@code handleSetDefaultCategory} shares the
+	 *       shape. Tracked as TEN-325; out of scope here because writing only the named fields
+	 *       changes profile-update semantics.
+	 *   <li><b>{@code handleRenameCategory}</b> <em>is</em> this shape and is knowingly left
+	 *       uncovered. It catches the {@code IllegalArgumentException} {@code CategoryService.update}
+	 *       throws for a duplicate name; inside a shared transaction that inner
+	 *       {@code @Transactional} marks the transaction rollback-only, so catching it and returning
+	 *       a friendly message would fail the outer commit with {@code UnexpectedRollbackException} —
+	 *       trading a rare stale icon for a common confusing error. Tracked as TEN-324 with the rest
+	 *       of the inert-annotation family.
+	 * </ul>
 	 *
 	 * <p>Programmatic rather than {@code @Transactional}, and per handler rather than on
 	 * {@link #execute}: these methods are private and every route to them is a same-bean call, which
@@ -1226,8 +1252,17 @@ public class ChatActionService {
 		return new ChatResponse("action", "Default category set to \"" + resolvedName + "\".", null);
 	}
 
-	@Transactional
 	ChatResponse handleSetCategoryIcon(JsonNode params, User user) {
+		return inOneTransaction(() -> setCategoryIcon(params, user));
+	}
+
+	/**
+	 * The {@code @Transactional} that used to sit here was inert — every route in is a same-bean
+	 * call. It carried the name forward from the read into the write all the same, so it is wrapped
+	 * rather than annotated. Safe to wrap because it catches nothing: no inner exception can mark
+	 * the shared transaction rollback-only behind a friendly message.
+	 */
+	private ChatResponse setCategoryIcon(JsonNode params, User user) {
 		String categoryName = params.get("categoryName").asText();
 		String icon = params.get("icon").asText();
 		List<CategoryResponse> all = categoryService.findAll(user);

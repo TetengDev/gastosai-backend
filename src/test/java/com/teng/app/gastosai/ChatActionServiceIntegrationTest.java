@@ -72,6 +72,8 @@ class ChatActionServiceIntegrationTest extends PostgresBackedTest {
     // Spied so the TEN-323 test can see which transaction the write runs in. The spy replaces the
     // target inside the transactional proxy and delegates to it, so every other test is unaffected.
     @MockitoSpyBean com.teng.app.gastosai.service.ExpenseService expenseService;
+    // Spied for the same reason, so the goal path is pinned too and not only the expense one.
+    @MockitoSpyBean com.teng.app.gastosai.service.SavingsGoalService savingsGoalService;
     @Autowired CategoryRepository categoryRepository;
     @Autowired ProjectRepository projectRepository;
     @Autowired PasswordEncoder passwordEncoder;
@@ -544,6 +546,60 @@ class ChatActionServiceIntegrationTest extends PostgresBackedTest {
         org.assertj.core.api.Assertions.assertThat(
                         expenseRepository.findById(e.getId()).orElseThrow().getDescription())
                 .isEqualTo("Dinner with Ana");
+    }
+
+    /**
+     * TEN-323, second wrapped handler. The expense path was the only one pinned, so deleting
+     * {@code inOneTransaction} from the budget, goal or recurring handler left the suite green —
+     * the wrapper could be removed from three of the four without anything noticing.
+     *
+     * <p>Same discriminator as above: an unnamed transaction at write time means the write joined
+     * one opened programmatically further out, rather than the {@code @Transactional} on
+     * {@code SavingsGoalService.update} starting its own after the read had already committed.
+     */
+    @Test
+    void updateGoal_readAndWrite_shareOneTransaction() throws Exception {
+        SavingsGoal goal = savingsGoalRepository.save(SavingsGoal.builder()
+                .user(user1)
+                .name("Laptop Fund")
+                .targetAmount(new BigDecimal("50000"))
+                .savedAmount(new BigDecimal("1000"))
+                .paused(false)
+                .currency("PHP")
+                .build());
+
+        java.util.concurrent.atomic.AtomicBoolean transactionActive =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        java.util.concurrent.atomic.AtomicReference<String> transactionName =
+                new java.util.concurrent.atomic.AtomicReference<>("not recorded");
+
+        org.mockito.Mockito.doAnswer(invocation -> {
+            transactionActive.set(TransactionSynchronizationManager.isActualTransactionActive());
+            transactionName.set(TransactionSynchronizationManager.getCurrentTransactionName());
+            return invocation.callRealMethod();
+        }).when(savingsGoalService).update(org.mockito.ArgumentMatchers.eq(goal.getId()),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+
+        when(sqlGenerator.classifyIntent(anyString()))
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("update_goal",
+                        "{\"id\":" + goal.getId() + ",\"targetAmount\":60000}")));
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"change my Laptop Fund target to 60000\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("action"));
+
+        org.assertj.core.api.Assertions.assertThat(transactionActive.get())
+                .as("the write runs in a transaction")
+                .isTrue();
+        org.assertj.core.api.Assertions.assertThat(transactionName.get())
+                .as("the write joined the handler's programmatic transaction instead of starting its own")
+                .isNull();
+        org.assertj.core.api.Assertions.assertThat(
+                        savingsGoalRepository.findById(goal.getId()).orElseThrow().getTargetAmount())
+                .isEqualByComparingTo("60000");
     }
 
     /** Categories are per-user and may already be seeded, so take the existing row when there is one. */
