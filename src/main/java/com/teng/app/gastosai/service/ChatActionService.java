@@ -483,36 +483,55 @@ public class ChatActionService {
 	 * already be stale by the time the write ran (TEN-323).
 	 *
 	 * <p>Also applied to {@code handleSetCategoryIcon}, which carries the resolved category's name
-	 * forward into its write and is the same shape.
+	 * forward into its write, and to {@code handleRecategorizeExpenses}, whose wrapper contains the
+	 * category {@code getOrCreateByName} creates so a later {@code saveAll} failure cannot orphan
+	 * it. Neither buys lost-update detection; see the residual below.
 	 *
 	 * <p>The remaining handlers are ruled out rather than covered, and the grounds differ:
 	 *
 	 * <ul>
-	 *   <li><b>Creates</b> carry nothing from a read into a write. {@code handleCreateExpense} is an
-	 *       exception to the wording, not to the rule: it reads via {@code findRecentDuplicate}
-	 *       first, but that read only gates, and wrapping would not stop a concurrent duplicate
-	 *       insert under {@code READ COMMITTED} — that needs a unique constraint.
+	 *   <li><b>Creates</b> carry nothing from a read into a write. Two qualifications:
+	 *       {@code handleCreateExpense} does read, via {@code findRecentDuplicate}, but only to
+	 *       gate — and wrapping would not stop a concurrent duplicate insert under
+	 *       {@code READ COMMITTED}, which needs a unique constraint. {@code handleCreateBudget}
+	 *       is a write-then-write, not a read-then-write: {@code getOrCreateByName} commits a
+	 *       category in its own transaction before the budget is created, so a failure after it
+	 *       leaves a stray empty category. Idempotent and self-healing on retry, so it is left to
+	 *       TEN-324 rather than widened into here.
 	 *   <li><b>Deletes</b> resolve a row first but carry nothing forward that changes the outcome: a
 	 *       concurrent edit changes which values the row held, not which row the user named, and the
-	 *       row is deleted either way. The confirmation message may quote pre-edit values.
+	 *       row is deleted either way. The confirmation message may quote pre-edit values. That
+	 *       ground holds for the single-row deletes only — {@code handleDeleteExpenses} loops
+	 *       {@code expenseService.delete} per id, so a mid-loop failure leaves a partial delete
+	 *       with no rollback and still reports a count. Not fixed here; TEN-324 owns it.
 	 *   <li><b>The read tools</b> perform no write, so there is no read-then-write to protect. The
 	 *       {@code @Transactional(readOnly = true)} some of them carry is <em>inert</em> for the
 	 *       self-invocation reason given below, and two — {@code handleListCategories} and
 	 *       {@code handleGetSubscription} — carry none at all. The exclusion rests on their being
-	 *       read-only, never on the annotation.
+	 *       read-only, never on the annotation. {@code handleListAlerts} is the exception that
+	 *       proves it: {@code alertService.getOrGenerate} does persist, and is safe because
+	 *       {@code AlertService} carries a live cross-bean {@code @Transactional} of its own.
 	 *   <li><b>{@code handleUpdateProfile}</b> has no read of its own to pair with a write, so a
 	 *       transaction here would fix nothing. It re-states from the authenticated {@code User},
 	 *       a snapshot resolved before the LLM round-trip — a <em>wider</em> staleness window than
-	 *       the one closed here, not an absent one. {@code handleSetDefaultCategory} shares the
-	 *       shape. Tracked as TEN-325; out of scope here because writing only the named fields
-	 *       changes profile-update semantics.
+	 *       the one closed here, not an absent one. Tracked as TEN-325; out of scope here because
+	 *       writing only the named fields changes profile-update semantics.
+	 *       {@code handleSetDefaultCategory} shares the stale principal but <em>not</em> the shape:
+	 *       it also write-then-writes through {@code getOrCreateByName}, so it can strand a
+	 *       category the same way {@code handleCreateBudget} can.
 	 *   <li><b>{@code handleRenameCategory}</b> <em>is</em> this shape and is knowingly left
 	 *       uncovered. It catches the {@code IllegalArgumentException} {@code CategoryService.update}
 	 *       throws for a duplicate name; inside a shared transaction that inner
 	 *       {@code @Transactional} marks the transaction rollback-only, so catching it and returning
-	 *       a friendly message would fail the outer commit with {@code UnexpectedRollbackException} —
-	 *       trading a rare stale icon for a common confusing error. Tracked as TEN-324 with the rest
-	 *       of the inert-annotation family.
+	 *       a friendly message would fail the outer commit with {@code UnexpectedRollbackException}.
+	 *       That is a property of putting the catch <em>inside</em> the callback, not a structural
+	 *       obstacle: hoisting it outside {@code inOneTransaction} works, because
+	 *       {@code TransactionTemplate} rolls the transaction back and rethrows the original
+	 *       exception rather than reaching commit. So the deferral is a scope choice, not an
+	 *       impossibility. {@code handleDeleteCategory} catches the same exception from
+	 *       {@code CategoryService.delete} and is the second instance — the hazard is a class of
+	 *       handler, not a special case. Tracked as TEN-324 with the rest of the inert-annotation
+	 *       family.
 	 * </ul>
 	 *
 	 * <p>Programmatic rather than {@code @Transactional}, and per handler rather than on
@@ -1341,8 +1360,21 @@ public class ChatActionService {
 		return new ChatResponse("action", "Deleted " + deleted + " expense(s).", result);
 	}
 
-	@Transactional
 	ChatResponse handleRecategorizeExpenses(JsonNode params, User user) {
+		return inOneTransaction(() -> recategorizeExpenses(params, user));
+	}
+
+	/**
+	 * Wrapped for atomicity, not for lost-update detection — see the residual note on
+	 * {@link #inOneTransaction}. Under {@code READ COMMITTED} the persistence context still
+	 * flushes the snapshot this read produced, so a concurrent edit is still resolved
+	 * last-writer-wins. What the wrapper does buy is containment:
+	 * {@code categoryService.getOrCreateByName} is a live cross-bean {@code @Transactional} that
+	 * would otherwise commit the new category in its own transaction, leaving it orphaned if the
+	 * {@code saveAll} that follows fails. The {@code @Transactional} that used to sit here was
+	 * inert — every route in is a same-bean call (TEN-324).
+	 */
+	private ChatResponse recategorizeExpenses(JsonNode params, User user) {
 		String fromCategory = params.get("fromCategory").asText();
 		String toCategory = params.get("toCategory").asText();
 		String fromStr = params.path("from").asText(null);
