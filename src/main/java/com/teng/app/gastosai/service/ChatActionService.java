@@ -25,7 +25,6 @@ import com.teng.app.gastosai.dto.GoalResponse;
 import com.teng.app.gastosai.dto.RecurringExpenseRequest;
 import com.teng.app.gastosai.dto.RecurringExpenseResponse;
 import com.teng.app.gastosai.dto.UpcomingBillResponse;
-import com.teng.app.gastosai.dto.UserProfileRequest;
 import com.teng.app.gastosai.entity.AiUsageStatus;
 import com.teng.app.gastosai.entity.Budget;
 import com.teng.app.gastosai.entity.Category;
@@ -58,6 +57,7 @@ import java.time.YearMonth;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 @Service
@@ -512,13 +512,15 @@ public class ChatActionService {
 	 *       proves it: {@code alertService.getOrGenerate} does persist, and is safe because
 	 *       {@code AlertService} carries a live cross-bean {@code @Transactional} of its own.
 	 *   <li><b>{@code handleUpdateProfile}</b> has no read of its own to pair with a write, so a
-	 *       transaction here would fix nothing. It re-states from the authenticated {@code User},
-	 *       a snapshot resolved before the LLM round-trip — a <em>wider</em> staleness window than
-	 *       the one closed here, not an absent one. Tracked as TEN-325; out of scope here because
-	 *       writing only the named fields changes profile-update semantics.
-	 *       {@code handleSetDefaultCategory} shares the stale principal but <em>not</em> the shape:
-	 *       it also write-then-writes through {@code getOrCreateByName}, so it can strand a
-	 *       category the same way {@code handleCreateBudget} can.
+	 *       transaction here would fix nothing. It used to re-state from the authenticated
+	 *       {@code User}, a snapshot resolved before the LLM round-trip — a <em>wider</em>
+	 *       staleness window than the one closed here, not an absent one. Fixed under TEN-325 by
+	 *       writing only the fields the tool call named, through
+	 *       {@code UserProfileService.patchProfile}, rather than by wrapping anything here.
+	 *       {@code handleSetDefaultCategory} shared the stale principal and is fixed the same way,
+	 *       but <em>not</em> the shape: it also write-then-writes through
+	 *       {@code getOrCreateByName}, so it can still strand a category the same way
+	 *       {@code handleCreateBudget} can. That part stays with TEN-324.
 	 *   <li><b>{@code handleRenameCategory}</b> <em>is</em> this shape and is knowingly left
 	 *       uncovered. It catches the {@code IllegalArgumentException} {@code CategoryService.update}
 	 *       throws for a duplicate name; inside a shared transaction that inner
@@ -1011,21 +1013,47 @@ public class ChatActionService {
 		return new ChatResponse("action", "You have " + categories.size() + " categories.", categories);
 	}
 
+	/**
+	 * Writes only the fields the tool call named (TEN-325).
+	 *
+	 * <p>This used to restate every profile field from {@code user} and send them through the
+	 * whole-object {@code updateProfile}. {@code user} is the detached principal
+	 * {@code JwtAuthFilter} resolves once per request, before the LLM round-trip, so a field
+	 * changed from another device while the model was thinking was silently reverted by a chat
+	 * turn that never mentioned it. The staleness window spanned the whole request — wider than
+	 * the read-then-write window TEN-323 closed, and not the same shape: there is no read here to
+	 * pair with the write, so a transaction would have fixed nothing.
+	 *
+	 * <p>The fix is {@link UserProfileService#patchProfile}: unnamed fields are not written at
+	 * all, so there is nothing stale to write back, and the row is re-read inside the write
+	 * transaction. Only {@code user.getEmail()} is still taken from the principal — it identifies
+	 * which row to read, it is what the token was issued for, and it is not a field this path
+	 * writes.
+	 */
 	private ChatResponse handleUpdateProfile(JsonNode params, User user) {
 		String name = params.path("name").asText(null);
 		String nickname = params.path("nickname").asText(null);
 		String avatar = params.path("avatar").asText(null);
 		String defaultCategory = params.path("defaultCategory").asText(null);
 
-		String resolvedName = (name != null && !name.isBlank()) ? name : user.getName();
-		String resolvedNickname = (nickname != null) ? nickname : user.getNickname();
-		String resolvedAvatar = (avatar != null && !avatar.isBlank()) ? avatar : user.getAvatar();
-		String resolvedDefaultCategory = (defaultCategory != null && !defaultCategory.isBlank()) ? defaultCategory : user.getDefaultCategoryName();
-		String resolvedAvatarColor = user.getAvatarColor();
+		UserProfileService.ProfilePatch patch = new UserProfileService.ProfilePatch(
+				named(name),
+				nickname != null ? Optional.of(nickname) : Optional.empty(),
+				named(defaultCategory),
+				named(avatar));
 
-		UserProfileRequest req = new UserProfileRequest(resolvedName, resolvedNickname, user.getEmail(), resolvedAvatarColor, resolvedDefaultCategory, resolvedAvatar);
-		Object result = userProfileService.updateProfile(user.getEmail(), req);
+		Object result = userProfileService.patchProfile(user.getEmail(), patch);
 		return new ChatResponse("action", "Profile updated.", result);
+	}
+
+	/**
+	 * A tool-call argument counts as named only when it is present and not blank — the model emits
+	 * an empty string for a field it has nothing to say about. {@code nickname} is the exception
+	 * and is handled at the call site: a blank one there is a deliberate clear, which is how the
+	 * whole-object path behaved too.
+	 */
+	private static Optional<String> named(String value) {
+		return (value != null && !value.isBlank()) ? Optional.of(value) : Optional.empty();
 	}
 
 	private ChatResponse handleGetSubscription(User user) {
@@ -1260,14 +1288,13 @@ public class ChatActionService {
 		String categoryName = params.get("categoryName").asText();
 		Category cat = categoryService.getOrCreateByName(categoryName, user);
 		String resolvedName = cat.getName();
-		UserProfileRequest req = new UserProfileRequest(
-				user.getName(),
-				user.getNickname(),
-				user.getEmail(),
-				user.getAvatarColor(),
-				resolvedName,
-				user.getAvatar());
-		userProfileService.updateProfile(user.getEmail(), req);
+		// Same TEN-325 hazard as handleUpdateProfile, more bluntly: this restated five profile
+		// fields from the stale principal to change one. It now names only the field it sets.
+		userProfileService.patchProfile(user.getEmail(), new UserProfileService.ProfilePatch(
+				Optional.empty(),
+				Optional.empty(),
+				Optional.of(resolvedName),
+				Optional.empty()));
 		return new ChatResponse("action", "Default category set to \"" + resolvedName + "\".", null);
 	}
 

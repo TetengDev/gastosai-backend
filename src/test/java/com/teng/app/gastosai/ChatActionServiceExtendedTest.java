@@ -42,6 +42,7 @@ import com.teng.app.gastosai.service.UserProfileService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -400,13 +401,59 @@ class ChatActionServiceExtendedTest {
                 {"name":"New Name","nickname":"newnick"}
                 """;
         when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("update_profile", paramsJson)));
-        when(userProfileService.updateProfile(anyString(), any())).thenReturn(
+        when(userProfileService.patchProfile(anyString(), any())).thenReturn(
                 new UserProfileResponse("u@test.com", "New Name", "newnick", null, null, null));
 
         ChatResponse resp = chatActionService.dispatch("Change my name to New Name", null, user());
 
         assertThat(resp.type()).isEqualTo("action");
         assertThat(resp.message()).containsIgnoringCase("profile updated");
+    }
+
+    // TEN-325: the patch carries only what the tool call named. A field the call is silent about
+    // must not be restated from the principal, because the principal is a pre-LLM snapshot.
+    @Test
+    void updateProfile_patchesOnlyTheNamedFields() {
+        String paramsJson = """
+                {"name":"New Name"}
+                """;
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("update_profile", paramsJson)));
+        when(userProfileService.patchProfile(anyString(), any())).thenReturn(
+                new UserProfileResponse("u@test.com", "New Name", "tester", null, null, null));
+
+        chatActionService.dispatch("Change my name to New Name", null, user());
+
+        ArgumentCaptor<UserProfileService.ProfilePatch> captor =
+                ArgumentCaptor.forClass(UserProfileService.ProfilePatch.class);
+        verify(userProfileService).patchProfile(eq("u@test.com"), captor.capture());
+        UserProfileService.ProfilePatch patch = captor.getValue();
+        assertThat(patch.name()).contains("New Name");
+        assertThat(patch.nickname()).isEmpty();
+        assertThat(patch.defaultCategoryName()).isEmpty();
+        assertThat(patch.avatar()).isEmpty();
+    }
+
+    // TEN-325: set_default_category names one field, so it must patch exactly one.
+    @Test
+    void setDefaultCategory_patchesOnlyTheDefaultCategory() {
+        Category cat = Category.builder().id(9L).name("Groceries").build();
+        when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(
+                new ChatToolCall("set_default_category", "{\"categoryName\":\"groceries\"}")));
+        when(categoryService.getOrCreateByName(eq("groceries"), any())).thenReturn(cat);
+        when(userProfileService.patchProfile(anyString(), any())).thenReturn(
+                new UserProfileResponse("u@test.com", "Test User", "tester", null, "Groceries", null));
+
+        ChatResponse resp = chatActionService.dispatch("make groceries my default", "execute", user());
+
+        assertThat(resp.message()).contains("Groceries");
+        ArgumentCaptor<UserProfileService.ProfilePatch> captor =
+                ArgumentCaptor.forClass(UserProfileService.ProfilePatch.class);
+        verify(userProfileService).patchProfile(eq("u@test.com"), captor.capture());
+        UserProfileService.ProfilePatch patch = captor.getValue();
+        assertThat(patch.defaultCategoryName()).contains("Groceries");
+        assertThat(patch.name()).isEmpty();
+        assertThat(patch.nickname()).isEmpty();
+        assertThat(patch.avatar()).isEmpty();
     }
 
     // --- Subscription read ---
