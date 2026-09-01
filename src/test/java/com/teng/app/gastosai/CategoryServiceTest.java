@@ -149,6 +149,25 @@ class CategoryServiceTest {
         verify(categoryRepository).save(argThat(c -> "NewCat".equals(c.getName())));
     }
 
+    /**
+     * TEN-319: the incidental path does not consult the cap at all — not even to read the plan.
+     * Verifying that {@code entitlementService} is never touched is the point: a future change that
+     * makes the check conditional rather than absent fails here, which is the alarm this pins.
+     */
+    @Test
+    void getOrCreateByName_ignoresThePlanCap_evenWhenEnforcedAndAtTheLimit() {
+        User user = testUser();
+        when(categoryRepository.findByUserAndNameIgnoreCase(user, "Sixth")).thenReturn(Optional.empty());
+        Category saved = Category.builder().id(11L).name("Sixth").user(user).build();
+        when(categoryRepository.save(any(Category.class))).thenReturn(saved);
+
+        Category result = categoryService.getOrCreateByName("Sixth", user);
+
+        assertThat(result.getId()).isEqualTo(11L);
+        verify(entitlementService, never()).describe(any());
+        verify(categoryRepository, never()).countByUser(any());
+    }
+
     @Test
     void delete_reassignExpensesToUncategorized_whenCategoryHasExpenses() {
         User user = testUser();

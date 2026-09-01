@@ -12,6 +12,7 @@ import com.teng.app.gastosai.entity.SubscriptionStatus;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.entity.UserSubscription;
 import com.teng.app.gastosai.exception.AiQuotaExceededException;
+import com.teng.app.gastosai.repository.CategoryRepository;
 import com.teng.app.gastosai.repository.SubscriptionPlanRepository;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.repository.UserSubscriptionRepository;
@@ -96,6 +97,7 @@ class EntitlementEnforcementIntegrationTest extends PostgresBackedTest {
     @Autowired AiQuotaService aiQuotaService;
     @Autowired EntitlementService entitlementService;
     @Autowired CategorySeedService categorySeedService;
+    @Autowired CategoryRepository categoryRepository;
 
     // Mocked so a request that passes the gate stops at the boundary instead of calling a provider.
     @MockitoBean AiQueryService aiQueryService;
@@ -278,6 +280,38 @@ class EntitlementEnforcementIntegrationTest extends PostgresBackedTest {
         createCategory(freeAuth, "Groceries")
                 .andExpect(status().isPaymentRequired())
                 .andExpect(jsonPath("$.feature").value("CUSTOM_CATEGORIES"));
+    }
+
+    /**
+     * TEN-319: the expense path is deliberately exempt from the category cap, and this pins the
+     * decision so a later change to it has to be deliberate.
+     *
+     * <p>A user standing exactly at the cap — refused a sixth category by {@code POST /categories}
+     * in the same test — still records an expense that names a category they do not have, and the
+     * category is created for them. The reasoning is on {@code CategoryService.getOrCreateByName}:
+     * the same method provisions the 13 seeded categories at registration while the user is still
+     * FREE against a cap of 5, so capping it would break registration, and a 402 on
+     * {@code POST /expenses} would refuse to record a spend over a category name.
+     */
+    @Test
+    void free_atTheCategoryCap_stillCreatesACategoryThroughTheExpensePath() throws Exception {
+        for (int i = 1; i <= FREE_CATEGORY_CAP; i++) {
+            createCategory(freeAuth, "Category " + i).andExpect(status().isCreated());
+        }
+        createCategory(freeAuth, "Sixth By Hand")
+                .andExpect(status().isPaymentRequired())
+                .andExpect(jsonPath("$.feature").value("CUSTOM_CATEGORIES"));
+
+        mockMvc.perform(post("/expenses")
+                        .header("Authorization", freeAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":150.00,\"description\":\"Lunch at Jollibee\","
+                                + "\"category\":\"Sixth By Expense\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.category").value("Sixth By Expense"));
+
+        assertThat(categoryRepository.findByUserAndNameIgnoreCase(free, "Sixth By Expense")).isPresent();
+        assertThat(categoryRepository.countByUser(free)).isEqualTo(FREE_CATEGORY_CAP + 1);
     }
 
     @Test

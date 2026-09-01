@@ -172,6 +172,10 @@ public class CategoryService {
 	 * Block creating more categories than the user's plan allows. No-op unless monetization is
 	 * enforced. {@link EntitlementService#describe} already folds in the admin/view-as logic, so
 	 * admins (and PREMIUM) resolve to an unlimited cap.
+	 *
+	 * <p>This gates the category management surface — {@code POST /categories} — and nothing else.
+	 * It is deliberately <em>not</em> called from {@link #getOrCreateByName}; see that method for
+	 * the reasoning and for what would have to change first.
 	 */
 	private void enforceCategoryLimit(User user) {
 		if (!monetizationProperties.isEnforce()) {
@@ -199,6 +203,33 @@ public class CategoryService {
 	 * editing another user's expense passes that expense's owner, so the row and its category keep
 	 * agreeing on whose they are; a caller that hands in its own principal by reflex would file a
 	 * category the owner can never see.
+	 *
+	 * <p><b>The plan category cap does not apply here, deliberately (TEN-319).</b> This method is
+	 * the incidental path: an expense, a chat action, a CSV row or a recurring template names a
+	 * category, and the name has to resolve to a row for the write to happen at all. Three reasons
+	 * it is exempt rather than capped:
+	 *
+	 * <ul>
+	 *   <li><b>The same method provisions accounts.</b> {@code CategorySeedService} creates the 13
+	 *       starter categories through it at registration, before the trial is enrolled, so the
+	 *       user is FREE at that moment and the FREE cap is 5. Enforcing here would make the sixth
+	 *       seeded category throw and take registration down with it.</li>
+	 *   <li><b>The cap's arithmetic is already broken against that seed.</b> A registered FREE user
+	 *       holds 13 categories against a cap of 5, so every incidental creation would fail from
+	 *       the first one — see {@code EntitlementEnforcementIntegrationTest
+	 *       #free_afterRegistrationSeeding_cannotCreateAnyCategory}, which pins that gap.</li>
+	 *   <li><b>The failure would land on the wrong request.</b> A cap is a paywall on managing
+	 *       categories, not a reason to refuse to record a spend. Failing {@code POST /expenses}
+	 *       with 402 because of the category name loses the expense the user was trying to keep.</li>
+	 * </ul>
+	 *
+	 * <p>What the exemption costs: with monetization enforced, a user at their cap can still grow
+	 * their category list by naming new ones on expenses. That is accepted for now. Revisiting it
+	 * needs the seed-versus-cap gap resolved first (raise the cap above the seeded set, or count
+	 * only user-created categories), and the check then belongs at the call sites that carry user
+	 * intent — not here, where provisioning also passes through.
+	 *
+	 * @see #enforceCategoryLimit(User)
 	 */
 	@Transactional
 	public Category getOrCreateByName(String categoryName, User owner) {
