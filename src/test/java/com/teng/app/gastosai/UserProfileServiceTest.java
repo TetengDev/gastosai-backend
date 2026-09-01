@@ -73,6 +73,43 @@ class UserProfileServiceTest {
         assertThat(r.email()).isEqualTo("new@b.com");
     }
 
+    // TEN-325: patchProfile's own branching, exercised for real. The ChatActionService tests mock
+    // this method, so without these two the blank-clearing branches ran nowhere.
+    @Test
+    void patchProfile_leavesUnnamedFieldsAlone() {
+        User u = user();
+        u.setDefaultCategoryName("Food");
+        u.setAvatar("Dog");
+        when(userRepository.findByEmail("a@b.com")).thenReturn(Optional.of(u));
+        when(userRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        UserProfileResponse r = userProfileService.patchProfile("a@b.com",
+                new UserProfileService.ProfilePatch(Optional.of("Bob"), Optional.empty(), Optional.empty(), Optional.empty()));
+
+        assertThat(r.name()).isEqualTo("Bob");
+        assertThat(r.nickname()).isEqualTo("ali");
+        assertThat(r.avatarColor()).isEqualTo("blue");
+        assertThat(r.defaultCategory()).isEqualTo("Food");
+        assertThat(r.avatar()).isEqualTo("Dog");
+    }
+
+    @Test
+    void patchProfile_blankNamedValue_clearsTheField() {
+        User u = user();
+        u.setDefaultCategoryName("Food");
+        u.setAvatar("Dog");
+        when(userRepository.findByEmail("a@b.com")).thenReturn(Optional.of(u));
+        when(userRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        UserProfileResponse r = userProfileService.patchProfile("a@b.com",
+                new UserProfileService.ProfilePatch(Optional.empty(), Optional.of("  bobby  "), Optional.of("  "), Optional.of("")));
+
+        assertThat(r.nickname()).as("a named value is stripped, not stored raw").isEqualTo("bobby");
+        assertThat(r.defaultCategory()).isNull();
+        assertThat(r.avatar()).isNull();
+        assertThat(r.name()).isEqualTo("Alice");
+    }
+
     @Test
     void updateProfile_newEmail_conflict_throws() {
         User u = user();
