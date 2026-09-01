@@ -53,11 +53,12 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 
 @Service
@@ -1361,6 +1362,11 @@ public class ChatActionService {
 	 * commit of the friendly count with {@code UnexpectedRollbackException}. A row someone else
 	 * deletes between that check and the delete still aborts the whole batch — that is the atomicity
 	 * this buys, not a regression.
+	 *
+	 * <p>An id repeated in the tool call is a different case and is <em>not</em> left to abort: the
+	 * named ids are de-duplicated, because the second delete of the same row would find the first
+	 * one's deletion and throw. The per-id catch this replaced absorbed that quietly, so a repeated
+	 * id has always meant one deletion and must keep meaning one.
 	 */
 	private ChatResponse handleDeleteExpenses(JsonNode params, User user) {
 		return inOneTransaction(() -> deleteExpenses(params, user));
@@ -1369,14 +1375,14 @@ public class ChatActionService {
 	private ChatResponse deleteExpenses(JsonNode params, User user) {
 		JsonNode idsNode = params.path("ids");
 		if (idsNode.isArray() && !idsNode.isEmpty()) {
-			List<Long> named = new ArrayList<>();
+			Set<Long> named = new LinkedHashSet<>();
 			for (JsonNode idNode : idsNode) {
 				long id = idNode.asLong();
 				if (resolvesForDelete(id, user)) {
 					named.add(id);
 				}
 			}
-			return deleteEach(named, user);
+			return deleteEach(List.copyOf(named), user);
 		}
 
 		String fromStr = params.path("from").asText(null);

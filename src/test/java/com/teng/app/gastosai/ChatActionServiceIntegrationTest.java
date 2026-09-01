@@ -679,6 +679,35 @@ class ChatActionServiceIntegrationTest extends PostgresBackedTest {
     }
 
     /**
+     * TEN-324: an id the tool call repeats deletes one row and reports one, rather than aborting.
+     *
+     * <p>The per-id {@code catch (ResourceNotFoundException)} this handler used to carry absorbed
+     * the repeat quietly. With the deletes now sharing one transaction there is no catch to absorb
+     * it, so the second delete of the same row would see the first one's deletion and throw — the
+     * ids are de-duplicated before the loop instead.
+     */
+    @Test
+    void deleteExpenses_repeatedId_deletesItOnceAndReportsOne() throws Exception {
+        Expense only = expenseNamed("Repeated");
+
+        when(sqlGenerator.classifyIntent(anyString()))
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("delete_expenses",
+                        "{\"ids\":[" + only.getId() + "," + only.getId() + "]}")));
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"delete that one, and that one\",\"mode\":\"execute\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("action"))
+                .andExpect(jsonPath("$.result.deleted").value(1));
+
+        org.assertj.core.api.Assertions.assertThat(expenseRepository.findById(only.getId()))
+                .as("the row is gone, and the repeat did not abort the batch")
+                .isEmpty();
+    }
+
+    /**
      * TEN-324, the rollback-only hazard: {@code CategoryService.update} throws its duplicate-name
      * {@code IllegalArgumentException} from inside a live {@code @Transactional}, which marks the
      * shared transaction rollback-only. The catch is hoisted outside {@code inOneTransaction} so the
