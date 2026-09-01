@@ -224,7 +224,9 @@ public class CategoryService {
 	 * </ul>
 	 *
 	 * <p>What the exemption costs: with monetization enforced, a user at their cap can still grow
-	 * their category list by naming new ones on expenses. That is accepted for now. Revisiting it
+	 * their category list without limit by naming new ones — on an expense, in chat, in a CSV
+	 * import or on a recurring template, since all four reach this method. That is accepted for
+	 * now, and {@code TEN-327} tracks re-checking every one of them. Revisiting it
 	 * needs the seed-versus-cap gap resolved first (raise the cap above the seeded set, or count
 	 * only user-created categories), and the check then belongs at the call sites that carry user
 	 * intent — not here, where provisioning also passes through.

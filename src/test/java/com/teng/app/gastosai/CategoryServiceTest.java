@@ -153,9 +153,15 @@ class CategoryServiceTest {
      * TEN-319: the incidental path does not consult the cap at all — not even to read the plan.
      * Verifying that {@code entitlementService} is never touched is the point: a future change that
      * makes the check conditional rather than absent fails here, which is the alarm this pins.
+     *
+     * <p>Deliberately no {@code isEnforce()} stub. The check is absent, not conditional, so the
+     * enforcement flag is never read — stubbing it would fail Mockito's strict stubbing as unused,
+     * and the name would then promise a state this test cannot reach. The genuinely
+     * enforced-and-at-cap case is {@code EntitlementEnforcementIntegrationTest
+     * #free_atTheCategoryCap_stillCreatesACategoryThroughTheExpensePath}, against a real database.
      */
     @Test
-    void getOrCreateByName_ignoresThePlanCap_evenWhenEnforcedAndAtTheLimit() {
+    void getOrCreateByName_neverConsultsThePlan_soNoCapCanApply() {
         User user = testUser();
         when(categoryRepository.findByUserAndNameIgnoreCase(user, "Sixth")).thenReturn(Optional.empty());
         Category saved = Category.builder().id(11L).name("Sixth").user(user).build();
