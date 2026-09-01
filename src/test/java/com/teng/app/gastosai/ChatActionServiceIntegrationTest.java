@@ -97,6 +97,9 @@ class ChatActionServiceIntegrationTest extends PostgresBackedTest {
 
         user1 = userRepository.save(User.builder()
                 .name("Chat Test User1")
+                // Set so the TEN-325 tests can tell a preserved field from an unset one: the
+                // principal must carry a value that a stale write would restore.
+                .nickname("nick-at-login")
                 .email("chattest1@test.com")
                 .password(passwordEncoder.encode("password"))
                 .role(Role.USER)
@@ -600,6 +603,62 @@ class ChatActionServiceIntegrationTest extends PostgresBackedTest {
         org.assertj.core.api.Assertions.assertThat(
                         savingsGoalRepository.findById(goal.getId()).orElseThrow().getTargetAmount())
                 .isEqualByComparingTo("60000");
+    }
+
+    /**
+     * TEN-325: a chat profile update must not revert a field changed elsewhere during the same
+     * request.
+     *
+     * <p>The out-of-band write happens inside the {@code classifyIntent} stub, which is exactly
+     * the window the bug lived in: {@code JwtAuthFilter} has already loaded and detached the
+     * principal, and the handler has not run yet. Before the fix the handler restated
+     * {@code nickname} from that snapshot and wrote the pre-change value back.
+     */
+    @Test
+    void updateProfile_doesNotRevertAFieldChangedOutOfBand() throws Exception {
+        when(sqlGenerator.classifyIntent(anyString())).thenAnswer(invocation -> {
+            User fresh = userRepository.findByEmail(user1.getEmail()).orElseThrow();
+            fresh.setNickname("changed-from-mobile");
+            userRepository.save(fresh);
+            return LlmResult.ofValue(new ChatToolCall("update_profile", "{\"name\":\"Renamed By Chat\"}"));
+        });
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"change my name to Renamed By Chat\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("action"));
+
+        User after = userRepository.findByEmail(user1.getEmail()).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(after.getName()).isEqualTo("Renamed By Chat");
+        org.assertj.core.api.Assertions.assertThat(after.getNickname())
+                .as("a nickname changed out of band survives a chat update that never named it")
+                .isEqualTo("changed-from-mobile");
+    }
+
+    /** TEN-325, the same guarantee for the blunter handler. */
+    @Test
+    void setDefaultCategory_doesNotRevertAFieldChangedOutOfBand() throws Exception {
+        when(sqlGenerator.classifyIntent(anyString())).thenAnswer(invocation -> {
+            User fresh = userRepository.findByEmail(user1.getEmail()).orElseThrow();
+            fresh.setNickname("changed-from-mobile");
+            userRepository.save(fresh);
+            return LlmResult.ofValue(new ChatToolCall("set_default_category", "{\"categoryName\":\"Groceries\"}"));
+        });
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"make Groceries my default category\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("action"));
+
+        User after = userRepository.findByEmail(user1.getEmail()).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(after.getDefaultCategoryName()).isEqualTo("Groceries");
+        org.assertj.core.api.Assertions.assertThat(after.getNickname())
+                .as("a nickname changed out of band survives set_default_category")
+                .isEqualTo("changed-from-mobile");
     }
 
     /** Categories are per-user and may already be seeded, so take the existing row when there is one. */

@@ -45,6 +45,7 @@ import com.teng.app.gastosai.service.UserProfileService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -389,7 +390,11 @@ class ChatActionServiceReadToolsTest {
 
         assertThat(resp.type()).isEqualTo("action");
         assertThat(resp.message()).containsIgnoringCase("Groceries");
-        verify(userProfileService).updateProfile(eq("u@test.com"), any());
+        ArgumentCaptor<UserProfileService.ProfilePatch> captor =
+                ArgumentCaptor.forClass(UserProfileService.ProfilePatch.class);
+        verify(userProfileService).patchProfile(eq("u@test.com"), captor.capture());
+        UserProfileService.ProfilePatch patch = captor.getValue();
+        assertThat(patch.defaultCategoryName()).contains("Groceries");
     }
 
     // --- set_category_icon ---
