@@ -45,7 +45,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -55,9 +54,11 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 
 @Service
@@ -363,8 +364,7 @@ public class ChatActionService {
 		};
 	}
 
-	@Transactional(readOnly = true)
-	protected java.util.Optional<Expense> findRecentDuplicate(User user, BigDecimal amount, String description) {
+	private java.util.Optional<Expense> findRecentDuplicate(User user, BigDecimal amount, String description) {
 		LocalDateTime since = LocalDateTime.now().minusDays(7);
 		List<Expense> recent = expenseRepository.findByUserAndDateAfterOrderByDateDesc(user, since);
 		String needle = description.trim().toLowerCase();
@@ -487,54 +487,48 @@ public class ChatActionService {
 	 * category {@code getOrCreateByName} creates so a later {@code saveAll} failure cannot orphan
 	 * it. Neither buys lost-update detection; see the residual below.
 	 *
-	 * <p>The remaining handlers are ruled out rather than covered, and the grounds differ:
+	 * <p>TEN-324 then covered the rest of the handlers that write more than once:
+	 * {@code handleDeleteExpenses}, whose per-id loop could half-finish and still report a count;
+	 * {@code handleCreateBudget} and {@code handleSetDefaultCategory}, whose
+	 * {@code getOrCreateByName} could strand an empty category if the write after it failed; and
+	 * {@code handleRenameCategory} and {@code handleDeleteCategory}, which needed their catch
+	 * hoisted outside the wrapper first — see the rollback-only note below. The same issue removed
+	 * the inert {@code @Transactional} annotations the class used to carry, so wrapping here is now
+	 * the class's only convention and no annotation implies a guarantee it does not provide.
+	 *
+	 * <p>The handlers still outside a wrapper are ruled out rather than overlooked:
 	 *
 	 * <ul>
-	 *   <li><b>Creates</b> carry nothing from a read into a write. Two qualifications:
+	 *   <li><b>Creates</b> other than the budget one carry nothing from a read into a write.
 	 *       {@code handleCreateExpense} does read, via {@code findRecentDuplicate}, but only to
 	 *       gate — and wrapping would not stop a concurrent duplicate insert under
-	 *       {@code READ COMMITTED}, which needs a unique constraint. {@code handleCreateBudget}
-	 *       is a write-then-write, not a read-then-write: {@code getOrCreateByName} commits a
-	 *       category in its own transaction before the budget is created, so a failure after it
-	 *       leaves a stray empty category. Idempotent and self-healing on retry, so it is left to
-	 *       TEN-324 rather than widened into here.
-	 *   <li><b>Deletes</b> resolve a row first but carry nothing forward that changes the outcome: a
-	 *       concurrent edit changes which values the row held, not which row the user named, and the
-	 *       row is deleted either way. The confirmation message may quote pre-edit values. That
-	 *       ground holds for the single-row deletes only — {@code handleDeleteExpenses} loops
-	 *       {@code expenseService.delete} per id, so a mid-loop failure leaves a partial delete
-	 *       with no rollback and still reports a count. Not fixed here; TEN-324 owns it.
-	 *   <li><b>The read tools</b> perform no write, so there is no read-then-write to protect. The
-	 *       {@code @Transactional(readOnly = true)} some of them carry is <em>inert</em> for the
-	 *       self-invocation reason given below, and two — {@code handleListCategories} and
-	 *       {@code handleGetSubscription} — carry none at all. The exclusion rests on their being
-	 *       read-only, never on the annotation. {@code handleListAlerts} is the exception that
-	 *       proves it: {@code alertService.getOrGenerate} does persist, and is safe because
-	 *       {@code AlertService} carries a live cross-bean {@code @Transactional} of its own.
+	 *       {@code READ COMMITTED}, which needs a unique constraint.
+	 *   <li><b>The single-row deletes</b> resolve a row first but carry nothing forward that changes
+	 *       the outcome: a concurrent edit changes which values the row held, not which row the user
+	 *       named, and the row is deleted either way. The confirmation message may quote pre-edit
+	 *       values.
+	 *   <li><b>The read tools</b> perform no write, so there is no read-then-write to protect, and
+	 *       they carry no annotation claiming otherwise. {@code handleListAlerts} is the exception
+	 *       that proves the rule: {@code alertService.getOrGenerate} does persist, and is safe
+	 *       because {@code AlertService} carries a live cross-bean {@code @Transactional} of its own
+	 *       — as do the three alert mutations, each a single call into it.
 	 *   <li><b>{@code handleUpdateProfile}</b> has no read of its own to pair with a write, so a
 	 *       transaction here would fix nothing. It used to re-state from the authenticated
 	 *       {@code User}, a snapshot resolved before the LLM round-trip — a <em>wider</em>
 	 *       staleness window than the one closed here, not an absent one. Fixed under TEN-325 by
 	 *       writing only the fields the tool call named, through
 	 *       {@code UserProfileService.patchProfile}, rather than by wrapping anything here.
-	 *       {@code handleSetDefaultCategory} shared the stale principal and is fixed the same way,
-	 *       but <em>not</em> the shape: it also write-then-writes through
-	 *       {@code getOrCreateByName}, so it can still strand a category the same way
-	 *       {@code handleCreateBudget} can. That part stays with TEN-324.
-	 *   <li><b>{@code handleRenameCategory}</b> <em>is</em> this shape and is knowingly left
-	 *       uncovered. It catches the {@code IllegalArgumentException} {@code CategoryService.update}
-	 *       throws for a duplicate name; inside a shared transaction that inner
-	 *       {@code @Transactional} marks the transaction rollback-only, so catching it and returning
-	 *       a friendly message would fail the outer commit with {@code UnexpectedRollbackException}.
-	 *       That is a property of putting the catch <em>inside</em> the callback, not a structural
-	 *       obstacle: hoisting it outside {@code inOneTransaction} works, because
-	 *       {@code TransactionTemplate} rolls the transaction back and rethrows the original
-	 *       exception rather than reaching commit. So the deferral is a scope choice, not an
-	 *       impossibility. {@code handleDeleteCategory} catches the same exception from
-	 *       {@code CategoryService.delete} and is the second instance — the hazard is a class of
-	 *       handler, not a special case. Tracked as TEN-324 with the rest of the inert-annotation
-	 *       family.
 	 * </ul>
+	 *
+	 * <p><b>The rollback-only hazard.</b> An inner {@code @Transactional} that throws marks the
+	 * shared transaction rollback-only, so a handler that catches that exception <em>inside</em> the
+	 * callback and returns a friendly message fails the outer commit with
+	 * {@code UnexpectedRollbackException}. Hoisting the catch outside {@code inOneTransaction} is
+	 * the fix, not an abstention: {@code TransactionTemplate} rolls back and rethrows the original
+	 * exception rather than reaching commit, so the friendly message survives and the rolled-back
+	 * writes are genuinely gone. Where the friendly path must not be reached by an exception at all
+	 * — {@code handleDeleteExpenses} skipping an id that does not resolve — the condition is checked
+	 * before the call instead.
 	 *
 	 * <p>Programmatic rather than {@code @Transactional}, and per handler rather than on
 	 * {@link #execute}: these methods are private and every route to them is a same-bean call, which
@@ -623,15 +617,30 @@ public class ChatActionService {
 		return new ChatResponse("text", "Which expense would you like to delete? You can say 'delete latest expense', 'delete [description]', or provide an ID.", null);
 	}
 
+	/**
+	 * Write-then-write: {@code getOrCreateByName} is a live cross-bean {@code @Transactional} that
+	 * used to commit a new category in its own transaction, stranding an empty one if the budget
+	 * create that follows failed. Both writes now share one transaction (TEN-324).
+	 *
+	 * <p>The conflict catch is hoisted outside the wrapper for the reason given on
+	 * {@link #handleRenameCategory}: {@code BudgetService.create} throws its
+	 * {@code ResponseStatusException} from inside a live {@code @Transactional}, so catching it in
+	 * the callback would mark the shared transaction rollback-only and the preview could never
+	 * commit. Out here the transaction is already rolled back — which is also what makes the
+	 * category created on the failed attempt disappear rather than linger — and the branch below
+	 * re-resolves it in its own transaction to build the preview.
+	 */
 	private ChatResponse handleCreateBudget(JsonNode params, User user) {
 		String categoryName = params.get("categoryName").asText();
 		String month = params.path("month").asText(YearMonth.now().toString());
 		BigDecimal amountLimit = params.get("amountLimit").decimalValue();
 		try {
-			Category cat = categoryService.getOrCreateByName(categoryName, user);
-			BudgetRequest req = new BudgetRequest(cat.getId(), month, amountLimit, null, null, null);
-			Object result = budgetService.create(req, user);
-			return new ChatResponse("action", "Budget created for " + categoryName + " (₱" + amountLimit.toPlainString() + ").", result);
+			return inOneTransaction(() -> {
+				Category cat = categoryService.getOrCreateByName(categoryName, user);
+				BudgetRequest req = new BudgetRequest(cat.getId(), month, amountLimit, null, null, null);
+				Object result = budgetService.create(req, user);
+				return new ChatResponse("action", "Budget created for " + categoryName + " (₱" + amountLimit.toPlainString() + ").", result);
+			});
 		} catch (ResponseStatusException e) {
 			if (e.getStatusCode() == HttpStatus.CONFLICT) {
 				Category cat = categoryService.getOrCreateByName(categoryName, user);
@@ -967,7 +976,24 @@ public class ChatActionService {
 		}
 	}
 
+	/**
+	 * Reads the category and renames it in one transaction, with the catch hoisted <em>outside</em>
+	 * the wrapper (TEN-324). {@code CategoryService.update} is a live cross-bean
+	 * {@code @Transactional}: catching its duplicate-name {@code IllegalArgumentException} inside the
+	 * callback would mark the shared transaction rollback-only and turn the friendly message into an
+	 * {@code UnexpectedRollbackException} at commit. Caught out here instead,
+	 * {@code TransactionTemplate} has already rolled back and rethrown the original exception, so the
+	 * friendly message survives.
+	 */
 	private ChatResponse handleRenameCategory(JsonNode params, User user) {
+		try {
+			return inOneTransaction(() -> renameCategory(params, user));
+		} catch (IllegalArgumentException e) {
+			return new ChatResponse("text", e.getMessage(), null);
+		}
+	}
+
+	private ChatResponse renameCategory(JsonNode params, User user) {
 		String currentName = params.get("currentName").asText();
 		String newName = params.get("newName").asText();
 		if ("Uncategorized".equalsIgnoreCase(currentName)) {
@@ -980,15 +1006,20 @@ public class ChatActionService {
 		if (match == null) {
 			return new ChatResponse("text", "No category named \"" + currentName + "\" found.", null);
 		}
+		CategoryResponse result = categoryService.update(match.id(), new CategoryRequest(newName, match.icon()), user);
+		return new ChatResponse("action", "Category \"" + currentName + "\" renamed to \"" + newName + "\".", result);
+	}
+
+	/** Same shape and the same hoisted catch as {@link #handleRenameCategory}. */
+	private ChatResponse handleDeleteCategory(JsonNode params, User user) {
 		try {
-			CategoryResponse result = categoryService.update(match.id(), new CategoryRequest(newName, match.icon()), user);
-			return new ChatResponse("action", "Category \"" + currentName + "\" renamed to \"" + newName + "\".", result);
+			return inOneTransaction(() -> deleteCategory(params, user));
 		} catch (IllegalArgumentException e) {
 			return new ChatResponse("text", e.getMessage(), null);
 		}
 	}
 
-	private ChatResponse handleDeleteCategory(JsonNode params, User user) {
+	private ChatResponse deleteCategory(JsonNode params, User user) {
 		String name = params.get("name").asText();
 		if ("Uncategorized".equalsIgnoreCase(name)) {
 			return new ChatResponse("text", "The \"Uncategorized\" category cannot be deleted.", null);
@@ -1000,12 +1031,8 @@ public class ChatActionService {
 		if (match == null) {
 			return new ChatResponse("text", "No category named \"" + name + "\" found.", null);
 		}
-		try {
-			categoryService.delete(match.id(), user);
-			return new ChatResponse("action", "Category \"" + name + "\" deleted. Affected expenses moved to Uncategorized.", null);
-		} catch (IllegalArgumentException e) {
-			return new ChatResponse("text", e.getMessage(), null);
-		}
+		categoryService.delete(match.id(), user);
+		return new ChatResponse("action", "Category \"" + name + "\" deleted. Affected expenses moved to Uncategorized.", null);
 	}
 
 	private ChatResponse handleListCategories(User user) {
@@ -1071,8 +1098,7 @@ public class ChatActionService {
 		return new ChatResponse("action", "You are on the " + planLabel + " plan (" + entitlements.status().name().toLowerCase() + ").", data);
 	}
 
-	@Transactional(readOnly = true)
-	ChatResponse handleListGoals(User user) {
+	private ChatResponse handleListGoals(User user) {
 		List<GoalResponse> goals = savingsGoalService.findAll(user);
 		List<Map<String, Object>> items = goals.stream().map(g -> {
 			Map<String, Object> item = new LinkedHashMap<>();
@@ -1090,8 +1116,7 @@ public class ChatActionService {
 		return new ChatResponse("action", "You have " + items.size() + " savings goal(s).", items);
 	}
 
-	@Transactional(readOnly = true)
-	ChatResponse handleListBudgets(JsonNode params, User user) {
+	private ChatResponse handleListBudgets(JsonNode params, User user) {
 		String month = params.path("month").asText(YearMonth.now().toString());
 		BudgetSummaryResponse summary = budgetService.getSummary(month, user);
 		Map<String, Object> result = new LinkedHashMap<>();
@@ -1113,8 +1138,7 @@ public class ChatActionService {
 		return new ChatResponse("action", "Budget summary for " + month + ": ₱" + summary.totalSpent().toPlainString() + " spent of ₱" + summary.totalBudgeted().toPlainString() + " budgeted.", result);
 	}
 
-	@Transactional(readOnly = true)
-	ChatResponse handleListRecurring(JsonNode params, User user) {
+	private ChatResponse handleListRecurring(JsonNode params, User user) {
 		String month = params.path("month").asText(YearMonth.now().toString());
 		List<RecurringExpenseResponse> recurring = recurringExpenseService.findAll(user);
 		List<UpcomingBillResponse> upcoming = recurringExpenseService.getUpcoming(month, user);
@@ -1144,8 +1168,7 @@ public class ChatActionService {
 		return new ChatResponse("action", "You have " + recurring.size() + " recurring expense(s), " + upcomingItems.size() + " upcoming.", result);
 	}
 
-	@Transactional
-	ChatResponse handleListAlerts(JsonNode params, User user) {
+	private ChatResponse handleListAlerts(JsonNode params, User user) {
 		String month = params.path("month").asText(YearMonth.now().toString());
 		List<AlertResponse> alerts = alertService.getOrGenerate(user, month);
 		List<Map<String, Object>> items = alerts.stream().map(a -> {
@@ -1160,8 +1183,7 @@ public class ChatActionService {
 		return new ChatResponse("action", "You have " + items.size() + " active alert(s) for " + month + ".", items);
 	}
 
-	@Transactional(readOnly = true)
-	ChatResponse handleSearchExpenses(JsonNode params, User user) {
+	private ChatResponse handleSearchExpenses(JsonNode params, User user) {
 		String fromStr = params.path("from").asText(null);
 		String toStr = params.path("to").asText(null);
 		LocalDate from = (fromStr != null && !fromStr.isBlank()) ? LocalDate.parse(fromStr) : null;
@@ -1205,8 +1227,7 @@ public class ChatActionService {
 		return new ChatResponse("action", "Found " + items.size() + " expense(s).", items);
 	}
 
-	@Transactional(readOnly = true)
-	ChatResponse handleGetCategoryTotals(JsonNode params, User user) {
+	private ChatResponse handleGetCategoryTotals(JsonNode params, User user) {
 		String month = params.path("month").asText(null);
 		List<CategoryReportItem> totals = (month != null && !month.isBlank())
 				? expenseService.categoryReportForMonth(user, month)
@@ -1221,8 +1242,7 @@ public class ChatActionService {
 		return new ChatResponse("action", "Category totals " + label + ".", items);
 	}
 
-	@Transactional(readOnly = true)
-	ChatResponse handleGetMonthlyReport(JsonNode params, User user) {
+	private ChatResponse handleGetMonthlyReport(JsonNode params, User user) {
 		String month = params.path("month").asText(YearMonth.now().toString());
 		YearMonth ym = YearMonth.parse(month);
 		List<CategoryReportItem> breakdown = expenseService.categoryReportForMonth(user, month);
@@ -1262,29 +1282,34 @@ public class ChatActionService {
 		return new ChatResponse("action", "Monthly report for " + month + ": total ₱" + totalSpent.toPlainString() + ".", result);
 	}
 
-	@Transactional
-	ChatResponse handleMarkAlertRead(JsonNode params, User user) {
+	private ChatResponse handleMarkAlertRead(JsonNode params, User user) {
 		long id = params.get("id").asLong();
 		alertService.markRead(id, user);
 		return new ChatResponse("action", "Alert #" + id + " marked as read.", null);
 	}
 
-	@Transactional
-	ChatResponse handleDismissAlert(JsonNode params, User user) {
+	private ChatResponse handleDismissAlert(JsonNode params, User user) {
 		long id = params.get("id").asLong();
 		alertService.dismiss(id, user);
 		return new ChatResponse("action", "Alert #" + id + " dismissed.", null);
 	}
 
-	@Transactional
-	ChatResponse handleDeleteAlert(JsonNode params, User user) {
+	private ChatResponse handleDeleteAlert(JsonNode params, User user) {
 		long id = params.get("id").asLong();
 		alertService.delete(id, user);
 		return new ChatResponse("action", "Alert #" + id + " deleted.", null);
 	}
 
-	@Transactional
-	ChatResponse handleSetDefaultCategory(JsonNode params, User user) {
+	/**
+	 * Wrapped for the same write-then-write reason as {@link #handleCreateBudget}: the category
+	 * {@code getOrCreateByName} creates and the profile write that names it are one transaction, so
+	 * a failed write cannot strand an empty category (TEN-324).
+	 */
+	private ChatResponse handleSetDefaultCategory(JsonNode params, User user) {
+		return inOneTransaction(() -> setDefaultCategory(params, user));
+	}
+
+	private ChatResponse setDefaultCategory(JsonNode params, User user) {
 		String categoryName = params.get("categoryName").asText();
 		Category cat = categoryService.getOrCreateByName(categoryName, user);
 		String resolvedName = cat.getName();
@@ -1298,7 +1323,7 @@ public class ChatActionService {
 		return new ChatResponse("action", "Default category set to \"" + resolvedName + "\".", null);
 	}
 
-	ChatResponse handleSetCategoryIcon(JsonNode params, User user) {
+	private ChatResponse handleSetCategoryIcon(JsonNode params, User user) {
 		return inOneTransaction(() -> setCategoryIcon(params, user));
 	}
 
@@ -1320,22 +1345,44 @@ public class ChatActionService {
 		return new ChatResponse("action", "Icon for \"" + match.name() + "\" updated.", result);
 	}
 
-	@Transactional
-	ChatResponse handleDeleteExpenses(JsonNode params, User user) {
+	/**
+	 * Deletes several expenses as one transaction, so a failure partway deletes none of them
+	 * (TEN-324).
+	 *
+	 * <p>The {@code @Transactional} that used to sit here was inert twice over: the method was
+	 * package-private, which {@code AbstractFallbackTransactionAttributeSource} skips entirely under
+	 * {@code allowPublicMethodsOnly()}, and every route in is a same-bean call the proxy never sees.
+	 * So a loop of N deletes ran as N transactions — the 25th throwing left the first 24 committed
+	 * and reported "Deleted N expense(s)" with no record of which N.
+	 *
+	 * <p>Nothing is caught inside the callback, deliberately: an id that does not resolve is filtered
+	 * out <em>before</em> the delete rather than caught after it, because
+	 * {@code ExpenseService.delete} is a live cross-bean {@code @Transactional} whose
+	 * {@code ResourceNotFoundException} would mark the shared transaction rollback-only and fail the
+	 * commit of the friendly count with {@code UnexpectedRollbackException}. A row someone else
+	 * deletes between that check and the delete still aborts the whole batch — that is the atomicity
+	 * this buys, not a regression.
+	 *
+	 * <p>An id repeated in the tool call is a different case and is <em>not</em> left to abort: the
+	 * named ids are de-duplicated, because the second delete of the same row would find the first
+	 * one's deletion and throw. The per-id catch this replaced absorbed that quietly, so a repeated
+	 * id has always meant one deletion and must keep meaning one.
+	 */
+	private ChatResponse handleDeleteExpenses(JsonNode params, User user) {
+		return inOneTransaction(() -> deleteExpenses(params, user));
+	}
+
+	private ChatResponse deleteExpenses(JsonNode params, User user) {
 		JsonNode idsNode = params.path("ids");
 		if (idsNode.isArray() && !idsNode.isEmpty()) {
-			int deleted = 0;
+			Set<Long> named = new LinkedHashSet<>();
 			for (JsonNode idNode : idsNode) {
 				long id = idNode.asLong();
-				try {
-					expenseService.delete(id, user);
-					deleted++;
-				} catch (ResourceNotFoundException ignored) {
+				if (resolvesForDelete(id, user)) {
+					named.add(id);
 				}
 			}
-			Map<String, Object> result = new LinkedHashMap<>();
-			result.put("deleted", deleted);
-			return new ChatResponse("action", "Deleted " + deleted + " expense(s).", result);
+			return deleteEach(List.copyOf(named), user);
 		}
 
 		String fromStr = params.path("from").asText(null);
@@ -1373,21 +1420,32 @@ public class ChatActionService {
 					.toList();
 		}
 
-		int deleted = 0;
-		List<Long> ids = candidates.stream().map(Expense::getId).toList();
-		for (Long id : ids) {
-			try {
-				expenseService.delete(id, user);
-				deleted++;
-			} catch (ResourceNotFoundException ignored) {
-			}
-		}
-		Map<String, Object> result = new LinkedHashMap<>();
-		result.put("deleted", deleted);
-		return new ChatResponse("action", "Deleted " + deleted + " expense(s).", result);
+		// The candidates were read in this transaction and are the user's own, so they need no
+		// pre-check of their own — the read is the check.
+		return deleteEach(candidates.stream().map(Expense::getId).toList(), user);
 	}
 
-	ChatResponse handleRecategorizeExpenses(JsonNode params, User user) {
+	/**
+	 * The visibility rule {@code ExpenseService.delete} applies, mirrored here so it can be asked
+	 * before the call instead of caught after it — see {@link #handleDeleteExpenses} for why
+	 * catching it inside the shared transaction is not an option.
+	 */
+	private boolean resolvesForDelete(long id, User user) {
+		return user.isAdmin()
+				? expenseRepository.existsById(id)
+				: expenseRepository.existsByIdAndUser(id, user);
+	}
+
+	private ChatResponse deleteEach(List<Long> ids, User user) {
+		for (Long id : ids) {
+			expenseService.delete(id, user);
+		}
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("deleted", ids.size());
+		return new ChatResponse("action", "Deleted " + ids.size() + " expense(s).", result);
+	}
+
+	private ChatResponse handleRecategorizeExpenses(JsonNode params, User user) {
 		return inOneTransaction(() -> recategorizeExpenses(params, user));
 	}
 

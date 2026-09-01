@@ -443,29 +443,38 @@ class ChatActionServiceReadToolsTest {
     void deleteExpenses_byIdList_withExecuteMode_deletesAndReturnsCount() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
                 LlmResult.ofValue(new ChatToolCall("delete_expenses", "{\"ids\":[10,20]}")));
+        when(expenseRepository.existsByIdAndUser(anyLong(), any())).thenReturn(true);
 
         ChatResponse resp = chatActionService.dispatch("Delete expenses", "execute", user());
 
         assertThat(resp.type()).isEqualTo("action");
         @SuppressWarnings("unchecked")
         Map<String, Object> result = (Map<String, Object>) resp.result();
-        assertThat(result).containsKey("deleted");
+        assertThat(result).containsEntry("deleted", 2);
         verify(expenseService).delete(eq(10L), any());
         verify(expenseService).delete(eq(20L), any());
     }
 
+    /**
+     * TEN-324: an id that does not resolve is filtered out before the delete rather than caught
+     * after it, so the count is still right and no inner exception can mark the handler's
+     * transaction rollback-only.
+     */
     @Test
     void deleteExpenses_byIdList_notFound_skippedAndCountsSuccessful() {
         when(sqlGenerator.classifyIntent(any())).thenReturn(
-                LlmResult.ofValue(new ChatToolCall("delete_expenses", "{\"ids\":[10]}")));
+                LlmResult.ofValue(new ChatToolCall("delete_expenses", "{\"ids\":[10,99]}")));
+        when(expenseRepository.existsByIdAndUser(eq(10L), any())).thenReturn(true);
+        when(expenseRepository.existsByIdAndUser(eq(99L), any())).thenReturn(false);
 
         ChatResponse resp = chatActionService.dispatch("Delete expenses", "execute", user());
 
         assertThat(resp.type()).isEqualTo("action");
         @SuppressWarnings("unchecked")
         Map<String, Object> result = (Map<String, Object>) resp.result();
-        assertThat(result).containsKey("deleted");
-        assertThat((int) result.get("deleted")).isEqualTo(1);
+        assertThat(result).containsEntry("deleted", 1);
+        verify(expenseService).delete(eq(10L), any());
+        verify(expenseService, org.mockito.Mockito.never()).delete(eq(99L), any());
     }
 
     @Test

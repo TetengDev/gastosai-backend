@@ -78,7 +78,12 @@ class ChatActionServiceIntegrationTest extends PostgresBackedTest {
     @Autowired ProjectRepository projectRepository;
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired JwtUtil jwtUtil;
-    @Autowired com.teng.app.gastosai.service.CategoryService categoryService;
+    // Spied, not merely autowired, for the same reason as the two above: the TEN-324 tests need to
+    // see which transaction the category writes run in, and to make one of them refuse.
+    @MockitoSpyBean com.teng.app.gastosai.service.CategoryService categoryService;
+    @MockitoSpyBean com.teng.app.gastosai.service.BudgetService budgetService;
+    @MockitoSpyBean com.teng.app.gastosai.service.RecurringExpenseService recurringExpenseService;
+    @MockitoSpyBean com.teng.app.gastosai.service.UserProfileService userProfileService;
 
     @MockitoBean SqlGenerator sqlGenerator;
 
@@ -517,16 +522,8 @@ class ChatActionServiceIntegrationTest extends PostgresBackedTest {
                 .exchangeRate(BigDecimal.ONE)
                 .build());
 
-        java.util.concurrent.atomic.AtomicBoolean transactionActive =
-                new java.util.concurrent.atomic.AtomicBoolean();
-        java.util.concurrent.atomic.AtomicReference<String> transactionName =
-                new java.util.concurrent.atomic.AtomicReference<>("not recorded");
-
-        org.mockito.Mockito.doAnswer(invocation -> {
-            transactionActive.set(TransactionSynchronizationManager.isActualTransactionActive());
-            transactionName.set(TransactionSynchronizationManager.getCurrentTransactionName());
-            return invocation.callRealMethod();
-        }).when(expenseService).update(org.mockito.ArgumentMatchers.eq(e.getId()),
+        TransactionProbe probe = new TransactionProbe();
+        org.mockito.Mockito.doAnswer(probe).when(expenseService).update(org.mockito.ArgumentMatchers.eq(e.getId()),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
 
         when(sqlGenerator.classifyIntent(anyString()))
@@ -540,12 +537,7 @@ class ChatActionServiceIntegrationTest extends PostgresBackedTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.type").value("action"));
 
-        org.assertj.core.api.Assertions.assertThat(transactionActive.get())
-                .as("the write runs in a transaction")
-                .isTrue();
-        org.assertj.core.api.Assertions.assertThat(transactionName.get())
-                .as("the write joined the handler's programmatic transaction instead of starting its own")
-                .isNull();
+        probe.assertTheWriteJoinedTheHandlersTransaction();
         org.assertj.core.api.Assertions.assertThat(
                         expenseRepository.findById(e.getId()).orElseThrow().getDescription())
                 .isEqualTo("Dinner with Ana");
@@ -571,16 +563,8 @@ class ChatActionServiceIntegrationTest extends PostgresBackedTest {
                 .currency("PHP")
                 .build());
 
-        java.util.concurrent.atomic.AtomicBoolean transactionActive =
-                new java.util.concurrent.atomic.AtomicBoolean();
-        java.util.concurrent.atomic.AtomicReference<String> transactionName =
-                new java.util.concurrent.atomic.AtomicReference<>("not recorded");
-
-        org.mockito.Mockito.doAnswer(invocation -> {
-            transactionActive.set(TransactionSynchronizationManager.isActualTransactionActive());
-            transactionName.set(TransactionSynchronizationManager.getCurrentTransactionName());
-            return invocation.callRealMethod();
-        }).when(savingsGoalService).update(org.mockito.ArgumentMatchers.eq(goal.getId()),
+        TransactionProbe probe = new TransactionProbe();
+        org.mockito.Mockito.doAnswer(probe).when(savingsGoalService).update(org.mockito.ArgumentMatchers.eq(goal.getId()),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
 
         when(sqlGenerator.classifyIntent(anyString()))
@@ -594,12 +578,7 @@ class ChatActionServiceIntegrationTest extends PostgresBackedTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.type").value("action"));
 
-        org.assertj.core.api.Assertions.assertThat(transactionActive.get())
-                .as("the write runs in a transaction")
-                .isTrue();
-        org.assertj.core.api.Assertions.assertThat(transactionName.get())
-                .as("the write joined the handler's programmatic transaction instead of starting its own")
-                .isNull();
+        probe.assertTheWriteJoinedTheHandlersTransaction();
         org.assertj.core.api.Assertions.assertThat(
                         savingsGoalRepository.findById(goal.getId()).orElseThrow().getTargetAmount())
                 .isEqualByComparingTo("60000");
@@ -659,6 +638,352 @@ class ChatActionServiceIntegrationTest extends PostgresBackedTest {
         org.assertj.core.api.Assertions.assertThat(after.getNickname())
                 .as("a nickname changed out of band survives set_default_category")
                 .isEqualTo("changed-from-mobile");
+    }
+
+    // --- TEN-324: the destructive handlers run in one transaction ---
+
+    /**
+     * TEN-324, the headline case: a bulk delete that fails partway deletes nothing.
+     *
+     * <p>Before the fix the handler looped {@code expenseService.delete} outside any transaction of
+     * its own — its {@code @Transactional} was inert — so the deletes that had already run were
+     * committed one by one and stayed gone, with no record of which.
+     */
+    @Test
+    void deleteExpenses_failurePartway_deletesNothing() throws Exception {
+        Expense first = expenseNamed("First");
+        Expense second = expenseNamed("Second");
+        Expense third = expenseNamed("Third");
+
+        org.mockito.Mockito.doThrow(new IllegalStateException("delete failed partway"))
+                .when(expenseService).delete(org.mockito.ArgumentMatchers.eq(second.getId()),
+                        org.mockito.ArgumentMatchers.any());
+
+        when(sqlGenerator.classifyIntent(anyString()))
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("delete_expenses",
+                        "{\"ids\":[" + first.getId() + "," + second.getId() + "," + third.getId() + "]}")));
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"delete those three\",\"mode\":\"execute\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("text"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("went wrong")));
+
+        org.assertj.core.api.Assertions.assertThat(expenseRepository.findById(first.getId()))
+                .as("the delete that ran before the failure is rolled back, not committed")
+                .isPresent();
+        org.assertj.core.api.Assertions.assertThat(expenseRepository.findById(second.getId())).isPresent();
+        org.assertj.core.api.Assertions.assertThat(expenseRepository.findById(third.getId())).isPresent();
+    }
+
+    /**
+     * TEN-324: an id the tool call repeats deletes one row and reports one, rather than aborting.
+     *
+     * <p>The per-id {@code catch (ResourceNotFoundException)} this handler used to carry absorbed
+     * the repeat quietly. With the deletes now sharing one transaction there is no catch to absorb
+     * it, so the second delete of the same row would see the first one's deletion and throw — the
+     * ids are de-duplicated before the loop instead.
+     */
+    @Test
+    void deleteExpenses_repeatedId_deletesItOnceAndReportsOne() throws Exception {
+        Expense only = expenseNamed("Repeated");
+
+        when(sqlGenerator.classifyIntent(anyString()))
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("delete_expenses",
+                        "{\"ids\":[" + only.getId() + "," + only.getId() + "]}")));
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"delete that one, and that one\",\"mode\":\"execute\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("action"))
+                .andExpect(jsonPath("$.result.deleted").value(1));
+
+        org.assertj.core.api.Assertions.assertThat(expenseRepository.findById(only.getId()))
+                .as("the row is gone, and the repeat did not abort the batch")
+                .isEmpty();
+    }
+
+    /**
+     * TEN-324, the rollback-only hazard: {@code CategoryService.update} throws its duplicate-name
+     * {@code IllegalArgumentException} from inside a live {@code @Transactional}, which marks the
+     * shared transaction rollback-only. The catch is hoisted outside {@code inOneTransaction} so the
+     * user still gets the friendly message instead of an {@code UnexpectedRollbackException}.
+     */
+    @Test
+    void renameCategory_toADuplicateName_returnsTheFriendlyMessage() throws Exception {
+        Category food = categoryNamed("Food");
+        categoryNamed("Meals");
+
+        when(sqlGenerator.classifyIntent(anyString()))
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("rename_category",
+                        "{\"currentName\":\"Food\",\"newName\":\"Meals\"}")));
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"rename Food to Meals\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("text"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("already exists")));
+
+        org.assertj.core.api.Assertions.assertThat(
+                        categoryRepository.findById(food.getId()).orElseThrow().getName())
+                .isEqualTo("Food");
+    }
+
+    /**
+     * The same hazard on the second handler that carries it. {@code CategoryService.delete} refuses
+     * only the {@code Uncategorized} category, which the handler short-circuits before the service
+     * is reached, so the refusal is stubbed onto the spy — which sits <em>inside</em> the
+     * transactional proxy, so the throw still travels out through it and still marks the shared
+     * transaction rollback-only. That is the mechanic under test.
+     */
+    @Test
+    void deleteCategory_refusedByTheService_returnsTheFriendlyMessage() throws Exception {
+        Category food = categoryNamed("Food");
+
+        org.mockito.Mockito.doThrow(new IllegalArgumentException("Default categories cannot be deleted"))
+                .when(categoryService).delete(org.mockito.ArgumentMatchers.eq(food.getId()),
+                        org.mockito.ArgumentMatchers.any());
+
+        when(sqlGenerator.classifyIntent(anyString()))
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("delete_category", "{\"name\":\"Food\"}")));
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"delete the Food category\",\"mode\":\"execute\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("text"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("cannot be deleted")));
+
+        org.assertj.core.api.Assertions.assertThat(categoryRepository.findById(food.getId())).isPresent();
+    }
+
+    /**
+     * TEN-324, the write-then-write shape: {@code getOrCreateByName} used to commit the category in
+     * its own transaction, so a failure in the write that follows left an empty category behind that
+     * the user never asked for.
+     */
+    @Test
+    void createBudget_whenTheBudgetWriteFails_doesNotStrandTheCategory() throws Exception {
+        org.mockito.Mockito.doThrow(new IllegalStateException("budget write failed"))
+                .when(budgetService).create(org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(com.teng.app.gastosai.entity.User.class));
+
+        when(sqlGenerator.classifyIntent(anyString()))
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("create_budget",
+                        "{\"categoryName\":\"Gadgets\",\"amountLimit\":5000,\"month\":\"2026-09\"}")));
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"budget 5000 for Gadgets\",\"mode\":\"execute\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("text"));
+
+        org.assertj.core.api.Assertions.assertThat(
+                        categoryRepository.findByUserAndNameIgnoreCase(user1, "Gadgets"))
+                .as("the category created for a budget that failed is rolled back with it")
+                .isEmpty();
+    }
+
+    /** The same shape on {@code set_default_category}, whose second write is the profile patch. */
+    @Test
+    void setDefaultCategory_whenTheProfileWriteFails_doesNotStrandTheCategory() throws Exception {
+        org.mockito.Mockito.doThrow(new IllegalStateException("profile write failed"))
+                .when(userProfileService).patchProfile(org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any());
+
+        when(sqlGenerator.classifyIntent(anyString()))
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("set_default_category",
+                        "{\"categoryName\":\"Gadgets\"}")));
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"make Gadgets my default\",\"mode\":\"execute\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("text"));
+
+        org.assertj.core.api.Assertions.assertThat(
+                        categoryRepository.findByUserAndNameIgnoreCase(user1, "Gadgets"))
+                .isEmpty();
+    }
+
+    // --- TEN-324: the four handlers TEN-323 wrapped but left unpinned ---
+
+    @Test
+    void updateBudget_readAndWrite_shareOneTransaction() throws Exception {
+        Category food = categoryNamed("Food");
+        Object created = budgetService.create(
+                new com.teng.app.gastosai.dto.BudgetRequest(food.getId(), "2026-09",
+                        new BigDecimal("3000"), null, null, null), user1);
+        long budgetId = ((com.teng.app.gastosai.dto.BudgetResponse) created).id();
+
+        TransactionProbe probe = new TransactionProbe();
+        org.mockito.Mockito.doAnswer(probe).when(budgetService).update(
+                org.mockito.ArgumentMatchers.eq(budgetId),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+
+        when(sqlGenerator.classifyIntent(anyString()))
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("update_budget",
+                        "{\"id\":" + budgetId + ",\"amountLimit\":4000}")));
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"raise my food budget to 4000\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("action"));
+
+        probe.assertTheWriteJoinedTheHandlersTransaction();
+    }
+
+    @Test
+    void updateRecurring_readAndWrite_shareOneTransaction() throws Exception {
+        categoryNamed("Entertainment");
+        com.teng.app.gastosai.dto.RecurringExpenseResponse created = recurringExpenseService.create(
+                new com.teng.app.gastosai.dto.RecurringExpenseRequest("Netflix", new BigDecimal("499"),
+                        "Entertainment", com.teng.app.gastosai.entity.Frequency.MONTHLY, 15, null, null,
+                        true, "PHP", BigDecimal.ONE), user1);
+
+        TransactionProbe probe = new TransactionProbe();
+        org.mockito.Mockito.doAnswer(probe).when(recurringExpenseService).update(
+                org.mockito.ArgumentMatchers.eq(created.id()),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+
+        when(sqlGenerator.classifyIntent(anyString()))
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("update_recurring",
+                        "{\"id\":" + created.id() + ",\"amount\":599}")));
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"Netflix is 599 now\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("action"));
+
+        probe.assertTheWriteJoinedTheHandlersTransaction();
+    }
+
+    @Test
+    void setCategoryIcon_readAndWrite_shareOneTransaction() throws Exception {
+        Category food = categoryNamed("Food");
+
+        TransactionProbe probe = new TransactionProbe();
+        org.mockito.Mockito.doAnswer(probe).when(categoryService).update(
+                org.mockito.ArgumentMatchers.eq(food.getId()),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+
+        when(sqlGenerator.classifyIntent(anyString()))
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("set_category_icon",
+                        "{\"categoryName\":\"Food\",\"icon\":\"utensils\"}")));
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"give Food a utensils icon\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("action"));
+
+        probe.assertTheWriteJoinedTheHandlersTransaction();
+    }
+
+    /**
+     * The recategorize wrapper exists to contain {@code getOrCreateByName}, so that is what is
+     * probed: joined means the category it may create is rolled back with a failing
+     * {@code saveAll} rather than committed on its own.
+     */
+    @Test
+    void recategorizeExpenses_categoryCreationJoinsTheHandlersTransaction() throws Exception {
+        Category food = categoryNamed("Food");
+        expenseRepository.save(Expense.builder()
+                .user(user1)
+                .amount(new BigDecimal("100.0000"))
+                .amountInBaseCurrency(new BigDecimal("100.0000"))
+                .category(food)
+                .date(LocalDateTime.now())
+                .description("Lunch")
+                .currency("PHP")
+                .exchangeRate(BigDecimal.ONE)
+                .build());
+
+        TransactionProbe probe = new TransactionProbe();
+        org.mockito.Mockito.doAnswer(probe).when(categoryService).getOrCreateByName(
+                org.mockito.ArgumentMatchers.eq("Meals"), org.mockito.ArgumentMatchers.any());
+
+        when(sqlGenerator.classifyIntent(anyString()))
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("recategorize_expenses",
+                        "{\"fromCategory\":\"Food\",\"toCategory\":\"Meals\"}")));
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"move Food to Meals\",\"mode\":\"execute\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("action"));
+
+        probe.assertTheWriteJoinedTheHandlersTransaction();
+    }
+
+    /**
+     * Records which transaction a spied write ran in.
+     *
+     * <p>What identifies it is its name. A spy replaces the target inside its transactional proxy,
+     * so the answer runs in whatever transaction the write ended up in: a write that started its own
+     * — the read having committed before it — is named after the service method that started it,
+     * where a write that joined a transaction opened programmatically further out is unnamed. The
+     * only thing that opens one on this path is the handler, before its read: nothing in
+     * {@code AiController.chat} → {@code dispatch} → {@code execute} is transactional.
+     *
+     * <p>One transaction also means one persistence context, so the entity the handler read and the
+     * entity the write loads are the same managed instance.
+     *
+     * <p>Written for TEN-324, which pins the four handlers TEN-323 wrapped but never tested — each
+     * could lose its wrapper with the suite still green — and replaces the two near-identical
+     * inline blocks the TEN-323 tests carried.
+     */
+    private static final class TransactionProbe implements org.mockito.stubbing.Answer<Object> {
+
+        private final java.util.concurrent.atomic.AtomicBoolean active =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        private final java.util.concurrent.atomic.AtomicReference<String> name =
+                new java.util.concurrent.atomic.AtomicReference<>("not recorded");
+
+        @Override
+        public Object answer(org.mockito.invocation.InvocationOnMock invocation) throws Throwable {
+            active.set(TransactionSynchronizationManager.isActualTransactionActive());
+            name.set(TransactionSynchronizationManager.getCurrentTransactionName());
+            return invocation.callRealMethod();
+        }
+
+        void assertTheWriteJoinedTheHandlersTransaction() {
+            org.assertj.core.api.Assertions.assertThat(active.get())
+                    .as("the write runs in a transaction")
+                    .isTrue();
+            org.assertj.core.api.Assertions.assertThat(name.get())
+                    .as("the write joined the handler's programmatic transaction instead of starting its own")
+                    .isNull();
+        }
+    }
+
+    /** An expense of user1's, for the tests that only care that it exists and can be deleted. */
+    private Expense expenseNamed(String description) {
+        return expenseRepository.save(Expense.builder()
+                .user(user1)
+                .amount(new BigDecimal("100.0000"))
+                .amountInBaseCurrency(new BigDecimal("100.0000"))
+                .category(categoryNamed("Food"))
+                .date(LocalDateTime.now())
+                .description(description)
+                .currency("PHP")
+                .exchangeRate(BigDecimal.ONE)
+                .build());
     }
 
     /** Categories are per-user and may already be seeded, so take the existing row when there is one. */
