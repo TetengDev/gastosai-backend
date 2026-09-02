@@ -12,6 +12,9 @@ import com.teng.app.gastosai.entity.SubscriptionStatus;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.entity.UserSubscription;
 import com.teng.app.gastosai.exception.AiQuotaExceededException;
+import com.teng.app.gastosai.exception.FeatureLockedException;
+import com.teng.app.gastosai.repository.CategoryRepository;
+import com.teng.app.gastosai.repository.ExpenseRepository;
 import com.teng.app.gastosai.repository.SubscriptionPlanRepository;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.repository.UserSubscriptionRepository;
@@ -96,6 +99,8 @@ class EntitlementEnforcementIntegrationTest extends PostgresBackedTest {
     @Autowired AiQuotaService aiQuotaService;
     @Autowired EntitlementService entitlementService;
     @Autowired CategorySeedService categorySeedService;
+    @Autowired CategoryRepository categoryRepository;
+    @Autowired ExpenseRepository expenseRepository;
 
     // Mocked so a request that passes the gate stops at the boundary instead of calling a provider.
     @MockitoBean AiQueryService aiQueryService;
@@ -256,28 +261,90 @@ class EntitlementEnforcementIntegrationTest extends PostgresBackedTest {
     }
 
     /**
-     * Pins a live gap rather than endorsing it. Every registration path — password, magic link and
-     * Google — calls {@code CategorySeedService.seedPredefinedForUser}, which creates 13 categories.
-     * The FREE cap is 5. So a real FREE user is over the cap from the moment they sign up and can
-     * never create a category, while the 402 tells them their "plan is limited to 5 categories"
-     * as they look at 13 of them.
+     * Pins a live gap rather than endorsing it, and TEN-319 made it worse on purpose.
      *
-     * <p>Found by walking the matrix by hand against a booted API, which is exactly the state the
-     * test above cannot reach: it builds its user through the repository, so no seeding runs.
+     * <p>Every registration path — password, magic link and Google — calls
+     * {@code CategorySeedService.seedPredefinedForUser}, which creates 13 categories through
+     * {@code CategoryService.getOrCreateByName}. The FREE cap is 5, and seeding runs <em>before</em>
+     * {@code SubscriptionService.startTrial}, so the account is FREE while it happens. Until
+     * TEN-319 that method skipped the cap, so seeding completed and the user merely woke up over
+     * their limit, unable to create a fourteenth category while looking at thirteen.
      *
-     * <p>The fix is a product decision — raise the cap above the seeded set, count only
-     * user-created categories, or seed fewer — and it lands in {@code CategoryService} or
-     * {@code CategoryLimitProperties}, neither of which TEN-153 owns. Asserting the current
-     * behaviour means whichever way it is resolved, this test fails and has to be updated
-     * deliberately, instead of the gap going quiet.
+     * <p>TEN-319 made {@code getOrCreateByName} enforce the cap — the decision recorded on the
+     * issue — so with {@code gastos.monetization.enforce=true} <b>seeding itself now fails at the
+     * sixth category</b>, which is what this asserts. Registration would fail with it.
+     *
+     * <p>That is a promotion, not a regression this PR introduced: the arithmetic was already
+     * wrong, and enforcing turned a wrong error message into a blocker. <b>It is why TEN-327 has to
+     * land before {@code MONETIZATION_ENFORCE} is ever set to true.</b> The flag defaults to
+     * {@code false} in every environment today, so nothing live is affected.
+     *
+     * <p>Asserting the current behaviour means whichever way TEN-327 resolves it — raise the cap
+     * above the seeded set, count only user-created categories, or seed fewer — this test fails
+     * and has to be updated deliberately, instead of the gap going quiet.
      */
     @Test
-    void free_afterRegistrationSeeding_cannotCreateAnyCategory() throws Exception {
-        categorySeedService.seedPredefinedForUser(free);
+    void free_registrationSeeding_nowBreaksAtTheCap_whenEnforced() {
+        assertThatThrownBy(() -> categorySeedService.seedPredefinedForUser(free))
+                .isInstanceOf(FeatureLockedException.class)
+                .hasMessageContaining("limited to " + FREE_CATEGORY_CAP);
 
-        createCategory(freeAuth, "Groceries")
+        // And nothing survives: seedPredefinedForUser is @Transactional, so the refusal on the 6th
+        // rolls back the 5 that got in. Registration is @Transactional too — the account would go
+        // with them rather than land half-provisioned, which is the one mercy in this shape.
+        assertThat(categoryRepository.countByUser(free)).isZero();
+    }
+
+    /**
+     * TEN-319: the cap binds the expense path too, not only {@code POST /categories}.
+     *
+     * <p>A user standing exactly at the cap — refused a sixth category by {@code POST /categories}
+     * in the same test — is refused the same way when they try to reach the same outcome by naming
+     * a new category on an expense. The refusal is a 402 naming {@code CUSTOM_CATEGORIES}, not a
+     * 500, and it takes the expense with it: neither the category nor the expense is written.
+     */
+    @Test
+    void free_atTheCategoryCap_isRefusedACategoryThroughTheExpensePath() throws Exception {
+        for (int i = 1; i <= FREE_CATEGORY_CAP; i++) {
+            createCategory(freeAuth, "Category " + i).andExpect(status().isCreated());
+        }
+        createCategory(freeAuth, "Sixth By Hand")
                 .andExpect(status().isPaymentRequired())
                 .andExpect(jsonPath("$.feature").value("CUSTOM_CATEGORIES"));
+
+        mockMvc.perform(post("/expenses")
+                        .header("Authorization", freeAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":150.00,\"description\":\"Lunch at Jollibee\","
+                                + "\"category\":\"Sixth By Expense\"}"))
+                .andExpect(status().isPaymentRequired())
+                .andExpect(jsonPath("$.feature").value("CUSTOM_CATEGORIES"));
+
+        assertThat(categoryRepository.findByUserAndNameIgnoreCase(free, "Sixth By Expense")).isEmpty();
+        assertThat(categoryRepository.countByUser(free)).isEqualTo(FREE_CATEGORY_CAP);
+        assertThat(expenseRepository.findAllByUserOrderByDateDesc(free)).isEmpty();
+    }
+
+    /**
+     * The other half of the same decision: naming a category the user already has is not a
+     * creation, so an expense at the cap goes through. Without this, "the cap binds the expense
+     * path" could be satisfied by refusing every expense a capped user writes.
+     */
+    @Test
+    void free_atTheCategoryCap_stillRecordsAnExpenseInAnExistingCategory() throws Exception {
+        for (int i = 1; i <= FREE_CATEGORY_CAP; i++) {
+            createCategory(freeAuth, "Category " + i).andExpect(status().isCreated());
+        }
+
+        mockMvc.perform(post("/expenses")
+                        .header("Authorization", freeAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":150.00,\"description\":\"Lunch at Jollibee\","
+                                + "\"category\":\"Category 1\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.category").value("Category 1"));
+
+        assertThat(categoryRepository.countByUser(free)).isEqualTo(FREE_CATEGORY_CAP);
     }
 
     @Test

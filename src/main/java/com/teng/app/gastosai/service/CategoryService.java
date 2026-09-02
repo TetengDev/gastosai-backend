@@ -110,7 +110,7 @@ public class CategoryService {
 		// category its owner cannot see. See ExpenseRepository#findByCategory_IdAndUser.
 		List<Expense> affected = expenseRepository.findByCategory_IdAndUser(toDelete.getId(), toDelete.getUser());
 		if (!affected.isEmpty()) {
-			Category fallback = getOrCreateByName(DEFAULT_CATEGORY, user);
+			Category fallback = getOrCreateDefault(user);
 			affected.forEach(e -> e.setCategory(fallback));
 			expenseRepository.saveAll(affected);
 		}
@@ -134,7 +134,7 @@ public class CategoryService {
 				.toList();
 		if (toDelete.isEmpty()) return;
 
-		Category fallback = getOrCreateByName(DEFAULT_CATEGORY, user);
+		Category fallback = getOrCreateDefault(user);
 		for (Category cat : toDelete) {
 			// Owner-scoped for the same reason as delete(): every category here came from
 			// findAllByUser(user), so `user` is the owner.
@@ -172,6 +172,14 @@ public class CategoryService {
 	 * Block creating more categories than the user's plan allows. No-op unless monetization is
 	 * enforced. {@link EntitlementService#describe} already folds in the admin/view-as logic, so
 	 * admins (and PREMIUM) resolve to an unlimited cap.
+	 *
+	 * <p>Two callers, both of which create a category the user chose: {@link #create}, behind
+	 * {@code POST /categories}, and {@link #getOrCreateByName}, the incidental path an expense, a
+	 * chat action, a CSV row or a recurring template comes through (TEN-319). The one place that
+	 * deliberately skips it is {@link #getOrCreateDefault} — see there.
+	 *
+	 * <p>The {@code user} passed here is whoever the category is being created <em>for</em>, never
+	 * whoever is holding the request. The two differ when an ADMIN edits somebody else's expense.
 	 */
 	private void enforceCategoryLimit(User user) {
 		if (!monetizationProperties.isEnforce()) {
@@ -199,14 +207,72 @@ public class CategoryService {
 	 * editing another user's expense passes that expense's owner, so the row and its category keep
 	 * agreeing on whose they are; a caller that hands in its own principal by reflex would file a
 	 * category the owner can never see.
+	 *
+	 * <p><b>The plan category cap applies here (TEN-319), and it is charged to {@code owner}.</b>
+	 * Creating a category as a side effect of naming one — on an expense, in chat, in a CSV import
+	 * or on a recurring template — used to skip {@link #enforceCategoryLimit} entirely, so the cap
+	 * bound {@code POST /categories} and nothing else. It is the same act with a different door,
+	 * and it counts.
+	 *
+	 * <p>The cap is charged to {@code owner} rather than to whoever is holding the request. After
+	 * TEN-314 an ADMIN editing someone else's expense resolves the category against that expense's
+	 * owner, so charging the caller would have spent the admin's (unlimited) entitlement while
+	 * filing the row against the owner — a bypass wearing an audit trail. The account that gains
+	 * the category is the account that pays for it.
+	 *
+	 * <p>Resolving an <em>existing</em> category is never capped: the check runs only on the branch
+	 * that saves a new row, so a user over their cap keeps using every category they already have.
+	 * {@code Uncategorized} is never capped either, whoever asks for it — an expense that names no
+	 * category at all lands there ({@code ExpenseService#categorise}), and refusing to record a
+	 * spend because the user has not got a row for "I did not say" would be the cap deciding
+	 * something it has no business deciding. It routes to {@link #getOrCreateDefault}.
+	 *
+	 * <p>The refusal is a {@link FeatureLockedException}, which
+	 * {@code GlobalExceptionHandler#featureLocked} answers as {@code 402 Payment Required} naming
+	 * {@code CUSTOM_CATEGORIES} — the same shape {@link #create} produces, on whichever request
+	 * asked. The expense is not written: the caller's transaction rolls back with it.
+	 *
+	 * <p><b>Provisioning does not come through here, and must not.</b> {@code CategorySeedService}
+	 * creates 13 starter categories at registration, while the account is still FREE against a cap
+	 * of 5 — it calls this method, so with {@code gastos.monetization.enforce=true} the sixth
+	 * seeded category now throws and registration fails with it. That is the seed-versus-cap gap
+	 * {@code EntitlementEnforcementIntegrationTest#free_afterRegistrationSeeding_cannotCreateAnyCategory}
+	 * has pinned since TEN-153, and enforcing here promotes it from a wrong error message to a
+	 * blocker: <b>{@code TEN-327} must land before that flag is turned on.</b> The flag defaults to
+	 * {@code false} in every environment today, which is the only reason this is shippable now.
+	 *
+	 * @see #enforceCategoryLimit(User)
+	 * @see #getOrCreateDefault(User)
 	 */
 	@Transactional
 	public Category getOrCreateByName(String categoryName, User owner) {
 		String trimmed = categoryName.trim();
+		if (isDefault(trimmed)) {
+			return getOrCreateDefault(owner);
+		}
 		return resolveByName(trimmed, owner)
+				.orElseGet(() -> {
+					enforceCategoryLimit(owner);
+					return categoryRepository.save(Category.builder()
+							.name(trimmed)
+							.user(owner)
+							.build());
+				});
+	}
+
+	/**
+	 * {@code Uncategorized} for this user, created if it is missing — without consulting the cap.
+	 *
+	 * <p>The fallback a delete reassigns orphaned expenses to (TEN-319). It cannot be capped: a
+	 * user at their limit deleting a category is <em>reducing</em> their count, and refusing that
+	 * with "upgrade to add more" would trap them at the cap with no way down. The default category
+	 * is also not a category anyone chose, so charging it to a plan means nothing.
+	 */
+	private Category getOrCreateDefault(User user) {
+		return resolveByName(DEFAULT_CATEGORY, user)
 				.orElseGet(() -> categoryRepository.save(Category.builder()
-						.name(trimmed)
-						.user(owner)
+						.name(DEFAULT_CATEGORY)
+						.user(user)
 						.build()));
 	}
 

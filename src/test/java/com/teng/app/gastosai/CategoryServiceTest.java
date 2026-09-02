@@ -149,6 +149,95 @@ class CategoryServiceTest {
         verify(categoryRepository).save(argThat(c -> "NewCat".equals(c.getName())));
     }
 
+    /** TEN-319: the incidental path is capped like {@code create}, and refuses with the same 402. */
+    @Test
+    void getOrCreateByName_blockedAtPlanCategoryCap_whenEnforced() {
+        User user = testUser();
+        when(categoryRepository.findByUserAndNameIgnoreCase(user, "Sixth")).thenReturn(Optional.empty());
+        when(categoryAliasRepository.findByUserAndAlias(user, "sixth")).thenReturn(Optional.empty());
+        when(monetizationProperties.isEnforce()).thenReturn(true);
+        when(entitlementService.describe(user)).thenReturn(new EntitlementService.Entitlements(
+                PlanKey.FREE, SubscriptionStatus.ACTIVE, EnumSet.noneOf(FeatureKey.class), false));
+        when(categoryLimits.getFree()).thenReturn(5);
+        when(categoryRepository.countByUser(user)).thenReturn(5L);
+
+        assertThatThrownBy(() -> categoryService.getOrCreateByName("Sixth", user))
+                .isInstanceOf(FeatureLockedException.class)
+                .hasMessageContaining("limited to 5");
+        verify(categoryRepository, never()).save(any());
+    }
+
+    /**
+     * A user over their cap keeps working with the categories they already have. The check guards
+     * the branch that saves a new row, not the lookup — so resolving an existing name never 402s.
+     */
+    @Test
+    void getOrCreateByName_returnsExistingCategory_evenWhenOverTheCap() {
+        User user = testUser();
+        Category existing = Category.builder().id(7L).name("Meal Plan").user(user).build();
+        when(categoryRepository.findByUserAndNameIgnoreCase(user, "Meal Plan")).thenReturn(Optional.of(existing));
+
+        Category result = categoryService.getOrCreateByName("Meal Plan", user);
+
+        assertThat(result.getId()).isEqualTo(7L);
+        verify(entitlementService, never()).describe(any());
+    }
+
+    /**
+     * TEN-319, the ADMIN case TEN-314 created: the cap is read against the account the category is
+     * <em>for</em>, which is the only account this method is given. Charging anyone else would
+     * spend an admin's unlimited entitlement on a row filed against a capped user — the bypass with
+     * an audit trail.
+     *
+     * <p>What this can prove is that the argument reaches both halves of the check — the plan
+     * lookup and the count — and no other user does. That the argument is the expense's owner and
+     * not the caller is decided one layer up, in {@code ExpenseService#categorise}, and is covered
+     * by {@code ExpenseServiceTest#update_byAdmin_createsTheTagAndCategoryAgainstTheExpenseOwner}.
+     */
+    @Test
+    void getOrCreateByName_readsTheCapAgainstTheAccountItFilesTheCategoryFor() {
+        User owner = testUser();
+        when(categoryRepository.findByUserAndNameIgnoreCase(owner, "Sixth")).thenReturn(Optional.empty());
+        when(categoryAliasRepository.findByUserAndAlias(owner, "sixth")).thenReturn(Optional.empty());
+        when(monetizationProperties.isEnforce()).thenReturn(true);
+        when(entitlementService.describe(owner)).thenReturn(new EntitlementService.Entitlements(
+                PlanKey.FREE, SubscriptionStatus.ACTIVE, EnumSet.noneOf(FeatureKey.class), false));
+        when(categoryLimits.getFree()).thenReturn(5);
+        when(categoryRepository.countByUser(owner)).thenReturn(5L);
+
+        assertThatThrownBy(() -> categoryService.getOrCreateByName("Sixth", owner))
+                .isInstanceOf(FeatureLockedException.class);
+        verify(entitlementService).describe(owner);
+        verify(categoryRepository).countByUser(owner);
+        verify(entitlementService, never()).describe(argThat(u -> !owner.equals(u)));
+        verify(categoryRepository, never()).countByUser(argThat(u -> !owner.equals(u)));
+    }
+
+    /**
+     * The delete fallback is the one creation the cap must not touch. A user at their limit
+     * deleting a category is reducing their count; refusing that with "upgrade to add more" would
+     * trap them at the cap with no way down.
+     */
+    @Test
+    void delete_createsTheDefaultFallback_evenWhenTheUserIsAtTheCap() {
+        User user = testUser();
+        Category toDelete = Category.builder().id(2L).name("Food").user(user).build();
+        when(categoryRepository.findByIdAndUser(2L, user)).thenReturn(Optional.of(toDelete));
+        Expense expense = Expense.builder().id(1L).amount(new BigDecimal("100.00"))
+                .description("lunch").category(toDelete).user(user).build();
+        when(expenseRepository.findByCategory_IdAndUser(2L, user)).thenReturn(List.of(expense));
+        when(categoryRepository.findByUserAndNameIgnoreCase(user, "Uncategorized")).thenReturn(Optional.empty());
+        when(categoryAliasRepository.findByUserAndAlias(user, "uncategorized")).thenReturn(Optional.empty());
+        Category fallback = Category.builder().id(3L).name("Uncategorized").user(user).build();
+        when(categoryRepository.save(any(Category.class))).thenReturn(fallback);
+
+        categoryService.delete(2L, user);
+
+        assertThat(expense.getCategory().getName()).isEqualTo("Uncategorized");
+        verify(entitlementService, never()).describe(any());
+        verify(categoryRepository).deleteById(2L);
+    }
+
     @Test
     void delete_reassignExpensesToUncategorized_whenCategoryHasExpenses() {
         User user = testUser();
