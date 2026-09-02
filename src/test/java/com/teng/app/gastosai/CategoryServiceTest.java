@@ -93,7 +93,7 @@ class CategoryServiceTest {
         when(entitlementService.describe(user)).thenReturn(new EntitlementService.Entitlements(
                 PlanKey.FREE, SubscriptionStatus.ACTIVE, EnumSet.noneOf(FeatureKey.class), false));
         when(categoryLimits.getFree()).thenReturn(5);
-        when(categoryRepository.countByUser(user)).thenReturn(5L);
+        when(categoryRepository.countByUserAndSystemProvidedFalse(user)).thenReturn(5L);
 
         assertThatThrownBy(() -> categoryService.create(new CategoryRequest("Sixth", null), user))
                 .isInstanceOf(FeatureLockedException.class)
@@ -159,12 +159,49 @@ class CategoryServiceTest {
         when(entitlementService.describe(user)).thenReturn(new EntitlementService.Entitlements(
                 PlanKey.FREE, SubscriptionStatus.ACTIVE, EnumSet.noneOf(FeatureKey.class), false));
         when(categoryLimits.getFree()).thenReturn(5);
-        when(categoryRepository.countByUser(user)).thenReturn(5L);
+        when(categoryRepository.countByUserAndSystemProvidedFalse(user)).thenReturn(5L);
 
         assertThatThrownBy(() -> categoryService.getOrCreateByName("Sixth", user))
                 .isInstanceOf(FeatureLockedException.class)
                 .hasMessageContaining("limited to 5");
         verify(categoryRepository, never()).save(any());
+    }
+
+    /**
+     * TEN-327: the provisioning door. Registration's starter categories are written as
+     * system-provided and never consult the cap — the count they are excluded from is
+     * {@code countByUserAndSystemProvidedFalse}, so the entitlement lookup is not even reached.
+     */
+    @Test
+    void getOrCreateSystemProvided_marksTheRow_andNeverConsultsTheCap() {
+        User user = testUser();
+        when(categoryRepository.findByUserAndNameIgnoreCase(user, "Vacation")).thenReturn(Optional.empty());
+        when(categoryAliasRepository.findByUserAndAlias(user, "vacation")).thenReturn(Optional.empty());
+        when(categoryRepository.save(any(Category.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Category result = categoryService.getOrCreateSystemProvided("Vacation", user);
+
+        assertThat(result.isSystemProvided()).isTrue();
+        verify(entitlementService, never()).describe(any());
+        verify(categoryRepository, never()).countByUserAndSystemProvidedFalse(any());
+    }
+
+    /**
+     * The mirror: the same name asked for through the user-facing door is user-created, so it
+     * costs one of the plan's allowance. The flag is decided by which method was called, never by
+     * the name — which is the whole reason TEN-327 added a column instead of matching the seed list.
+     */
+    @Test
+    void getOrCreateByName_marksTheRowUserCreated_evenForAStarterName() {
+        User user = testUser();
+        when(categoryRepository.findByUserAndNameIgnoreCase(user, "Vacation")).thenReturn(Optional.empty());
+        when(categoryAliasRepository.findByUserAndAlias(user, "vacation")).thenReturn(Optional.empty());
+        when(monetizationProperties.isEnforce()).thenReturn(false);
+        when(categoryRepository.save(any(Category.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Category result = categoryService.getOrCreateByName("Vacation", user);
+
+        assertThat(result.isSystemProvided()).isFalse();
     }
 
     /**
@@ -203,12 +240,12 @@ class CategoryServiceTest {
         when(entitlementService.describe(owner)).thenReturn(new EntitlementService.Entitlements(
                 PlanKey.FREE, SubscriptionStatus.ACTIVE, EnumSet.noneOf(FeatureKey.class), false));
         when(categoryLimits.getFree()).thenReturn(5);
-        when(categoryRepository.countByUser(owner)).thenReturn(5L);
+        when(categoryRepository.countByUserAndSystemProvidedFalse(owner)).thenReturn(5L);
 
         assertThatThrownBy(() -> categoryService.getOrCreateByName("Sixth", owner))
                 .isInstanceOf(FeatureLockedException.class);
         verify(entitlementService).describe(owner);
-        verify(categoryRepository).countByUser(owner);
+        verify(categoryRepository).countByUserAndSystemProvidedFalse(owner);
         verify(entitlementService, never()).describe(argThat(u -> !owner.equals(u)));
         verify(categoryRepository, never()).countByUser(argThat(u -> !owner.equals(u)));
     }

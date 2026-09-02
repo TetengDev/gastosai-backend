@@ -12,7 +12,6 @@ import com.teng.app.gastosai.entity.SubscriptionStatus;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.entity.UserSubscription;
 import com.teng.app.gastosai.exception.AiQuotaExceededException;
-import com.teng.app.gastosai.exception.FeatureLockedException;
 import com.teng.app.gastosai.repository.CategoryRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import com.teng.app.gastosai.repository.SubscriptionPlanRepository;
@@ -84,6 +83,9 @@ class EntitlementEnforcementIntegrationTest extends PostgresBackedTest {
 
     /** The FREE category cap from {@code CategoryLimitProperties}; the 6th create is the one that fails. */
     private static final int FREE_CATEGORY_CAP = 5;
+
+    /** The starter set {@code CategorySeedService} writes at registration. System-provided: uncapped. */
+    private static final int SEEDED_CATEGORY_COUNT = 13;
 
     private static final int FREE_AI_QUOTA = 30;
     private static final int PREMIUM_AI_QUOTA = 300;
@@ -261,38 +263,47 @@ class EntitlementEnforcementIntegrationTest extends PostgresBackedTest {
     }
 
     /**
-     * Pins a live gap rather than endorsing it, and TEN-319 made it worse on purpose.
+     * The seed-versus-cap arithmetic, which this test has pinned since TEN-153 and which TEN-327
+     * closed. It used to assert the break; it now asserts the rule that replaced it.
      *
      * <p>Every registration path — password, magic link and Google — calls
-     * {@code CategorySeedService.seedPredefinedForUser}, which creates 13 categories through
-     * {@code CategoryService.getOrCreateByName}. The FREE cap is 5, and seeding runs <em>before</em>
-     * {@code SubscriptionService.startTrial}, so the account is FREE while it happens. Until
-     * TEN-319 that method skipped the cap, so seeding completed and the user merely woke up over
-     * their limit, unable to create a fourteenth category while looking at thirteen.
+     * {@code CategorySeedService.seedPredefinedForUser}, which writes 13 starter categories. The
+     * FREE cap is 5, and seeding runs <em>before</em> {@code SubscriptionService.startTrial}, so
+     * the account is FREE while it happens. Before TEN-319 the seeder skipped the cap and the user
+     * merely woke up over their limit, unable to create a fourteenth while looking at thirteen;
+     * TEN-319 made every creation path enforce, which promoted that from a wrong error message to
+     * seeding failing at the sixth starter and taking registration with it.
      *
-     * <p>TEN-319 made {@code getOrCreateByName} enforce the cap — the decision recorded on the
-     * issue — so with {@code gastos.monetization.enforce=true} <b>seeding itself now fails at the
-     * sixth category</b>, which is what this asserts. Registration would fail with it.
+     * <p>TEN-327 counts user-created rows only. Starters are system-provided, so registration
+     * succeeds with all 13 and the account still holds its whole allowance of 5 afterwards — the
+     * two halves this asserts. {@code CategoryLimitProperties.free} is unchanged at 5: the cap is a
+     * pricing statement, and raising it to clear the seed list was considered and rejected.
      *
-     * <p>That is a promotion, not a regression this PR introduced: the arithmetic was already
-     * wrong, and enforcing turned a wrong error message into a blocker. <b>It is why TEN-327 has to
-     * land before {@code MONETIZATION_ENFORCE} is ever set to true.</b> The flag defaults to
-     * {@code false} in every environment today, so nothing live is affected.
-     *
-     * <p>Asserting the current behaviour means whichever way TEN-327 resolves it — raise the cap
-     * above the seeded set, count only user-created categories, or seed fewer — this test fails
-     * and has to be updated deliberately, instead of the gap going quiet.
+     * <p>The per-path behaviour behind this — expense, chat, CSV, recurring — is
+     * {@link CategoryCapIncidentalPathsIntegrationTest}.
      */
     @Test
-    void free_registrationSeeding_nowBreaksAtTheCap_whenEnforced() {
-        assertThatThrownBy(() -> categorySeedService.seedPredefinedForUser(free))
-                .isInstanceOf(FeatureLockedException.class)
-                .hasMessageContaining("limited to " + FREE_CATEGORY_CAP);
+    void free_afterRegistrationSeeding_stillHasItsWholeCategoryAllowance() throws Exception {
+        assertThatCode(() -> categorySeedService.seedPredefinedForUser(free))
+                .as("registration seeding, with the cap enforced")
+                .doesNotThrowAnyException();
 
-        // And nothing survives: seedPredefinedForUser is @Transactional, so the refusal on the 6th
-        // rolls back the 5 that got in. Registration is @Transactional too — the account would go
-        // with them rather than land half-provisioned, which is the one mercy in this shape.
-        assertThat(categoryRepository.countByUser(free)).isZero();
+        assertThat(categoryRepository.countByUser(free))
+                .as("every starter is written")
+                .isEqualTo(SEEDED_CATEGORY_COUNT);
+        assertThat(categoryRepository.countByUserAndSystemProvidedFalse(free))
+                .as("and none of them counts against the cap")
+                .isZero();
+
+        for (int i = 1; i <= FREE_CATEGORY_CAP; i++) {
+            createCategory(freeAuth, "Mine " + i).andExpect(status().isCreated());
+        }
+        createCategory(freeAuth, "Mine " + (FREE_CATEGORY_CAP + 1))
+                .andExpect(status().isPaymentRequired())
+                .andExpect(jsonPath("$.feature").value("CUSTOM_CATEGORIES"));
+
+        assertThat(categoryRepository.countByUser(free))
+                .isEqualTo(SEEDED_CATEGORY_COUNT + FREE_CATEGORY_CAP);
     }
 
     /**
