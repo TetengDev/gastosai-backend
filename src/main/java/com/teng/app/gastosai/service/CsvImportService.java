@@ -5,6 +5,7 @@ import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
 import com.teng.app.gastosai.entity.ExpenseSource;
 import com.teng.app.gastosai.entity.User;
+import com.teng.app.gastosai.exception.FeatureLockedException;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -145,6 +146,20 @@ public class CsvImportService {
 			try {
 				persist(row, user);
 				imported++;
+			} catch (FeatureLockedException e) {
+				// The plan category cap (TEN-319, TEN-327), reached because a row named a category
+				// the user does not have yet. Deliberately not folded into `errors` like a bad
+				// row: this is not a defect in row N, it is the account being out of headroom, so
+				// every remaining row that names a new category would fail the same way and the
+				// user would get a list of identical "a row could not be saved" lines behind a
+				// 200. Rethrown so the import answers 402 naming CUSTOM_CATEGORIES, which is the
+				// only response that tells them what to do about it.
+				//
+				// Rows already imported stay imported — non-strict mode commits row by row and
+				// always has. A caller that wants all-or-nothing passes strict=true, where the
+				// same refusal rolls the whole file back inside the TransactionTemplate above.
+				log.warn("csv_import_category_cap_reached for user {}", user.getId());
+				throw e;
 			} catch (Exception e) {
 				// Don't leak the raw DB/exception text to the user.
 				log.warn("csv_import_row_save_failed: {}", e.getMessage());

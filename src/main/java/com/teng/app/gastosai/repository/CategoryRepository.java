@@ -17,5 +17,12 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
 
 	long countByUser(User user);
 
+	/**
+	 * The number of categories that count against the plan cap: the ones the user created.
+	 * System-provided rows — the registration starter set and the {@code Uncategorized} fallback —
+	 * are excluded (TEN-327).
+	 */
+	long countByUserAndSystemProvidedFalse(User user);
+
 	Optional<Category> findByIdAndUser(Long id, User user);
 }

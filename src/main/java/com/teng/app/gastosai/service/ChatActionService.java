@@ -35,6 +35,7 @@ import com.teng.app.gastosai.entity.Frequency;
 import com.teng.app.gastosai.entity.RecurringExpense;
 import com.teng.app.gastosai.entity.SavingsGoal;
 import com.teng.app.gastosai.entity.User;
+import com.teng.app.gastosai.exception.FeatureLockedException;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.BudgetRepository;
 import com.teng.app.gastosai.repository.ExpenseRepository;
@@ -214,6 +215,20 @@ public class ChatActionService {
 			chatAuditService.record(user.getId(), conversationId, resolvedTool.key(), AiUsageStatus.FAILED, "ResourceNotFoundException");
 			return new ChatResponse("text", "I couldn't find that item.", null);
 		}
+		catch (FeatureLockedException e) {
+			// The plan category cap (TEN-319, TEN-327): the action named a category the user does
+			// not have and has no room for. Rethrown ahead of the generic handler below, which
+			// would turn it into a 200 "Something went wrong while handling that. Please rephrase
+			// and try again." — advice that cannot work, since rephrasing does not buy headroom.
+			// GlobalExceptionHandler#featureLocked answers 402 naming CUSTOM_CATEGORIES, the same
+			// shape POST /categories and POST /expenses produce, so the client has one refusal to
+			// handle rather than three. The failed turn is still metered and audited.
+			aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
+					resolveModel(), AiFeature.CHAT_CRUD_ASSISTANT,
+					null, null, AiUsageStatus.FAILED, "FeatureLockedException");
+			chatAuditService.record(user.getId(), conversationId, resolvedTool.key(), AiUsageStatus.FAILED, "FeatureLockedException");
+			throw e;
+		}
 		catch (Exception e) {
 			log.warn("chat_action_failed", e);
 			aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
@@ -277,6 +292,12 @@ public class ChatActionService {
 		catch (ResourceNotFoundException e) {
 			chatAuditService.record(user.getId(), conversationId, tool.key(), AiUsageStatus.FAILED, "ResourceNotFoundException");
 			return new ChatResponse("text", "I couldn't find that item.", null);
+		}
+		catch (FeatureLockedException e) {
+			// Same reasoning as dispatchCore: a plan refusal is not "something went wrong", and
+			// tapping Confirm again cannot fix it. 402 naming CUSTOM_CATEGORIES.
+			chatAuditService.record(user.getId(), conversationId, tool.key(), AiUsageStatus.FAILED, "FeatureLockedException");
+			throw e;
 		}
 		catch (Exception e) {
 			log.warn("chat_confirm_failed", e);
