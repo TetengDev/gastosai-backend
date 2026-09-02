@@ -8,8 +8,11 @@ import com.teng.app.gastosai.service.ExpensePdfExportService;
 import com.teng.app.gastosai.service.ExpenseService;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.apache.pdfbox.text.TextPosition;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -18,10 +21,12 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -115,6 +120,55 @@ class ExpensePdfExportServiceTest {
 		}
 	}
 
+	@Test
+	void keepsAnAmountTooWideForItsColumnWholeAndInsideTheColumn() throws IOException {
+		when(expenseService.findAll(any(), any(), any(), any(), any())).thenReturn(List.of(
+				expense(1L, "9999999999999.99", "A very expensive quarter", "Misc"),
+				expense(2L, "50.00", "An ordinary lunch", "Food")));
+
+		byte[] pdf = service.exportPdf(user, null, null, null);
+		List<TextPosition> glyphs = glyphsOf(pdf);
+
+		// Every digit survives: shrinking the row's amount is allowed, truncating it is not.
+		assertThat(textOf(glyphs)).contains("PHP 9,999,999,999,999.99");
+		// ...and both money cells stay within their own column, so neither collides with its
+		// neighbour. Bounds are MARGIN plus the running sum of COLUMN_WIDTHS.
+		float[] entered = extentOf(glyphs, "PHP 9,999,999,999,999.99");
+		assertThat(entered[0]).isGreaterThanOrEqualTo(355f);
+		assertThat(entered[1]).isLessThanOrEqualTo(450f);
+		float[] inPhp = extentOf(glyphs, "9,999,999,999,999.99", entered[1]);
+		assertThat(inPhp[0]).isGreaterThanOrEqualTo(450f);
+		assertThat(inPhp[1]).isLessThanOrEqualTo(555f);
+		// The total column reconciles with the rows it summed.
+		assertThat(textOf(glyphs)).contains("Total (PHP)").contains("10,000,000,000,049.99");
+		// Only the amount that does not fit is shrunk: an ordinary one still draws at body size, so
+		// a future change to the threshold cannot quietly shrink every row.
+		assertThat(sizeOf(glyphs, "PHP 50.00")).isEqualTo(9.0f);
+		assertThat(sizeOf(glyphs, "PHP 9,999,999,999,999.99")).isLessThan(9.0f);
+	}
+
+	@Test
+	void closesThePagesContentStreamWhenARowThrowsMidPage() throws IOException {
+		// A null base-currency amount blows up inside the row loop, with the page half-written.
+		when(expenseService.findAll(any(), any(), any(), any(), any()))
+				.thenReturn(List.of(expenseWithNoBaseAmount()));
+
+		try (MockedConstruction<PDPageContentStream> streams = mockConstruction(PDPageContentStream.class)) {
+			assertThatThrownBy(() -> service.exportPdf(user, null, null, null))
+					.isInstanceOf(NullPointerException.class);
+
+			assertThat(streams.constructed()).hasSize(1);
+			verify(streams.constructed().getFirst()).close();
+		}
+	}
+
+	private static ExpenseResponse expenseWithNoBaseAmount() {
+		return new ExpenseResponse(1L, new BigDecimal("10.00"), "Misc",
+				LocalDateTime.of(2026, 8, 1, 9, 0), "Broken row", "EXPENSE", false, "PHP",
+				BigDecimal.ONE.setScale(6, java.math.RoundingMode.HALF_UP), null,
+				ExpenseSource.MANUAL, null, null);
+	}
+
 	private static ExpenseResponse expense(Long id, String amount, String description, String category) {
 		BigDecimal value = new BigDecimal(amount).setScale(2, java.math.RoundingMode.HALF_UP);
 		return new ExpenseResponse(id, value, category,
@@ -122,6 +176,51 @@ class ExpensePdfExportServiceTest {
 				description, "EXPENSE", false, "PHP",
 				BigDecimal.ONE.setScale(6, java.math.RoundingMode.HALF_UP), value,
 				ExpenseSource.MANUAL, null, null);
+	}
+
+	/** Every drawn glyph, in draw order, so a cell can be measured rather than only read. */
+	private static List<TextPosition> glyphsOf(byte[] pdf) throws IOException {
+		List<TextPosition> glyphs = new java.util.ArrayList<>();
+		try (PDDocument document = Loader.loadPDF(pdf)) {
+			PDFTextStripper stripper = new PDFTextStripper() {
+				@Override
+				protected void writeString(String text, List<TextPosition> positions) {
+					glyphs.addAll(positions);
+				}
+			};
+			stripper.getText(document);
+		}
+		return glyphs;
+	}
+
+	private static String textOf(List<TextPosition> glyphs) {
+		StringBuilder text = new StringBuilder();
+		glyphs.forEach(g -> text.append(g.getUnicode()));
+		return text.toString();
+	}
+
+	/** The size the first glyph of {@code cell} was drawn at. */
+	private static float sizeOf(List<TextPosition> glyphs, String cell) {
+		int at = textOf(glyphs).indexOf(cell);
+		assertThat(at).as("cell not drawn: " + cell).isNotNegative();
+		return glyphs.get(at).getFontSizeInPt();
+	}
+
+	private static float[] extentOf(List<TextPosition> glyphs, String cell) {
+		return extentOf(glyphs, cell, Float.NEGATIVE_INFINITY);
+	}
+
+	/** The left and right edges of {@code cell}, taking the first occurrence that starts after {@code afterX}. */
+	private static float[] extentOf(List<TextPosition> glyphs, String cell, float afterX) {
+		String all = textOf(glyphs);
+		for (int at = all.indexOf(cell); at >= 0; at = all.indexOf(cell, at + 1)) {
+			TextPosition first = glyphs.get(at);
+			TextPosition last = glyphs.get(at + cell.length() - 1);
+			if (first.getXDirAdj() > afterX) {
+				return new float[]{first.getXDirAdj(), last.getXDirAdj() + last.getWidthDirAdj()};
+			}
+		}
+		throw new AssertionError("cell not drawn: " + cell);
 	}
 
 	private static String textOf(byte[] pdf) throws IOException {
