@@ -122,8 +122,9 @@ class ExpensePdfExportServiceTest {
 
 	@Test
 	void keepsAnAmountTooWideForItsColumnWholeAndInsideTheColumn() throws IOException {
-		when(expenseService.findAll(any(), any(), any(), any(), any()))
-				.thenReturn(List.of(expense(1L, "9999999999999.99", "A very expensive quarter", "Misc")));
+		when(expenseService.findAll(any(), any(), any(), any(), any())).thenReturn(List.of(
+				expense(1L, "9999999999999.99", "A very expensive quarter", "Misc"),
+				expense(2L, "50.00", "An ordinary lunch", "Food")));
 
 		byte[] pdf = service.exportPdf(user, null, null, null);
 		List<TextPosition> glyphs = glyphsOf(pdf);
@@ -138,8 +139,12 @@ class ExpensePdfExportServiceTest {
 		float[] inPhp = extentOf(glyphs, "9,999,999,999,999.99", entered[1]);
 		assertThat(inPhp[0]).isGreaterThanOrEqualTo(450f);
 		assertThat(inPhp[1]).isLessThanOrEqualTo(555f);
-		// The total column reconciles with the one row it summed.
-		assertThat(textOf(glyphs)).contains("Total (PHP)");
+		// The total column reconciles with the rows it summed.
+		assertThat(textOf(glyphs)).contains("Total (PHP)").contains("10,000,000,000,049.99");
+		// Only the amount that does not fit is shrunk: an ordinary one still draws at body size, so
+		// a future change to the threshold cannot quietly shrink every row.
+		assertThat(sizeOf(glyphs, "PHP 50.00")).isEqualTo(9.0f);
+		assertThat(sizeOf(glyphs, "PHP 9,999,999,999,999.99")).isLessThan(9.0f);
 	}
 
 	@Test
@@ -192,6 +197,13 @@ class ExpensePdfExportServiceTest {
 		StringBuilder text = new StringBuilder();
 		glyphs.forEach(g -> text.append(g.getUnicode()));
 		return text.toString();
+	}
+
+	/** The size the first glyph of {@code cell} was drawn at. */
+	private static float sizeOf(List<TextPosition> glyphs, String cell) {
+		int at = textOf(glyphs).indexOf(cell);
+		assertThat(at).as("cell not drawn: " + cell).isNotNegative();
+		return glyphs.get(at).getFontSizeInPt();
 	}
 
 	private static float[] extentOf(List<TextPosition> glyphs, String cell) {
