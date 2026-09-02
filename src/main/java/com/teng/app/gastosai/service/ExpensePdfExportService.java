@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -55,8 +56,14 @@ public class ExpensePdfExportService {
 	private static final float BODY_SIZE = 9f;
 	private static final float ROW_HEIGHT = 15f;
 
-	/** Date · Description · Category · Amount (as entered) · Amount (PHP). Sums to 515pt of A4. */
-	private static final float[] COLUMN_WIDTHS = {75f, 195f, 85f, 80f, 80f};
+	/**
+	 * Date · Description · Category · Amount (as entered) · Amount (PHP). Sums to 515pt of A4.
+	 *
+	 * <p>The two money columns are the widest they can be without starving the description, because
+	 * an amount is never clipped: what does not fit is shrunk instead (see {@link #fittingSize}), and
+	 * a wider column is what keeps the common case at full body size.
+	 */
+	private static final float[] COLUMN_WIDTHS = {70f, 165f, 80f, 95f, 105f};
 	private static final String[] HEADERS = {"Date", "Description", "Category", "Amount", "Amount (PHP)"};
 
 	private static final DateTimeFormatter ROW_DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
@@ -94,32 +101,36 @@ public class ExpensePdfExportService {
 				.toList();
 
 		try (PDDocument document = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-			Cursor cursor = new Cursor(document);
-			cursor.startPage();
-			writeTitleBlock(cursor, from, to, projectName, rows.size());
-			writeTableHeader(cursor);
+			// The cursor is a resource of its own: a row that throws mid-page must still close the
+			// page's content stream, before the document it belongs to is closed or saved.
+			try (Cursor cursor = new Cursor(document)) {
+				cursor.startPage();
+				writeTitleBlock(cursor, from, to, projectName, rows.size());
+				writeTableHeader(cursor);
 
-			BigDecimal total = BigDecimal.ZERO;
-			for (ExpenseResponse e : rows) {
-				if (cursor.y < MARGIN + ROW_HEIGHT * 3) {
-					cursor.endPage();
-					cursor.startPage();
-					writeTableHeader(cursor);
+				BigDecimal total = BigDecimal.ZERO;
+				for (ExpenseResponse e : rows) {
+					if (cursor.y < MARGIN + ROW_HEIGHT * 3) {
+						cursor.endPage();
+						cursor.startPage();
+						writeTableHeader(cursor);
+					}
+					writeRow(cursor, BODY, new String[]{
+							e.date().format(ROW_DATE),
+							sanitize(e.description()),
+							sanitize(e.category()),
+							sanitize(e.currency()) + " " + money(e.amount()),
+							money(e.amountInBaseCurrency())
+					});
+					total = total.add(e.amountInBaseCurrency());
 				}
-				writeRow(cursor, BODY, new String[]{
-						e.date().format(ROW_DATE),
-						sanitize(e.description()),
-						sanitize(e.category()),
-						sanitize(e.currency()) + " " + money(e.amount()),
-						money(e.amountInBaseCurrency())
-				});
-				total = total.add(e.amountInBaseCurrency());
-			}
 
-			cursor.y -= 4f;
-			cursor.rule();
-			writeRow(cursor, BOLD, new String[]{"", "", "", "Total (PHP)", money(total.setScale(2, RoundingMode.HALF_UP))});
-			cursor.endPage();
+				cursor.y -= 4f;
+				cursor.rule();
+				writeRow(cursor, BOLD,
+						new String[]{"", "", "", "Total (PHP)", money(total.setScale(2, RoundingMode.HALF_UP))});
+				cursor.endPage();
+			}
 
 			document.save(out);
 			return out.toByteArray();
@@ -152,10 +163,13 @@ public class ExpensePdfExportService {
 			float width = COLUMN_WIDTHS[i] - 6f;
 			// The two money columns are right-aligned so the digits line up down the page; a
 			// truncated amount would be a wrong number, so only text columns are ever clipped.
+			// An amount too wide for its column is drawn smaller instead, which keeps every digit
+			// and keeps it inside the column rather than colliding with the one beside it.
 			boolean numeric = i >= 3;
 			String text = numeric ? cells[i] : clip(font, cells[i], width);
-			float offset = numeric ? width - textWidth(font, text) : 0f;
-			cursor.text(font, BODY_SIZE, x + Math.max(offset, 0f), text);
+			float size = numeric ? fittingSize(font, text, width) : BODY_SIZE;
+			float offset = numeric ? width - textWidth(font, text, size) : 0f;
+			cursor.text(font, size, x + Math.max(offset, 0f), text);
 			x += COLUMN_WIDTHS[i];
 		}
 		cursor.y -= ROW_HEIGHT;
@@ -203,14 +217,28 @@ public class ExpensePdfExportService {
 		return safe.toString();
 	}
 
+	/**
+	 * The largest font size, never above {@link #BODY_SIZE}, at which {@code text} fits in
+	 * {@code maxWidth}. There is no lower bound on purpose: a floor would put the overflow back, and
+	 * an unreadably small amount is still a readable-with-a-zoom correct number, where a clipped one
+	 * is a wrong number. The 6pt of column padding absorbs the rounding on an exact fit.
+	 */
+	private static float fittingSize(PDFont font, String text, float maxWidth) throws IOException {
+		float natural = textWidth(font, text, BODY_SIZE);
+		if (natural <= maxWidth || natural <= 0f) {
+			return BODY_SIZE;
+		}
+		return BODY_SIZE * maxWidth / natural;
+	}
+
 	private static String clip(PDFont font, String text, float maxWidth) throws IOException {
-		if (textWidth(font, text) <= maxWidth) {
+		if (textWidth(font, text, BODY_SIZE) <= maxWidth) {
 			return text;
 		}
 		String ellipsis = "...";
 		StringBuilder kept = new StringBuilder();
 		for (char c : text.toCharArray()) {
-			if (textWidth(font, kept.toString() + c + ellipsis) > maxWidth) {
+			if (textWidth(font, kept.toString() + c + ellipsis, BODY_SIZE) > maxWidth) {
 				break;
 			}
 			kept.append(c);
@@ -218,12 +246,12 @@ public class ExpensePdfExportService {
 		return kept + ellipsis;
 	}
 
-	private static float textWidth(PDFont font, String text) throws IOException {
-		return font.getStringWidth(text) / 1000f * BODY_SIZE;
+	private static float textWidth(PDFont font, String text, float size) throws IOException {
+		return font.getStringWidth(text) / 1000f * size;
 	}
 
 	/** A page under construction: the open content stream and the baseline the next line sits on. */
-	private static final class Cursor {
+	private static final class Cursor implements Closeable {
 
 		private final PDDocument document;
 		private PDPageContentStream stream;
@@ -243,6 +271,15 @@ public class ExpensePdfExportService {
 		private void endPage() throws IOException {
 			stream.close();
 			stream = null;
+		}
+
+		/** No-op once {@link #endPage()} has run; the safety net for a page abandoned mid-write. */
+		@Override
+		public void close() throws IOException {
+			if (stream != null) {
+				stream.close();
+				stream = null;
+			}
 		}
 
 		private void text(PDFont font, float size, float x, String value) throws IOException {
