@@ -184,16 +184,19 @@ class CategoryServiceTest {
     }
 
     /**
-     * TEN-319, the ADMIN case TEN-314 created: an admin editing someone else's expense resolves the
-     * category against the <em>owner</em>, so the cap has to be read against the owner too.
-     * Charging the caller would spend the admin's unlimited entitlement on a row filed against a
-     * capped account — the bypass with an audit trail.
+     * TEN-319, the ADMIN case TEN-314 created: the cap is read against the account the category is
+     * <em>for</em>, which is the only account this method is given. Charging anyone else would
+     * spend an admin's unlimited entitlement on a row filed against a capped user — the bypass with
+     * an audit trail.
+     *
+     * <p>What this can prove is that the argument reaches both halves of the check — the plan
+     * lookup and the count — and no other user does. That the argument is the expense's owner and
+     * not the caller is decided one layer up, in {@code ExpenseService#categorise}, and is covered
+     * by {@code ExpenseServiceTest#update_byAdmin_createsTheTagAndCategoryAgainstTheExpenseOwner}.
      */
     @Test
-    void getOrCreateByName_chargesTheCapToTheOwner_notTheActingAdmin() {
+    void getOrCreateByName_readsTheCapAgainstTheAccountItFilesTheCategoryFor() {
         User owner = testUser();
-        User admin = User.builder().id(99L).email("a@test.com").name("Admin").password("pw")
-                .role(Role.ADMIN).build();
         when(categoryRepository.findByUserAndNameIgnoreCase(owner, "Sixth")).thenReturn(Optional.empty());
         when(categoryAliasRepository.findByUserAndAlias(owner, "sixth")).thenReturn(Optional.empty());
         when(monetizationProperties.isEnforce()).thenReturn(true);
@@ -204,8 +207,10 @@ class CategoryServiceTest {
 
         assertThatThrownBy(() -> categoryService.getOrCreateByName("Sixth", owner))
                 .isInstanceOf(FeatureLockedException.class);
-        verify(entitlementService, never()).describe(admin);
-        verify(categoryRepository, never()).countByUser(admin);
+        verify(entitlementService).describe(owner);
+        verify(categoryRepository).countByUser(owner);
+        verify(entitlementService, never()).describe(argThat(u -> !owner.equals(u)));
+        verify(categoryRepository, never()).countByUser(argThat(u -> !owner.equals(u)));
     }
 
     /**
