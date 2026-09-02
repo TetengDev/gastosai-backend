@@ -1833,6 +1833,9 @@
             "format" : "int32",
             "type" : "integer"
           },
+          "limitReached" : {
+            "type" : "string"
+          },
           "skipped" : {
             "format" : "int32",
             "type" : "integer"

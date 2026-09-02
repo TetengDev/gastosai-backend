@@ -3,7 +3,9 @@ package com.teng.app.gastosai;
 import com.teng.app.gastosai.dto.ImportResult;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
+import com.teng.app.gastosai.entity.FeatureKey;
 import com.teng.app.gastosai.entity.User;
+import com.teng.app.gastosai.exception.FeatureLockedException;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import com.teng.app.gastosai.service.CategoryService;
 import com.teng.app.gastosai.service.CsvImportService;
@@ -21,6 +23,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -284,6 +287,67 @@ class CsvImportServiceTest {
         ArgumentCaptor<Expense> expCap = ArgumentCaptor.forClass(Expense.class);
         verify(expenseRepository).save(expCap.capture());
         assertThat(expCap.getValue().getDescription()).hasSize(500);
+    }
+
+    // --- category cap (TEN-329) ---
+
+    @Test
+    void import_categoryCapHitMidFile_finishesTheFile_andNamesTheLimit() throws IOException {
+        String content = "date,amount,category\n"
+                + "2026-06-01,100.00,Food\n"        // existing category -> imports
+                + "2026-06-02,200.00,Vacation\n"    // would be new -> refused
+                + "2026-06-03,300.00,Food\n"        // existing category -> still imports
+                + "2026-06-04,400.00,Travel\n";     // would be new -> refused
+
+        when(categoryService.getOrCreateByName(anyString(), any())).thenAnswer(inv -> {
+            String name = inv.getArgument(0);
+            if ("Food".equals(name)) return category(name);
+            throw new FeatureLockedException(FeatureKey.CUSTOM_CATEGORIES,
+                    "Your plan is limited to 5 categories. Upgrade to add more.");
+        });
+
+        ImportResult result = csvImportService.importCsv(csv(content), user());
+
+        // The refusal used to rethrow, so rows 3 and 4 never ran and the caller got a 402 with no
+        // count — while row 2 stayed committed.
+        assertThat(result.imported()).isEqualTo(2);
+        assertThat(result.limitReached()).isEqualTo("CUSTOM_CATEGORIES");
+        assertThat(result.errors()).hasSize(2);
+        assertThat(result.errors().get(0)).contains("Row 3").contains("Vacation");
+        assertThat(result.errors().get(1)).contains("Row 5").contains("Travel");
+        verify(expenseRepository, times(2)).save(any());
+    }
+
+    @Test
+    void import_noCapHit_leavesLimitReachedNull() throws IOException {
+        String content = "date,amount,category\n"
+                + "2026-06-01,100.00,Food\n";
+
+        when(categoryService.getOrCreateByName(anyString(), any())).thenReturn(category("Food"));
+
+        ImportResult result = csvImportService.importCsv(csv(content), user());
+
+        assertThat(result.limitReached()).isNull();
+    }
+
+    @Test
+    void strict_categoryCapHit_stillRefusesTheWholeFile() throws IOException {
+        String content = "date,amount,category\n"
+                + "2026-06-01,100.00,Food\n"
+                + "2026-06-02,200.00,Vacation\n";
+
+        // Strict runs inside a TransactionTemplate; the refusal must escape so the whole file rolls
+        // back and the request answers 402 naming CUSTOM_CATEGORIES.
+        when(categoryService.getOrCreateByName(anyString(), any())).thenAnswer(inv -> {
+            if ("Food".equals(inv.getArgument(0))) return category("Food");
+            throw new FeatureLockedException(FeatureKey.CUSTOM_CATEGORIES, "capped");
+        });
+
+        assertThatThrownBy(() -> csvImportService.importCsv(csv(content), user(), true))
+                .isInstanceOf(FeatureLockedException.class)
+                .extracting(e -> ((FeatureLockedException) e).getFeature())
+                .isEqualTo(FeatureKey.CUSTOM_CATEGORIES);
+        verify(transactionManager).rollback(any());
     }
 
     @Test
