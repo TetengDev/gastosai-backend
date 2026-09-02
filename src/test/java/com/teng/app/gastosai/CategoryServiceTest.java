@@ -149,29 +149,88 @@ class CategoryServiceTest {
         verify(categoryRepository).save(argThat(c -> "NewCat".equals(c.getName())));
     }
 
-    /**
-     * TEN-319: the incidental path does not consult the cap at all — not even to read the plan.
-     * Verifying that {@code entitlementService} is never touched is the point: a future change that
-     * makes the check conditional rather than absent fails here, which is the alarm this pins.
-     *
-     * <p>Deliberately no {@code isEnforce()} stub. The check is absent, not conditional, so the
-     * enforcement flag is never read — stubbing it would fail Mockito's strict stubbing as unused,
-     * and the name would then promise a state this test cannot reach. The genuinely
-     * enforced-and-at-cap case is {@code EntitlementEnforcementIntegrationTest
-     * #free_atTheCategoryCap_stillCreatesACategoryThroughTheExpensePath}, against a real database.
-     */
+    /** TEN-319: the incidental path is capped like {@code create}, and refuses with the same 402. */
     @Test
-    void getOrCreateByName_neverConsultsThePlan_soNoCapCanApply() {
+    void getOrCreateByName_blockedAtPlanCategoryCap_whenEnforced() {
         User user = testUser();
         when(categoryRepository.findByUserAndNameIgnoreCase(user, "Sixth")).thenReturn(Optional.empty());
-        Category saved = Category.builder().id(11L).name("Sixth").user(user).build();
-        when(categoryRepository.save(any(Category.class))).thenReturn(saved);
+        when(categoryAliasRepository.findByUserAndAlias(user, "sixth")).thenReturn(Optional.empty());
+        when(monetizationProperties.isEnforce()).thenReturn(true);
+        when(entitlementService.describe(user)).thenReturn(new EntitlementService.Entitlements(
+                PlanKey.FREE, SubscriptionStatus.ACTIVE, EnumSet.noneOf(FeatureKey.class), false));
+        when(categoryLimits.getFree()).thenReturn(5);
+        when(categoryRepository.countByUser(user)).thenReturn(5L);
 
-        Category result = categoryService.getOrCreateByName("Sixth", user);
+        assertThatThrownBy(() -> categoryService.getOrCreateByName("Sixth", user))
+                .isInstanceOf(FeatureLockedException.class)
+                .hasMessageContaining("limited to 5");
+        verify(categoryRepository, never()).save(any());
+    }
 
-        assertThat(result.getId()).isEqualTo(11L);
+    /**
+     * A user over their cap keeps working with the categories they already have. The check guards
+     * the branch that saves a new row, not the lookup — so resolving an existing name never 402s.
+     */
+    @Test
+    void getOrCreateByName_returnsExistingCategory_evenWhenOverTheCap() {
+        User user = testUser();
+        Category existing = Category.builder().id(7L).name("Meal Plan").user(user).build();
+        when(categoryRepository.findByUserAndNameIgnoreCase(user, "Meal Plan")).thenReturn(Optional.of(existing));
+
+        Category result = categoryService.getOrCreateByName("Meal Plan", user);
+
+        assertThat(result.getId()).isEqualTo(7L);
         verify(entitlementService, never()).describe(any());
-        verify(categoryRepository, never()).countByUser(any());
+    }
+
+    /**
+     * TEN-319, the ADMIN case TEN-314 created: an admin editing someone else's expense resolves the
+     * category against the <em>owner</em>, so the cap has to be read against the owner too.
+     * Charging the caller would spend the admin's unlimited entitlement on a row filed against a
+     * capped account — the bypass with an audit trail.
+     */
+    @Test
+    void getOrCreateByName_chargesTheCapToTheOwner_notTheActingAdmin() {
+        User owner = testUser();
+        User admin = User.builder().id(99L).email("a@test.com").name("Admin").password("pw")
+                .role(Role.ADMIN).build();
+        when(categoryRepository.findByUserAndNameIgnoreCase(owner, "Sixth")).thenReturn(Optional.empty());
+        when(categoryAliasRepository.findByUserAndAlias(owner, "sixth")).thenReturn(Optional.empty());
+        when(monetizationProperties.isEnforce()).thenReturn(true);
+        when(entitlementService.describe(owner)).thenReturn(new EntitlementService.Entitlements(
+                PlanKey.FREE, SubscriptionStatus.ACTIVE, EnumSet.noneOf(FeatureKey.class), false));
+        when(categoryLimits.getFree()).thenReturn(5);
+        when(categoryRepository.countByUser(owner)).thenReturn(5L);
+
+        assertThatThrownBy(() -> categoryService.getOrCreateByName("Sixth", owner))
+                .isInstanceOf(FeatureLockedException.class);
+        verify(entitlementService, never()).describe(admin);
+        verify(categoryRepository, never()).countByUser(admin);
+    }
+
+    /**
+     * The delete fallback is the one creation the cap must not touch. A user at their limit
+     * deleting a category is reducing their count; refusing that with "upgrade to add more" would
+     * trap them at the cap with no way down.
+     */
+    @Test
+    void delete_createsTheDefaultFallback_evenWhenTheUserIsAtTheCap() {
+        User user = testUser();
+        Category toDelete = Category.builder().id(2L).name("Food").user(user).build();
+        when(categoryRepository.findByIdAndUser(2L, user)).thenReturn(Optional.of(toDelete));
+        Expense expense = Expense.builder().id(1L).amount(new BigDecimal("100.00"))
+                .description("lunch").category(toDelete).user(user).build();
+        when(expenseRepository.findByCategory_IdAndUser(2L, user)).thenReturn(List.of(expense));
+        when(categoryRepository.findByUserAndNameIgnoreCase(user, "Uncategorized")).thenReturn(Optional.empty());
+        when(categoryAliasRepository.findByUserAndAlias(user, "uncategorized")).thenReturn(Optional.empty());
+        Category fallback = Category.builder().id(3L).name("Uncategorized").user(user).build();
+        when(categoryRepository.save(any(Category.class))).thenReturn(fallback);
+
+        categoryService.delete(2L, user);
+
+        assertThat(expense.getCategory().getName()).isEqualTo("Uncategorized");
+        verify(entitlementService, never()).describe(any());
+        verify(categoryRepository).deleteById(2L);
     }
 
     @Test
