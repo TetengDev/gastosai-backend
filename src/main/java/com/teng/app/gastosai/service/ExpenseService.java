@@ -46,7 +46,6 @@ import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -73,31 +72,25 @@ public class ExpenseService {
 		return create(request, user, clientDeclaredSource(request));
 	}
 
+	/**
+	 * A name that is not an {@code ExpenseSource} at all no longer reaches here: it fails while the
+	 * body is read, and the handler answers 400 naming the field and its values (TEN-309). What is
+	 * left is the one refusal the type system cannot make — a real source that is not the client's
+	 * to declare.
+	 *
+	 * <p>Telling a client that {@code IMPORT} exists but is not for it would only invite the next
+	 * request to try {@code RECURRING}; the answer it needs is the two values it may send.
+	 */
 	private static ExpenseSource clientDeclaredSource(ExpenseRequest request) {
-		String declared = request.source();
-		if (declared == null || declared.isBlank()) {
+		ExpenseSource declared = request.source();
+		if (declared == null) {
 			return ExpenseSource.MANUAL;
 		}
-		ExpenseSource source;
-		try {
-			source = ExpenseSource.valueOf(declared.trim().toUpperCase(Locale.ROOT));
-		} catch (IllegalArgumentException e) {
-			throw badSource(declared);
+		if (!declared.isClientDeclarable()) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+					"source must be MANUAL or RECEIPT_SCAN — got '" + declared.name() + "'.");
 		}
-		if (!source.isClientDeclarable()) {
-			throw badSource(declared);
-		}
-		return source;
-	}
-
-	/**
-	 * One message for both refusals. Telling a client that {@code IMPORT} exists but is not for it
-	 * would only invite the next request to try {@code RECURRING}; the answer it needs is the same
-	 * either way — here are the two values you may send.
-	 */
-	private static ResponseStatusException badSource(String declared) {
-		return new ResponseStatusException(HttpStatus.BAD_REQUEST,
-				"source must be MANUAL or RECEIPT_SCAN — got '" + declared + "'.");
+		return declared;
 	}
 
 	/**
