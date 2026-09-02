@@ -38,6 +38,20 @@ public class Category {
 	@Column(length = 50)
 	private String icon;
 
+	/**
+	 * True for a category the system provided rather than the user creating: the starter set
+	 * {@code CategorySeedService} writes at registration, and the {@code Uncategorized} fallback.
+	 *
+	 * <p>System-provided rows do not consume the plan's category cap (TEN-327) — a FREE account
+	 * keeps all 13 starters and may still create 5 of its own. The value is set once, when the row
+	 * is created, and never inferred from the name afterwards: a user may rename or delete a
+	 * starter, and may create a category whose name matches one, and neither may change how the row
+	 * counts. It is not writable through any endpoint, so a user cannot buy themselves headroom by
+	 * flagging their own rows.
+	 */
+	@Column(name = "system_provided", nullable = false)
+	private boolean systemProvided;
+
 	/** Optional bucket for rule-based budgeting (NEEDS/WANTS/SAVINGS); null = unassigned. */
 	@Enumerated(EnumType.STRING)
 	@Column(length = 16)

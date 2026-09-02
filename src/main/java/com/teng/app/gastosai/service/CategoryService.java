@@ -175,8 +175,15 @@ public class CategoryService {
 	 *
 	 * <p>Two callers, both of which create a category the user chose: {@link #create}, behind
 	 * {@code POST /categories}, and {@link #getOrCreateByName}, the incidental path an expense, a
-	 * chat action, a CSV row or a recurring template comes through (TEN-319). The one place that
-	 * deliberately skips it is {@link #getOrCreateDefault} — see there.
+	 * chat action, a CSV row or a recurring template comes through (TEN-319). The two places that
+	 * deliberately skip it both create a row the user did not choose:
+	 * {@link #getOrCreateSystemProvided} and {@link #getOrCreateDefault} — see there.
+	 *
+	 * <p><b>Only user-created rows count (TEN-327).</b> The 13 starter categories registration
+	 * seeds are system-provided and consume nothing, so a FREE account holds 13 starters and may
+	 * still create 5 of its own before this refuses. Counting every row instead is what made
+	 * {@code gastos.monetization.enforce=true} fail registration at the sixth starter; the flag is
+	 * flippable because this line reads {@code countByUserAndSystemProvidedFalse}.
 	 *
 	 * <p>The {@code user} passed here is whoever the category is being created <em>for</em>, never
 	 * whoever is holding the request. The two differ when an ADMIN edits somebody else's expense.
@@ -186,7 +193,7 @@ public class CategoryService {
 			return;
 		}
 		int cap = capFor(entitlementService.describe(user).plan());
-		if (cap > 0 && categoryRepository.countByUser(user) >= cap) {
+		if (cap > 0 && categoryRepository.countByUserAndSystemProvidedFalse(user) >= cap) {
 			throw new FeatureLockedException(FeatureKey.CUSTOM_CATEGORIES,
 					"Your plan is limited to " + cap + " categories. Upgrade to add more.");
 		}
@@ -233,15 +240,16 @@ public class CategoryService {
 	 * asked. The expense is not written: the caller's transaction rolls back with it.
 	 *
 	 * <p><b>Provisioning does not come through here, and must not.</b> {@code CategorySeedService}
-	 * creates 13 starter categories at registration, while the account is still FREE against a cap
-	 * of 5 — it calls this method, so with {@code gastos.monetization.enforce=true} the sixth
-	 * seeded category now throws and registration fails with it. That is the seed-versus-cap gap
-	 * {@code EntitlementEnforcementIntegrationTest#free_afterRegistrationSeeding_cannotCreateAnyCategory}
-	 * has pinned since TEN-153, and enforcing here promotes it from a wrong error message to a
-	 * blocker: <b>{@code TEN-327} must land before that flag is turned on.</b> The flag defaults to
-	 * {@code false} in every environment today, which is the only reason this is shippable now.
+	 * creates 13 starter categories at registration while the account is still FREE against a cap
+	 * of 5; it used to call this method, so with {@code gastos.monetization.enforce=true} the sixth
+	 * starter threw and registration failed with it. TEN-327 closed that: the seeder now calls
+	 * {@link #getOrCreateSystemProvided}, which marks the row system-provided, and system-provided
+	 * rows do not count against the cap. A category created <em>here</em> is user-created, whatever
+	 * it is named — naming an expense "Vacation" after deleting the starter of that name spends one
+	 * of the user's five.
 	 *
 	 * @see #enforceCategoryLimit(User)
+	 * @see #getOrCreateSystemProvided(String, User)
 	 * @see #getOrCreateDefault(User)
 	 */
 	@Transactional
@@ -261,18 +269,55 @@ public class CategoryService {
 	}
 
 	/**
-	 * {@code Uncategorized} for this user, created if it is missing — without consulting the cap.
+	 * The provisioning door: the named category belonging to {@code owner}, created as a
+	 * <em>system-provided</em> row if it does not exist yet, without consulting the cap.
+	 *
+	 * <p>The one caller is {@code CategorySeedService}, which writes the 13 starter categories on
+	 * every registration path — password, magic link and Google. Those rows are the product's
+	 * opening hand, not a choice the user made, so they neither consume the plan cap nor are
+	 * refused by it (TEN-327). Everything a user actually asks for goes through
+	 * {@link #getOrCreateByName} or {@link #create} and is user-created.
+	 *
+	 * <p>Not exposed through any controller, and there is no endpoint that sets
+	 * {@code systemProvided} on an existing row — otherwise a user could flag their own categories
+	 * and hold an unlimited number of them on a FREE plan.
+	 *
+	 * <p>An existing row is returned untouched, including its flag. Re-running the seeder over an
+	 * account that already created "Vacation" by hand does not quietly promote that row to
+	 * system-provided; it stays user-created and keeps counting.
+	 */
+	@Transactional
+	public Category getOrCreateSystemProvided(String categoryName, User owner) {
+		String trimmed = categoryName.trim();
+		if (isDefault(trimmed)) {
+			return getOrCreateDefault(owner);
+		}
+		return resolveByName(trimmed, owner)
+				.orElseGet(() -> categoryRepository.save(Category.builder()
+						.name(trimmed)
+						.user(owner)
+						.systemProvided(true)
+						.build()));
+	}
+
+	/**
+	 * {@code Uncategorized} for this user, created if it is missing — without consulting the cap,
+	 * and marked system-provided.
 	 *
 	 * <p>The fallback a delete reassigns orphaned expenses to (TEN-319). It cannot be capped: a
 	 * user at their limit deleting a category is <em>reducing</em> their count, and refusing that
 	 * with "upgrade to add more" would trap them at the cap with no way down. The default category
-	 * is also not a category anyone chose, so charging it to a plan means nothing.
+	 * is also not a category anyone chose, so charging it to a plan means nothing — which is the
+	 * same reason it is written as system-provided (TEN-327) rather than merely skipping the check.
+	 * Skipping the check alone would let the row through and then have it consume one of the
+	 * user's five forever, so the exemption has to hold in the arithmetic too, not just at the door.
 	 */
 	private Category getOrCreateDefault(User user) {
 		return resolveByName(DEFAULT_CATEGORY, user)
 				.orElseGet(() -> categoryRepository.save(Category.builder()
 						.name(DEFAULT_CATEGORY)
 						.user(user)
+						.systemProvided(true)
 						.build()));
 	}
 
