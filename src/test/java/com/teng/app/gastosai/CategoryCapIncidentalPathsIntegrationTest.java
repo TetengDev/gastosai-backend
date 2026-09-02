@@ -25,6 +25,7 @@ import org.springframework.web.context.WebApplicationContext;
 import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -52,7 +53,9 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
  *     <td><b>Enforced.</b> 402 on the chat request itself (TEN-327 stopped the generic catch from
  *     swallowing it into a 200 "something went wrong").</td></tr>
  * <tr><td>{@code CsvImportService.importRows}</td>
- *     <td><b>Enforced.</b> 402 on the import, not a per-row error line behind a 200.</td></tr>
+ *     <td><b>Enforced.</b> Strict: 402, whole file rolled back. Non-strict (TEN-329): the file is
+ *     finished, the rows needing a new category are errors, and {@code ImportResult.limitReached}
+ *     names {@code CUSTOM_CATEGORIES} — a structured field, not a per-row error line alone.</td></tr>
  * <tr><td>{@code RecurringExpenseService} — create and materialise</td>
  *     <td><b>Enforced.</b> 402, and no template is written.</td></tr>
  * <tr><td>{@code CategorySeedService} — registration provisioning</td>
@@ -165,18 +168,28 @@ class CategoryCapIncidentalPathsIntegrationTest extends PostgresBackedTest {
     }
 
     @Test
-    void csvPath_isRefusedWith402_ratherThanAPerRowErrorBehind200() throws Exception {
+    void csvPath_nonStrict_finishesTheFile_andNamesTheLimitItHit() throws Exception {
+        // TEN-329. The refusal used to be a 402 that abandoned the rest of the file, so rows naming
+        // categories the account already has — which are never capped — were lost to a row that
+        // named a new one. Non-strict now finishes the file: row 2 imports, rows 3 and 4 are listed
+        // as errors, and `limitReached` names the entitlement so a client can offer the upgrade.
         MockMultipartFile file = csv("""
                 date,amount,category,description
-                2026-06-15,250.00,By Csv,Lunch
+                2026-06-15,250.00,Mine 1,Lunch
+                2026-06-16,300.00,By Csv,Dinner
+                2026-06-17,120.00,By Csv Too,Snacks
                 """);
 
         mockMvc.perform(multipart("/expenses/import").file(file).header("Authorization", freeAuth))
-                .andExpect(status().isPaymentRequired())
-                .andExpect(jsonPath("$.feature").value("CUSTOM_CATEGORIES"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.imported").value(1))
+                .andExpect(jsonPath("$.limitReached").value("CUSTOM_CATEGORIES"))
+                .andExpect(jsonPath("$.errors", hasSize(2)));
 
         assertNothingWasCreated("By Csv");
-        assertThat(expenseRepository.findAllByUserOrderByDateDesc(free)).isEmpty();
+        assertNothingWasCreated("By Csv Too");
+        // The count the response reported is the count actually in the database.
+        assertThat(expenseRepository.findAllByUserOrderByDateDesc(free)).hasSize(1);
     }
 
     @Test

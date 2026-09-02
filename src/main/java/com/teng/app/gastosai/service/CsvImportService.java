@@ -63,7 +63,8 @@ public class CsvImportService {
 	@Value("${gastos.import.max-category-length:100}")
 	private int maxCategoryLength = 100;
 
-	private record PendingRow(BigDecimal amount, String categoryName, String description, LocalDateTime date) {
+	private record PendingRow(int rowNum, BigDecimal amount, String categoryName, String description,
+			LocalDateTime date) {
 	}
 
 	public ImportResult importCsv(MultipartFile file, User user) throws IOException {
@@ -74,6 +75,10 @@ public class CsvImportService {
 	 * Lenient (default): valid rows import, invalid amounts skip, non-numeric rows error — best-effort.
 	 * Strict: any skip or error rejects the whole file (nothing persisted), with a per-row reason list;
 	 * valid files persist all rows in a single transaction.
+	 *
+	 * <p>The plan category cap parts the two: lenient finishes the file and reports the refusal in
+	 * {@link ImportResult#limitReached()}; strict lets it escape, so the file rolls back and the
+	 * request answers 402 naming {@code CUSTOM_CATEGORIES}.
 	 */
 	public ImportResult importCsv(MultipartFile file, User user, boolean strict) throws IOException {
 		CSVFormat format = CSVFormat.DEFAULT.builder()
@@ -117,6 +122,7 @@ public class CsvImportService {
 					continue;
 				}
 				pending.add(new PendingRow(
+						rowNum,
 						amount,
 						clamp(firstNonBlank(col(record, "category"), DEFAULT_CATEGORY), maxCategoryLength),
 						clamp(firstNonBlank(col(record, "description"), col(record, "note"), ""), maxDescriptionLength),
@@ -142,31 +148,42 @@ public class CsvImportService {
 		}
 
 		int imported = 0;
+		String limitReached = null;
 		for (PendingRow row : pending) {
 			try {
 				persist(row, user);
 				imported++;
 			} catch (FeatureLockedException e) {
 				// The plan category cap (TEN-319, TEN-327), reached because a row named a category
-				// the user does not have yet. Deliberately not folded into `errors` like a bad
-				// row: this is not a defect in row N, it is the account being out of headroom, so
-				// every remaining row that names a new category would fail the same way and the
-				// user would get a list of identical "a row could not be saved" lines behind a
-				// 200. Rethrown so the import answers 402 naming CUSTOM_CATEGORIES, which is the
-				// only response that tells them what to do about it.
+				// the user does not have yet. Non-strict finishes the file (TEN-329): rethrowing
+				// here answered 402 and threw away every row after the first refusal, including the
+				// rows naming categories the user already has — which import fine, since resolving
+				// an existing category is never capped. A partial import behind a 402 that reports
+				// no count is the worst of both, so the refusal is now per row.
+				//
+				// The rows that needed a new category are listed in `errors`, and `limitReached`
+				// carries the feature key so a client can route to an upgrade prompt instead of
+				// parsing prose — the entitlement is not a defect in row N, which is why an error
+				// string alone was rejected in TEN-327.
 				//
 				// Rows already imported stay imported — non-strict mode commits row by row and
 				// always has. A caller that wants all-or-nothing passes strict=true, where the
-				// same refusal rolls the whole file back inside the TransactionTemplate above.
-				log.warn("csv_import_category_cap_reached for user {}", user.getId());
-				throw e;
+				// same refusal rolls the whole file back inside the TransactionTemplate above and
+				// still answers 402 naming CUSTOM_CATEGORIES.
+				if (limitReached == null) {
+					log.warn("csv_import_category_cap_reached for user {}", user.getId());
+				}
+				limitReached = e.getFeature().name();
+				errors.add("Row " + row.rowNum() + ": category '" + row.categoryName()
+						+ "' would be a new category and your plan has no room for it. Upgrade, or map this row"
+						+ " to a category you already have.");
 			} catch (Exception e) {
 				// Don't leak the raw DB/exception text to the user.
 				log.warn("csv_import_row_save_failed: {}", e.getMessage());
 				errors.add("A row could not be saved.");
 			}
 		}
-		return new ImportResult(imported, skipped, errors);
+		return new ImportResult(imported, skipped, errors, limitReached);
 	}
 
 	public byte[] buildTemplate() throws IOException {
