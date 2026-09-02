@@ -196,4 +196,3 @@ summarize long output rather than keeping the whole log in context.
 | `../docs/agent-workflow.md` | tracked work, issue state, PRs, evidence, cross-repo |
 | `docs/ARCHITECTURE.md` | changing a layer boundary or adding an adapter |
 
-Never search or read the `gastosai/` archive beside this repo during ordinary work.
