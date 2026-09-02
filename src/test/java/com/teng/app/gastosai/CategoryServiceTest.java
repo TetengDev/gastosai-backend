@@ -247,7 +247,7 @@ class CategoryServiceTest {
         verify(entitlementService).describe(owner);
         verify(categoryRepository).countByUserAndSystemProvidedFalse(owner);
         verify(entitlementService, never()).describe(argThat(u -> !owner.equals(u)));
-        verify(categoryRepository, never()).countByUser(argThat(u -> !owner.equals(u)));
+        verify(categoryRepository, never()).countByUserAndSystemProvidedFalse(argThat(u -> !owner.equals(u)));
     }
 
     /**
