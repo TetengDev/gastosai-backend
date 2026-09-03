@@ -151,5 +151,3 @@ surface as a 409 on both paths.
 
 **First raised:** TEN-323 / PR #79 — https://github.com/TetengDev/gastosai-backend/pull/79 —
 found by `pr-review-auditor`.
-
----
