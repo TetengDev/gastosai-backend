@@ -4565,11 +4565,12 @@
     },
     "/api/v2/chat/conversations" : {
       "get" : {
+        "description" : "Conversation summaries for the authenticated user, most recently updated first. Carries no messages; fetch a transcript with GET /api/v2/chat/conversations/{id}.",
         "operationId" : "v2ListConversations",
         "responses" : {
           "200" : {
             "content" : {
-              "*/*" : {
+              "application/json" : {
                 "schema" : {
                   "items" : {
                     "$ref" : "#/components/schemas/ConversationSummaryDto"
@@ -4578,12 +4579,13 @@
                 }
               }
             },
-            "description" : "OK"
+            "description" : "The caller's conversations, newest activity first. Empty when they have never chatted."
           }
         },
         "security" : [ {
           "bearerAuth" : [ ]
         } ],
+        "summary" : "List the caller's chat conversations",
         "tags" : [ "conversation-v-2-controller" ]
       }
     },
