@@ -527,6 +527,47 @@
         "required" : [ "budgeted", "categoryName", "percentUsed", "remaining", "spent", "status" ],
         "type" : "object"
       },
+      "BudgetChatItemV2" : {
+        "description" : "One category's budget line in a chat budget summary, money in centavos.",
+        "properties" : {
+          "budgeted" : {
+            "description" : "The budget limit for the month, in centavos.",
+            "example" : 800000,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "categoryName" : {
+            "description" : "The budgeted category's name.",
+            "example" : "Groceries",
+            "type" : "string"
+          },
+          "percentUsed" : {
+            "description" : "Share of the budget used, as a percentage. May exceed 100. Not money, so it stays a decimal.",
+            "example" : 80.26,
+            "type" : "number"
+          },
+          "remaining" : {
+            "description" : "`budgeted` minus `spent`, in centavos. Negative once the budget is exceeded.",
+            "example" : 157950,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "spent" : {
+            "description" : "Spent against this budget so far, in centavos.",
+            "example" : 642050,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "status" : {
+            "description" : "Banding derived from `percentUsed`: `WARNING` at 80%, `OVER_BUDGET` at 100%. The server computes it — a client must never re-derive it.",
+            "enum" : [ "ON_TRACK", "WARNING", "OVER_BUDGET" ],
+            "example" : "WARNING",
+            "type" : "string"
+          }
+        },
+        "required" : [ "budgeted", "categoryName", "percentUsed", "remaining", "spent", "status" ],
+        "type" : "object"
+      },
       "BudgetRequest" : {
         "properties" : {
           "amountLimit" : {
@@ -857,6 +898,43 @@
         "required" : [ "items", "month", "safeToSpend", "totalBudgeted", "totalSpent" ],
         "type" : "object"
       },
+      "BudgetSummaryChatResultV2" : {
+        "description" : "A month's budget summary as returned by a chat turn, money in centavos.",
+        "properties" : {
+          "items" : {
+            "description" : "One line per budgeted category. Empty when no budget is set.",
+            "items" : {
+              "$ref" : "#/components/schemas/BudgetChatItemV2"
+            },
+            "type" : "array"
+          },
+          "month" : {
+            "description" : "The month summarised, `YYYY-MM` in Asia/Manila.",
+            "example" : "2026-08",
+            "type" : "string"
+          },
+          "safeToSpend" : {
+            "description" : "What remains across all budgets for the month, in centavos.",
+            "example" : 625975,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "totalBudgeted" : {
+            "description" : "Sum of every budget limit for the month, in centavos.",
+            "example" : 2500000,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "totalSpent" : {
+            "description" : "Sum of spending against those budgets, in centavos.",
+            "example" : 1874025,
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "required" : [ "items", "month", "safeToSpend", "totalBudgeted", "totalSpent" ],
+        "type" : "object"
+      },
       "BudgetSummaryItem" : {
         "properties" : {
           "budgeted" : {
@@ -1072,6 +1150,31 @@
         },
         "type" : "array"
       },
+      "CategoryTotalChatItemListV2" : {
+        "description" : "The result of a `get_category_totals` turn: a JSON array of category totals.",
+        "items" : {
+          "$ref" : "#/components/schemas/CategoryTotalChatItemV2"
+        },
+        "type" : "array"
+      },
+      "CategoryTotalChatItemV2" : {
+        "description" : "A category and what was spent in it over the requested window, in centavos.",
+        "properties" : {
+          "category" : {
+            "description" : "Category name, or `Uncategorized`.",
+            "example" : "Groceries",
+            "type" : "string"
+          },
+          "total" : {
+            "description" : "Total spent in this category, in centavos.",
+            "example" : 642050,
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "required" : [ "category", "total" ],
+        "type" : "object"
+      },
       "ChatAuditLogDto" : {
         "properties" : {
           "conversationId" : {
@@ -1253,6 +1356,72 @@
         "required" : [ "message", "type" ],
         "type" : "object"
       },
+      "ChatResponseV2" : {
+        "description" : "One assistant turn: what kind of turn it is, what to say, and an optional structured payload to render. Money inside the payload is an integer number of centavos.",
+        "properties" : {
+          "conversationId" : {
+            "description" : "The conversation this turn belongs to. Omitted — not null — on turns served before a conversation is established, such as the circuit-breaker fallback.",
+            "example" : 42,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "message" : {
+            "description" : "The assistant's reply, ready to render. Always present, and always sufficient on its own — a client that cannot render `result` can show this. Amounts quoted in this prose are formatted pesos, not centavos.",
+            "example" : "You have 3 savings goal(s).",
+            "type" : "string"
+          },
+          "result" : {
+            "description" : "The structured payload for this turn, omitted when the turn carries none. Which member applies follows from the tool the assistant ran, which is not itself on the wire — so narrow on `type` first, then on the payload's own properties. The `preview` branch is a ChatPreviewData whose `params` are the v1 decimal arguments, echoed back unchanged to POST /ai/chat/confirm.",
+            "oneOf" : [ {
+              "$ref" : "#/components/schemas/ChatPreviewData"
+            }, {
+              "$ref" : "#/components/schemas/ExpenseResponseV2"
+            }, {
+              "$ref" : "#/components/schemas/BudgetResponseV2"
+            }, {
+              "$ref" : "#/components/schemas/GoalResponseV2"
+            }, {
+              "$ref" : "#/components/schemas/RecurringExpenseResponseV2"
+            }, {
+              "$ref" : "#/components/schemas/CategoryResponse"
+            }, {
+              "$ref" : "#/components/schemas/UserProfileResponse"
+            }, {
+              "$ref" : "#/components/schemas/BudgetSummaryChatResultV2"
+            }, {
+              "$ref" : "#/components/schemas/RecurringChatResultV2"
+            }, {
+              "$ref" : "#/components/schemas/MonthlyReportChatResultV2"
+            }, {
+              "$ref" : "#/components/schemas/SubscriptionChatResult"
+            }, {
+              "$ref" : "#/components/schemas/BulkDeleteChatResult"
+            }, {
+              "$ref" : "#/components/schemas/RecategorizeChatResult"
+            }, {
+              "$ref" : "#/components/schemas/GoalChatItemListV2"
+            }, {
+              "$ref" : "#/components/schemas/AlertChatItemList"
+            }, {
+              "$ref" : "#/components/schemas/ExpenseChatItemListV2"
+            }, {
+              "$ref" : "#/components/schemas/CategoryTotalChatItemListV2"
+            }, {
+              "$ref" : "#/components/schemas/ExpenseDisambiguateItemListV2"
+            }, {
+              "$ref" : "#/components/schemas/CategoryResponseList"
+            } ]
+          },
+          "type" : {
+            "description" : "The turn's kind, and the only field a client should branch on before reading `result`. `text` — prose only, no payload. `action` — something was read or written; `result` carries it. `preview` — a write is pending confirmation and `result` is a ChatPreviewData. `disambiguate` — the assistant needs the user to choose before it proceeds.",
+            "enum" : [ "text", "action", "preview", "disambiguate" ],
+            "example" : "action",
+            "type" : "string"
+          }
+        },
+        "required" : [ "message", "type" ],
+        "type" : "object"
+      },
       "CheckoutRequest" : {
         "properties" : {
           "period" : {
@@ -1388,6 +1557,47 @@
         },
         "type" : "array"
       },
+      "ExpenseChatItemListV2" : {
+        "description" : "The result of a `search_expenses` turn: a JSON array of matching expenses, at most 50.",
+        "items" : {
+          "$ref" : "#/components/schemas/ExpenseChatItemV2"
+        },
+        "type" : "array"
+      },
+      "ExpenseChatItemV2" : {
+        "description" : "An expense in a chat answer — flattened for a chat bubble, money in centavos.",
+        "properties" : {
+          "amount" : {
+            "description" : "Amount in centavos. The v1 field is a decimal rounded to two places, so this is that value with the point moved right — 320.00 becomes 32000.",
+            "example" : 32000,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "category" : {
+            "description" : "Category name, or the literal `Uncategorized` when the expense has no category. Never null.",
+            "example" : "Groceries",
+            "type" : "string"
+          },
+          "date" : {
+            "description" : "The expense date as `YYYY-MM-DD` in Asia/Manila, or an empty string on the rare rows with no date. Not declared as a date format for that reason — parse defensively.",
+            "example" : "2026-08-14",
+            "type" : "string"
+          },
+          "description" : {
+            "description" : "What the expense was for.",
+            "example" : "SM Supermarket",
+            "type" : "string"
+          },
+          "id" : {
+            "description" : "Stable expense identifier.",
+            "example" : 1204,
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "required" : [ "amount", "category", "date", "description", "id" ],
+        "type" : "object"
+      },
       "ExpenseDisambiguateItem" : {
         "description" : "One expense the user must choose between before a delete can proceed.",
         "properties" : {
@@ -1422,6 +1632,42 @@
           "$ref" : "#/components/schemas/ExpenseDisambiguateItem"
         },
         "type" : "array"
+      },
+      "ExpenseDisambiguateItemListV2" : {
+        "description" : "The result of a delete-expense `disambiguate` turn: a JSON array of the candidates the user must choose between.",
+        "items" : {
+          "$ref" : "#/components/schemas/ExpenseDisambiguateItemV2"
+        },
+        "type" : "array"
+      },
+      "ExpenseDisambiguateItemV2" : {
+        "description" : "One expense the user must choose between before a delete can proceed, money in centavos.",
+        "properties" : {
+          "amount" : {
+            "description" : "Amount in centavos, rounded from the stored four-place value.",
+            "example" : 32000,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "date" : {
+            "description" : "The expense date as `YYYY-MM-DD` in Asia/Manila, or an empty string on the rare rows with no date.",
+            "example" : "2026-08-14",
+            "type" : "string"
+          },
+          "description" : {
+            "description" : "What the expense was for — the field the user's ambiguous phrase matched.",
+            "example" : "SM Supermarket",
+            "type" : "string"
+          },
+          "id" : {
+            "description" : "The expense's identifier. Send it back to name the one to delete.",
+            "example" : 1204,
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "required" : [ "amount", "date", "description", "id" ],
+        "type" : "object"
       },
       "ExpenseRequest" : {
         "properties" : {
@@ -1672,6 +1918,59 @@
           "$ref" : "#/components/schemas/GoalChatItem"
         },
         "type" : "array"
+      },
+      "GoalChatItemListV2" : {
+        "description" : "The result of a `list_goals` turn: a JSON array of savings goals.",
+        "items" : {
+          "$ref" : "#/components/schemas/GoalChatItemV2"
+        },
+        "type" : "array"
+      },
+      "GoalChatItemV2" : {
+        "description" : "A savings goal in a chat answer, money in centavos.",
+        "properties" : {
+          "id" : {
+            "description" : "Stable goal identifier.",
+            "example" : 7,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "name" : {
+            "description" : "The goal's name.",
+            "example" : "Emergency fund",
+            "type" : "string"
+          },
+          "progressPercent" : {
+            "description" : "Progress as a percentage, 0–100. Not money: a decimal fraction here is correct.",
+            "example" : 25.0,
+            "type" : "number"
+          },
+          "savedAmount" : {
+            "description" : "Amount saved so far, in centavos.",
+            "example" : 1250000,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "status" : {
+            "description" : "Where the goal stands against its target date.",
+            "enum" : [ "ON_TRACK", "BEHIND", "COMPLETED", "PAUSED" ],
+            "type" : "string"
+          },
+          "targetAmount" : {
+            "description" : "Target amount in centavos.",
+            "example" : 5000000,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "targetDate" : {
+            "description" : "Target date as `YYYY-MM-DD`. Absent — the property is omitted, not null — when the goal has no target date.",
+            "example" : "2026-12-31",
+            "format" : "date",
+            "type" : "string"
+          }
+        },
+        "required" : [ "id", "name", "progressPercent", "savedAmount", "status", "targetAmount" ],
+        "type" : "object"
       },
       "GoalRequest" : {
         "properties" : {
@@ -1969,6 +2268,38 @@
             "description" : "Total spent in the month, in PHP. Equals the sum of `categoryBreakdown[].total`; the server computes it, a client must not re-derive it.",
             "example" : 18740.25,
             "type" : "number"
+          }
+        },
+        "required" : [ "categoryBreakdown", "month", "topExpenses", "totalSpent" ],
+        "type" : "object"
+      },
+      "MonthlyReportChatResultV2" : {
+        "description" : "A month's spending report as returned by a chat turn, money in centavos.",
+        "properties" : {
+          "categoryBreakdown" : {
+            "description" : "Spend per category for the month. Empty when nothing was spent.",
+            "items" : {
+              "$ref" : "#/components/schemas/CategoryTotalChatItemV2"
+            },
+            "type" : "array"
+          },
+          "month" : {
+            "description" : "The month reported, `YYYY-MM` in Asia/Manila.",
+            "example" : "2026-08",
+            "type" : "string"
+          },
+          "topExpenses" : {
+            "description" : "The month's five largest expenses, descending by amount. Fewer than five when the month has fewer expenses.",
+            "items" : {
+              "$ref" : "#/components/schemas/ExpenseChatItemV2"
+            },
+            "type" : "array"
+          },
+          "totalSpent" : {
+            "description" : "Total spent in the month, in centavos. Equals the sum of `categoryBreakdown[].total`; the server computes it, a client must not re-derive it.",
+            "example" : 1874025,
+            "format" : "int64",
+            "type" : "integer"
           }
         },
         "required" : [ "categoryBreakdown", "month", "topExpenses", "totalSpent" ],
@@ -2326,6 +2657,45 @@
         "required" : [ "active", "amount", "categoryName", "frequency", "id", "name" ],
         "type" : "object"
       },
+      "RecurringChatItemV2" : {
+        "description" : "A recurring expense in a chat answer, money in centavos.",
+        "properties" : {
+          "active" : {
+            "description" : "False once paused; a paused entry is still listed, but generates nothing and never appears in `upcoming`.",
+            "example" : true,
+            "type" : "boolean"
+          },
+          "amount" : {
+            "description" : "Amount charged each period, in centavos.",
+            "example" : 54900,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "categoryName" : {
+            "description" : "Category the generated expenses land in.",
+            "example" : "Subscriptions",
+            "type" : "string"
+          },
+          "frequency" : {
+            "description" : "How often it recurs.",
+            "enum" : [ "MONTHLY", "WEEKLY", "YEARLY" ],
+            "type" : "string"
+          },
+          "id" : {
+            "description" : "Stable recurring-expense identifier.",
+            "example" : 13,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "name" : {
+            "description" : "The recurring expense's name.",
+            "example" : "Netflix",
+            "type" : "string"
+          }
+        },
+        "required" : [ "active", "amount", "categoryName", "frequency", "id", "name" ],
+        "type" : "object"
+      },
       "RecurringChatResult" : {
         "description" : "A user's recurring expenses and the bills due this month.",
         "properties" : {
@@ -2340,6 +2710,27 @@
             "description" : "Bills falling due in the requested month. A projection of `items`, not a parallel list — the two can differ in length, and a paused entry appears in `items` only.",
             "items" : {
               "$ref" : "#/components/schemas/UpcomingBillChatItem"
+            },
+            "type" : "array"
+          }
+        },
+        "required" : [ "items", "upcoming" ],
+        "type" : "object"
+      },
+      "RecurringChatResultV2" : {
+        "description" : "A user's recurring expenses and the bills due this month, money in centavos.",
+        "properties" : {
+          "items" : {
+            "description" : "Every recurring expense the user has, active or paused.",
+            "items" : {
+              "$ref" : "#/components/schemas/RecurringChatItemV2"
+            },
+            "type" : "array"
+          },
+          "upcoming" : {
+            "description" : "Bills falling due in the requested month. A projection of `items`, not a parallel list — the two can differ in length, and a paused entry appears in `items` only.",
+            "items" : {
+              "$ref" : "#/components/schemas/UpcomingBillChatItemV2"
             },
             "type" : "array"
           }
@@ -2702,6 +3093,30 @@
             "description" : "Amount due, in PHP.",
             "example" : 549.0,
             "type" : "number"
+          },
+          "dueDate" : {
+            "description" : "The due date as `YYYY-MM-DD`, in Asia/Manila.",
+            "example" : "2026-08-28",
+            "format" : "date",
+            "type" : "string"
+          },
+          "name" : {
+            "description" : "The originating recurring expense's name.",
+            "example" : "Netflix",
+            "type" : "string"
+          }
+        },
+        "required" : [ "amount", "dueDate", "name" ],
+        "type" : "object"
+      },
+      "UpcomingBillChatItemV2" : {
+        "description" : "A bill projected to fall due in the requested month, money in centavos.",
+        "properties" : {
+          "amount" : {
+            "description" : "Amount due, in centavos.",
+            "example" : 54900,
+            "format" : "int64",
+            "type" : "integer"
           },
           "dueDate" : {
             "description" : "The due date as `YYYY-MM-DD`, in Asia/Manila.",
@@ -3616,6 +4031,7 @@
     },
     "/api/v2/ai/chat" : {
       "post" : {
+        "description" : "One assistant turn. Money inside `result` is an integer number of centavos; a `preview` turn's `params` are the opaque arguments to echo back to POST /ai/chat/confirm, and are not converted.",
         "operationId" : "v2AiChat",
         "requestBody" : {
           "content" : {
@@ -3632,7 +4048,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ChatResponse"
+                  "$ref" : "#/components/schemas/ChatResponseV2"
                 }
               }
             },
@@ -3642,6 +4058,7 @@
         "security" : [ {
           "bearerAuth" : [ ]
         } ],
+        "summary" : "Send a message to the assistant",
         "tags" : [ "ai-v-2-controller" ]
       }
     },

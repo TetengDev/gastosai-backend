@@ -6,6 +6,7 @@ import com.teng.app.gastosai.dto.AiQueryRequest;
 import com.teng.app.gastosai.dto.AiQueryResponse;
 import com.teng.app.gastosai.dto.ChatRequest;
 import com.teng.app.gastosai.dto.ChatResponse;
+import com.teng.app.gastosai.dto.v2.ChatResponseV2;
 import com.teng.app.gastosai.dto.v2.ParsedExpenseResultV2;
 import com.teng.app.gastosai.entity.FeatureKey;
 import com.teng.app.gastosai.entity.User;
@@ -52,12 +53,27 @@ public class AiV2Controller {
 		return ParsedExpenseResultV2.from(delegate.vision(file, question, mode, user));
 	}
 
-	/** Unchanged shape, for the reason {@link #query} gives. */
+	/**
+	 * The v1 turn with the money inside {@code result} restated as integer centavos (TEN-308).
+	 *
+	 * <p>This used to return the v1 body verbatim, on the reasoning {@link #query} gives — but that
+	 * reasoning only holds for prose. A chat turn also carries a structured payload, and three of
+	 * those payloads are money-bearing, so v2 was serving decimals on the one path nobody could see:
+	 * {@code ChatResponseV2} did not exist as a schema either.
+	 *
+	 * <p>The status is carried over from the delegate rather than assumed: the v1 handler wraps the
+	 * circuit breaker, and a fallback turn is still a turn.
+	 */
 	@PostMapping("/chat")
 	@RequiresFeature(FeatureKey.NL_CHATBOT)
-	@Operation(operationId = "v2AiChat")
-	public ResponseEntity<ChatResponse> chat(@Valid @RequestBody ChatRequest req,
+	@Operation(operationId = "v2AiChat",
+			summary = "Send a message to the assistant",
+			description = "One assistant turn. Money inside `result` is an integer number of "
+					+ "centavos; a `preview` turn's `params` are the opaque arguments to echo back to "
+					+ "POST /ai/chat/confirm, and are not converted.")
+	public ResponseEntity<ChatResponseV2> chat(@Valid @RequestBody ChatRequest req,
 			@AuthenticationPrincipal User user) {
-		return delegate.chat(req, user);
+		ResponseEntity<ChatResponse> v1 = delegate.chat(req, user);
+		return ResponseEntity.status(v1.getStatusCode()).body(ChatResponseV2.from(v1.getBody()));
 	}
 }
