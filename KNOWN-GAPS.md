@@ -124,3 +124,32 @@ passing is a convention rather than an enforced gate. Three ways out:
    runs on PRs, it just cannot be *required*.
 
 The exact ruleset definitions are ready to apply the moment one of the above lands.
+
+---
+
+## 6. No concurrent-modification detection on expense/budget/goal/recurring updates
+
+**Target:** an update path detects when two edits to the same row race, rather than silently
+letting the later write win.
+
+**Today:** `Expense`, `Budget`, `SavingsGoal` and `RecurringExpense` carry no `@Version` field, so
+`READ COMMITTED` lets two genuinely concurrent edits resolve last-writer-wins with no conflict
+signal on either the REST path (`PUT /expenses/{id}` and its siblings) or the chat edit path.
+
+**What TEN-323 (PR #79) fixed, and what it did not:** the chat edit used to read and write in
+separate transactions, so a concurrent edit landing between the two produced a **stale
+carry-forward** — the chat write could silently overwrite fields it never re-read. TEN-323
+collapsed the read and the write into one transaction (`inOneTransaction`), which closes that
+defect. It does **not** add conflict detection: within that single transaction, `READ COMMITTED`
+still resolves two truly concurrent edits last-writer-wins, same as the REST path always has. The
+chat path is now no weaker than `PUT /expenses/{id}` — not stronger. This entry is that residual,
+disclosed in `inOneTransaction`'s javadoc and in PR #79's body but not recorded here until now.
+
+**Fix:** add `@Version` to `Expense`, `Budget`, `SavingsGoal` and `RecurringExpense` (an expand
+migration — nullable/defaulted column, backfilled) and let JPA's optimistic-locking exception
+surface as a 409 on both paths.
+
+**First raised:** TEN-323 / PR #79 — https://github.com/TetengDev/gastosai-backend/pull/79 —
+found by `pr-review-auditor`.
+
+---
