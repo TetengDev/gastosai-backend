@@ -4,8 +4,8 @@ description: >
   Reviews an open gastosai-backend pull request. Reads the PR diff and changed files, then
   reports correctness bugs, security concerns, convention violations (CLAUDE.md / CONTRACT.md),
   ownership breaches, missing tests, and release-hygiene gaps as a severity-tagged finding list.
-  Read-only — never edits, commits, or pushes. Does NOT spawn other agents; the main thread pairs
-  its output with pr-review-auditor. Use right after a PR is created, before handing the branch to
+  Read-only — never edits, commits, or pushes. Does NOT spawn other agents; the main thread runs it
+  beside security-reviewer and pairs both outputs with pr-review-auditor. Use right after a PR is created, before handing the branch to
   a human.
 model: sonnet
 tools:
@@ -43,10 +43,10 @@ number is missing, ask — do not guess.
    conditions, incorrect error handling, resource leaks, transaction boundaries that do not cover
    the write they are meant to.
 
-   **Security** — auth and authorization gaps, injection, secret exposure, missing validation,
-   tenant isolation. Never suggest weakening `SqlGuard`; flag any change touching the
-   `SqlGuard` ↔ tenant-filter coupling as needing paired review. A key reachable by a client is a
-   BLOCKER, not a MAJOR.
+   **Security** — flag what you notice in passing: an exposed secret, a missing auth check, an
+   obviously unvalidated input. Never suggest weakening `SqlGuard`. Do not go deeper than that —
+   `security-reviewer` runs over this same diff, independently, and owns the systematic pass. Two
+   agents doing the same analysis is not two opinions, it is one opinion billed twice.
 
    **Conventions** (`CLAUDE.md`, `CONTRACT.md`) — no business logic in a controller; `BigDecimal`
    for money and never `float`/`double`; no naive timestamps; `@Transactional` on service methods
