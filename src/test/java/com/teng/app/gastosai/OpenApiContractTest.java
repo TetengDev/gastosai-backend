@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.teng.app.gastosai.config.PublicEndpoints;
+import com.teng.app.gastosai.dto.ChatResponse;
+import com.teng.app.gastosai.dto.v2.ChatResponseV2;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -17,8 +19,11 @@ import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -317,6 +322,151 @@ class OpenApiContractTest {
 				.forEach(value -> turnKinds.add(value.asText()));
 		assertEquals(new TreeSet<>(Set.of("text", "action", "preview", "disambiguate")), turnKinds,
 				"ChatResponse.type must publish exactly the turn kinds the handler emits.");
+	}
+
+	/**
+	 * The same guarantee for {@code POST /api/v2/ai/chat} (TEN-308).
+	 *
+	 * <p>That endpoint returned the v1 object verbatim, so it was both undescribed —
+	 * {@code ChatResponseV2} did not exist as a schema — and the one v2 path still serving decimal
+	 * money, inside {@code result}. The centavos guard below could not see it, because a guard that
+	 * looks at schemas cannot fail on a schema that was never published.
+	 *
+	 * <p>Payloads with no money field stay the v1 schema rather than gaining an identical twin, so
+	 * the union below deliberately mixes the two.
+	 */
+	@Test
+	void specPublishesEveryV2ChatResultPayload() throws Exception {
+		JsonNode spec = new ObjectMapper().readTree(apiDocs());
+		JsonNode schemas = spec.path("components").path("schemas");
+
+		Set<String> expected = new TreeSet<>(Set.of(
+				"ChatResponseV2",
+				"BudgetChatItemV2", "BudgetSummaryChatResultV2",
+				"RecurringChatItemV2", "UpcomingBillChatItemV2", "RecurringChatResultV2",
+				"GoalChatItemV2", "ExpenseChatItemV2", "CategoryTotalChatItemV2",
+				"MonthlyReportChatResultV2", "ExpenseDisambiguateItemV2"));
+
+		Set<String> missing = new TreeSet<>(expected);
+		schemas.fieldNames().forEachRemaining(missing::remove);
+		assertTrue(missing.isEmpty(),
+				"v2 chat payloads absent from the published contract, so a client generating from "
+						+ "the version it was told to migrate to gets no type for them: " + missing);
+
+		Set<String> branches = new TreeSet<>();
+		schemas.path("ChatResponseV2").path("properties").path("result").path("oneOf")
+				.forEach(member -> branches.add(
+						member.path("$ref").asText("").replace("#/components/schemas/", "")));
+
+		assertEquals(
+				new TreeSet<>(Set.of(
+						"ChatPreviewData", "BudgetSummaryChatResultV2", "RecurringChatResultV2",
+						"MonthlyReportChatResultV2", "SubscriptionChatResult", "BulkDeleteChatResult",
+						"RecategorizeChatResult", "GoalChatItemListV2", "AlertChatItemList",
+						"ExpenseChatItemListV2", "CategoryTotalChatItemListV2",
+						"ExpenseDisambiguateItemListV2", "CategoryResponseList")),
+				branches,
+				"ChatResponseV2.result must describe every branch the handler can return, and must "
+						+ "point at the centavos twin wherever one exists.");
+
+		// Same array-ness trap as v1: springdoc publishes a named list type as an object bean unless
+		// the @Schema(type = "array") on it says otherwise.
+		for (String listSchema : Set.of("GoalChatItemListV2", "ExpenseChatItemListV2",
+				"CategoryTotalChatItemListV2", "ExpenseDisambiguateItemListV2")) {
+			JsonNode resolved = schemas.path(listSchema);
+			assertEquals("array", resolved.path("type").asText(""),
+					listSchema + " must be published as a JSON array — the wire returns a bare array.");
+			assertTrue(resolved.path("items").has("$ref"),
+					listSchema + " must name its item schema, or a client generates `unknown[]`.");
+			assertTrue(resolved.path("properties").isMissingNode(),
+					listSchema + " leaked list bean properties into the contract: "
+							+ resolved.path("properties"));
+		}
+
+		// The union is discriminated by the same explicit field v1 uses, so it has to arrive as the
+		// same closed set. Published as an open string it generates to `string`, which is how the web
+		// copy of the v1 shape acquired a "query" turn that does not exist.
+		Set<String> turnKinds = new TreeSet<>();
+		schemas.path("ChatResponseV2").path("properties").path("type").path("enum")
+				.forEach(value -> turnKinds.add(value.asText()));
+		assertEquals(new TreeSet<>(Set.of("text", "action", "preview", "disambiguate")), turnKinds,
+				"ChatResponseV2.type must publish exactly the turn kinds the handler emits.");
+
+		// Named one by one rather than left to v2MoneyIsIntegerCentavos: that guard sweeps whatever
+		// V2 schemas happen to exist, so a chat payload dropped from the spec would make it pass by
+		// checking less. These are the fields the issue is about.
+		Map<String, Set<String>> money = Map.of(
+				"ExpenseChatItemV2", Set.of("amount"),
+				"CategoryTotalChatItemV2", Set.of("total"),
+				"BudgetSummaryChatResultV2", Set.of("totalBudgeted", "totalSpent", "safeToSpend"),
+				"BudgetChatItemV2", Set.of("budgeted", "spent", "remaining"),
+				"GoalChatItemV2", Set.of("targetAmount", "savedAmount"),
+				"MonthlyReportChatResultV2", Set.of("totalSpent"),
+				"RecurringChatItemV2", Set.of("amount"),
+				"UpcomingBillChatItemV2", Set.of("amount"),
+				"ExpenseDisambiguateItemV2", Set.of("amount"));
+
+		Set<String> offenders = new TreeSet<>();
+		money.forEach((schema, properties) -> properties.forEach(property -> {
+			JsonNode resolved = schemas.path(schema).path("properties").path(property);
+			if (!resolved.path("type").asText("").equals("integer")) {
+				offenders.add(schema + "." + property + " (" + resolved.path("type").asText("absent") + ")");
+			}
+		}));
+		assertTrue(offenders.isEmpty(),
+				"Every money field on a v2 chat payload must be an integer number of centavos. "
+						+ "Offending fields: " + offenders);
+	}
+
+	/**
+	 * The published shape and the served one, checked against each other (TEN-308).
+	 *
+	 * <p>Everything above reads the spec, and the spec is derived from the record — so on its own it
+	 * would pass just as happily if {@code /api/v2/ai/chat} kept returning the v1 body and merely
+	 * described a centavos one. This asserts the conversion itself, on a payload built the way
+	 * {@code ChatActionService} builds it: an untyped map.
+	 *
+	 * <p>The preview case is the one that bites. Its {@code params} are echoed back to
+	 * {@code POST /ai/chat/confirm}, which has no v2 twin, so a converted amount there would be
+	 * confirmed a hundredfold.
+	 */
+	@Test
+	void v2ChatRestatesResultMoneyAsCentavos() {
+		Map<String, Object> summary = new LinkedHashMap<>();
+		summary.put("month", "2026-08");
+		summary.put("totalBudgeted", new BigDecimal("25000.0000"));
+		summary.put("totalSpent", new BigDecimal("18740.2500"));
+		summary.put("items", List.of(Map.of("categoryName", "Groceries",
+				"budgeted", new BigDecimal("8000.00"),
+				"percentUsed", new BigDecimal("80.26"))));
+
+		ChatResponseV2 converted = ChatResponseV2.from(
+				new ChatResponse("action", "Budget summary for 2026-08.", summary, 42L));
+
+		@SuppressWarnings("unchecked")
+		Map<String, Object> result = (Map<String, Object>) converted.result();
+		assertEquals(2_500_000L, result.get("totalBudgeted"));
+		assertEquals(1_874_025L, result.get("totalSpent"));
+		assertEquals("2026-08", result.get("month"));
+		assertEquals(42L, converted.conversationId());
+
+		@SuppressWarnings("unchecked")
+		Map<String, Object> item = ((List<Map<String, Object>>) result.get("items")).getFirst();
+		assertEquals(800_000L, item.get("budgeted"));
+		assertEquals(new BigDecimal("80.26"), item.get("percentUsed"),
+				"A percentage is not money and must survive the conversion unchanged.");
+
+		Map<String, Object> preview = new LinkedHashMap<>();
+		preview.put("toolName", "create_expense");
+		preview.put("params", Map.of("amount", new BigDecimal("320.00"), "description", "SM"));
+
+		@SuppressWarnings("unchecked")
+		Map<String, Object> previewResult = (Map<String, Object>) ChatResponseV2
+				.from(new ChatResponse("preview", "Add ₱320.00?", preview)).result();
+		@SuppressWarnings("unchecked")
+		Map<String, Object> params = (Map<String, Object>) previewResult.get("params");
+		assertEquals(new BigDecimal("320.00"), params.get("amount"),
+				"Preview params are echoed to the v1 confirm endpoint and must not be converted.");
 	}
 
 	/**
