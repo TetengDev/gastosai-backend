@@ -24,8 +24,10 @@ specific to this repo.
 2. **Publish** — `gh pr create` (or push to the existing PR), then from the workspace:
    `python3 ../scripts/attach_evidence.py <ISSUE> <file> --caption "..." --pr <n> --repo gastosai-backend`
    to link the PR and attach evidence. Move the issue to `In Review`.
-3. **Review** — run the `pr-reviewer` agent with the PR number and the issue key.
-4. **Audit** — run the `pr-review-auditor` agent with the reviewer's findings and the PR number.
+3. **Review** — run the `pr-reviewer` agent **and** the `security-reviewer` agent, both with the
+   PR number and the issue key. Independent passes over the same diff; neither sees the other's
+   output. `security-reviewer` runs on every PR — there is no low-risk exemption for it.
+4. **Audit** — run the `pr-review-auditor` agent with **both** finding lists and the PR number.
    **Low-risk changes skip this step**; medium and high always run it. Risk levels and the
    critical-domain list: `../docs/ship-loop.md`. When in doubt, take the higher level.
 5. **Decide** — `APPROVE` stops the loop. Otherwise fix the upheld findings and start a new pass.
