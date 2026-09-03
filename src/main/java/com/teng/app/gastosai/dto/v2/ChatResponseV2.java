@@ -3,11 +3,13 @@ package com.teng.app.gastosai.dto.v2;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.teng.app.gastosai.dto.AlertChatItemList;
 import com.teng.app.gastosai.dto.BulkDeleteChatResult;
+import com.teng.app.gastosai.dto.CategoryResponse;
 import com.teng.app.gastosai.dto.CategoryResponseList;
 import com.teng.app.gastosai.dto.ChatPreviewData;
 import com.teng.app.gastosai.dto.ChatResponse;
 import com.teng.app.gastosai.dto.RecategorizeChatResult;
 import com.teng.app.gastosai.dto.SubscriptionChatResult;
+import com.teng.app.gastosai.dto.UserProfileResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
@@ -28,11 +30,14 @@ import io.swagger.v3.oas.annotations.media.Schema;
  * assistant ran is not on the wire; narrow on {@code type}, then on the payload's own properties.
  *
  * <p>Members that carry no money are the v1 schemas themselves rather than identical twins — the
- * same choice {@code ConversationV2Controller} makes for a transcript. Turns that echo a created or
- * updated row return the ordinary v2 resource DTO instead ({@link ExpenseResponseV2},
- * {@link BudgetResponseV2}, {@link GoalResponseV2}, {@link RecurringExpenseResponseV2}, or the
- * money-free {@code CategoryResponse} and {@code UserProfileResponse}), which the contract already
- * publishes under those names.
+ * same choice {@code ConversationV2Controller} makes for a transcript.
+ *
+ * <p>The union includes the resource DTOs a write turn echoes back — {@link ExpenseResponseV2} and
+ * its siblings, and the money-free {@link CategoryResponse} and {@link UserProfileResponse}. The
+ * v1 schema leaves those out of its {@code oneOf} and names them in prose instead, which reads as
+ * "already published" but is not the same claim: a schema that exists elsewhere in the spec is not
+ * reachable from this property, so a client generating from it gets no type for the row its own
+ * create turn just returned.
  */
 @Schema(description = "One assistant turn: what kind of turn it is, what to say, and an optional "
 		+ "structured payload to render. Money inside the payload is an integer number of centavos.")
@@ -61,6 +66,12 @@ public record ChatResponseV2(
 				+ "decimal arguments, echoed back unchanged to POST /ai/chat/confirm.",
 				oneOf = {
 						ChatPreviewData.class,
+						ExpenseResponseV2.class,
+						BudgetResponseV2.class,
+						GoalResponseV2.class,
+						RecurringExpenseResponseV2.class,
+						CategoryResponse.class,
+						UserProfileResponse.class,
 						BudgetSummaryChatResultV2.class,
 						RecurringChatResultV2.class,
 						MonthlyReportChatResultV2.class,

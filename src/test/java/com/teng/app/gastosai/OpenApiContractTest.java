@@ -5,7 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.teng.app.gastosai.config.PublicEndpoints;
 import com.teng.app.gastosai.dto.ChatResponse;
+import com.teng.app.gastosai.dto.ExpenseResponse;
 import com.teng.app.gastosai.dto.v2.ChatResponseV2;
+import com.teng.app.gastosai.dto.v2.ExpenseResponseV2;
+import com.teng.app.gastosai.entity.ExpenseSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -364,7 +367,13 @@ class OpenApiContractTest {
 						"MonthlyReportChatResultV2", "SubscriptionChatResult", "BulkDeleteChatResult",
 						"RecategorizeChatResult", "GoalChatItemListV2", "AlertChatItemList",
 						"ExpenseChatItemListV2", "CategoryTotalChatItemListV2",
-						"ExpenseDisambiguateItemListV2", "CategoryResponseList")),
+						"ExpenseDisambiguateItemListV2", "CategoryResponseList",
+						// The rows a write turn echoes. v1 leaves these out of its oneOf and names them
+						// in prose, which is not the same claim: a schema published elsewhere in the
+						// spec is not reachable from this property, so a client generating from it gets
+						// no type for the row its own create turn returned.
+						"ExpenseResponseV2", "BudgetResponseV2", "GoalResponseV2",
+						"RecurringExpenseResponseV2", "CategoryResponse", "UserProfileResponse")),
 				branches,
 				"ChatResponseV2.result must describe every branch the handler can return, and must "
 						+ "point at the centavos twin wherever one exists.");
@@ -395,16 +404,22 @@ class OpenApiContractTest {
 		// Named one by one rather than left to v2MoneyIsIntegerCentavos: that guard sweeps whatever
 		// V2 schemas happen to exist, so a chat payload dropped from the spec would make it pass by
 		// checking less. These are the fields the issue is about.
-		Map<String, Set<String>> money = Map.of(
-				"ExpenseChatItemV2", Set.of("amount"),
-				"CategoryTotalChatItemV2", Set.of("total"),
-				"BudgetSummaryChatResultV2", Set.of("totalBudgeted", "totalSpent", "safeToSpend"),
-				"BudgetChatItemV2", Set.of("budgeted", "spent", "remaining"),
-				"GoalChatItemV2", Set.of("targetAmount", "savedAmount"),
-				"MonthlyReportChatResultV2", Set.of("totalSpent"),
-				"RecurringChatItemV2", Set.of("amount"),
-				"UpcomingBillChatItemV2", Set.of("amount"),
-				"ExpenseDisambiguateItemV2", Set.of("amount"));
+		Map<String, Set<String>> money = Map.ofEntries(
+				Map.entry("ExpenseChatItemV2", Set.of("amount")),
+				Map.entry("CategoryTotalChatItemV2", Set.of("total")),
+				Map.entry("BudgetSummaryChatResultV2", Set.of("totalBudgeted", "totalSpent", "safeToSpend")),
+				Map.entry("BudgetChatItemV2", Set.of("budgeted", "spent", "remaining")),
+				Map.entry("GoalChatItemV2", Set.of("targetAmount", "savedAmount")),
+				Map.entry("MonthlyReportChatResultV2", Set.of("totalSpent")),
+				Map.entry("RecurringChatItemV2", Set.of("amount")),
+				Map.entry("UpcomingBillChatItemV2", Set.of("amount")),
+				Map.entry("ExpenseDisambiguateItemV2", Set.of("amount")),
+				// The write-turn branches. Their own endpoints cover these fields too, but a branch of
+				// this union is reached through this turn, so the guard covers it here as well.
+				Map.entry("ExpenseResponseV2", Set.of("amount", "amountInBaseCurrency")),
+				Map.entry("BudgetResponseV2", Set.of("amountLimit", "amountLimitInBaseCurrency")),
+				Map.entry("GoalResponseV2", Set.of("targetAmount", "savedAmount")),
+				Map.entry("RecurringExpenseResponseV2", Set.of("amount")));
 
 		Set<String> offenders = new TreeSet<>();
 		money.forEach((schema, properties) -> properties.forEach(property -> {
@@ -467,6 +482,23 @@ class OpenApiContractTest {
 		Map<String, Object> params = (Map<String, Object>) previewResult.get("params");
 		assertEquals(new BigDecimal("320.00"), params.get("amount"),
 				"Preview params are echoed to the v1 confirm endpoint and must not be converted.");
+
+		// A write turn echoes the row as a resource DTO, not a map — the one branch the conversion
+		// treats differently from everything above, and the one a client is most likely to read back.
+		ExpenseResponse written = new ExpenseResponse(1204L, new BigDecimal("320.0000"), "Groceries",
+				null, "SM Supermarket", "EXPENSE", false, "PHP", null, null, ExpenseSource.QUICK_ADD);
+		Object echoed = ChatResponseV2.from(
+				new ChatResponse("action", "Expense created: ₱320.00 — SM Supermarket", written)).result();
+		assertEquals(new ExpenseResponseV2(1204L, 32_000L, "Groceries", null, "SM Supermarket",
+						"EXPENSE", false, "PHP", null, null, ExpenseSource.QUICK_ADD),
+				echoed,
+				"A write turn must echo the row as its v2 twin, or the create path serves decimals.");
+
+		// And the array branches, which arrive as a bare list rather than an object.
+		Object candidates = ChatResponseV2.from(new ChatResponse("disambiguate", "Which one?",
+				List.of(Map.of("id", 1204L, "amount", new BigDecimal("320.0000"), "date", "2026-08-14")))).result();
+		assertEquals(List.of(Map.of("id", 1204L, "amount", 32_000L, "date", "2026-08-14")), candidates,
+				"An array payload's items must be converted item by item.");
 	}
 
 	/**

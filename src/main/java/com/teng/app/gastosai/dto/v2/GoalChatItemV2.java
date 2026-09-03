@@ -36,7 +36,8 @@ public record GoalChatItemV2(
 
 		@Schema(description = "Target date as `YYYY-MM-DD`. Absent — the property is omitted, not "
 				+ "null — when the goal has no target date.",
-				example = "2026-12-31", format = "date", nullable = true)
+				example = "2026-12-31", format = "date",
+				requiredMode = Schema.RequiredMode.NOT_REQUIRED)
 		String targetDate
 ) {
 }

@@ -1375,6 +1375,18 @@
             "oneOf" : [ {
               "$ref" : "#/components/schemas/ChatPreviewData"
             }, {
+              "$ref" : "#/components/schemas/ExpenseResponseV2"
+            }, {
+              "$ref" : "#/components/schemas/BudgetResponseV2"
+            }, {
+              "$ref" : "#/components/schemas/GoalResponseV2"
+            }, {
+              "$ref" : "#/components/schemas/RecurringExpenseResponseV2"
+            }, {
+              "$ref" : "#/components/schemas/CategoryResponse"
+            }, {
+              "$ref" : "#/components/schemas/UserProfileResponse"
+            }, {
               "$ref" : "#/components/schemas/BudgetSummaryChatResultV2"
             }, {
               "$ref" : "#/components/schemas/RecurringChatResultV2"
@@ -1954,7 +1966,7 @@
             "description" : "Target date as `YYYY-MM-DD`. Absent — the property is omitted, not null — when the goal has no target date.",
             "example" : "2026-12-31",
             "format" : "date",
-            "type" : [ "string", "null" ]
+            "type" : "string"
           }
         },
         "required" : [ "id", "name", "progressPercent", "savedAmount", "status", "targetAmount" ],
