@@ -121,36 +121,11 @@ class ExpenseRequestTest extends PostgresBackedTest {
 				.andExpect(jsonPath("$.source").value("RECEIPT_SCAN"));
 	}
 
-	/**
-	 * v2 binds its own {@code source} as a String and converts on the way to v1, so its unknown
-	 * values never reach the body handler. They must still be refused, and with the message v2 has
-	 * always answered — the conversion is what keeps that true until v2's field is typed too.
+	/*
+	 * The two v2 cases that stood here asserted the bridge TEN-335 removed: v2 bound its source as
+	 * a String and converted on the way to v1, so an unknown name was refused by a parse in the DTO
+	 * rather than by the body handler, and the message differed from v1's. v2's field is an
+	 * ExpenseSource now and refuses the same way this one does, so the cases live beside the record
+	 * that changed — ExpenseRequestV2Test.
 	 */
-	@Test
-	void v2StillRefusesAnUnknownSource() throws Exception {
-		mockMvc.perform(post("/api/v2/expenses")
-						.header("Authorization", authHeader)
-						.contentType(MediaType.APPLICATION_JSON)
-						.content("""
-								{"amount": 1000, "description": "v2 nonsense", "source": "TELEPATHY"}
-								"""))
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.detail")
-						.value("source must be MANUAL or RECEIPT_SCAN — got 'TELEPATHY'."));
-
-		assertThat(expenseRepository.findByUserAndDescriptionContainingIgnoreCase(user, "v2 nonsense"))
-				.isEmpty();
-	}
-
-	@Test
-	void v2StillRecordsADeclaredSource() throws Exception {
-		mockMvc.perform(post("/api/v2/expenses")
-						.header("Authorization", authHeader)
-						.contentType(MediaType.APPLICATION_JSON)
-						.content("""
-								{"amount": 1000, "description": "v2 scanned", "source": "RECEIPT_SCAN"}
-								"""))
-				.andExpect(status().isCreated())
-				.andExpect(jsonPath("$.source").value("RECEIPT_SCAN"));
-	}
 }
