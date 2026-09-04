@@ -126,6 +126,42 @@ nothing. See TEN-271.
 
 ---
 
+## Recorded exception — `/api/v2/ai/chat` centavos narrowing without a new path
+
+*Recorded 2026-09-03 (TEN-336). The change itself shipped in TEN-308 (PR #94), contract
+`2.10.0` → `3.0.0`.*
+
+This is an exception to the rule above, not a softening of it: it took a major bump but did
+**not** get a new URL version path, because `/api/v3` did not need to exist for this change to
+be safe.
+
+**What changed.** `POST /api/v2/ai/chat` had been serving the v1 `ChatResponse` shape — decimal
+money, unconverted. TEN-308 made it serve `ChatResponseV2`, narrowing every money-bearing field
+from decimal to integer centavos. A response type narrowing is breaking by the rule above, so it
+took the major bump (`3.0.0`).
+
+**Why no new path.** The "keep the old path live" clause exists so a client depending on the old
+shape keeps working. That guarantee already held without a new path: the decimal shape stays
+served, byte-identical, at v1's `POST /ai/chat` — a different route, not a version of this one.
+Publishing `/api/v3/ai/chat` to carry the new shape would have meant standing up a version whose
+only content is "this one endpoint now does what `/api/v2` was always supposed to do" — see the
+next paragraph.
+
+**What made it safe.** No shipped client called `/api/v2/ai/chat`: `gastosai-web/src/api/ai.ts`
+and `gastosai-mobile/src/api/chat.ts` both call the unversioned v1 path, and neither repo
+referenced `/api/v2/ai/chat` or a `v2AiChat` client method. There was nothing to break. `/api/v2`
+itself was created by TEN-135 specifically to promise integer centavos from `2.0.0` onward; this
+endpoint had never honoured that promise. TEN-308 corrected `/api/v2/ai/chat` to match the
+version it was already published under, rather than freezing the gap into a new major.
+
+**Do not read this as license to skip the new-path step generally.** It applied here only because
+both preconditions held at once: zero consumers of the narrowing endpoint, and the pre-existing
+decimal shape already living safely at a different, unaffected path. A breaking change with an
+actual consumer, or one with no fallback path already serving the old shape, still needs
+`/api/v(n+1)` per the rule above.
+
+---
+
 ## Cross-repo change ordering
 
 A change that spans the contract is **not** one commit anymore — it's an ordered
