@@ -853,7 +853,9 @@ class ChatActionServiceIntegrationTest extends PostgresBackedTest {
                         true, "PHP", BigDecimal.ONE), user1);
 
         TransactionProbe probe = new TransactionProbe();
-        org.mockito.Mockito.doAnswer(probe).when(recurringExpenseService).update(
+        // updateWithBase, not update: the chat turn goes through the pair so the v2 response can
+        // carry amountInBaseCurrency computed from the stored amount (TEN-360).
+        org.mockito.Mockito.doAnswer(probe).when(recurringExpenseService).updateWithBase(
                 org.mockito.ArgumentMatchers.eq(created.id()),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
 
@@ -869,6 +871,85 @@ class ChatActionServiceIntegrationTest extends PostgresBackedTest {
                 .andExpect(jsonPath("$.type").value("action"));
 
         probe.assertTheWriteJoinedTheHandlersTransaction();
+    }
+
+    /**
+     * The v2 chat echo converts from the stored amount, like every other v2 recurring surface
+     * (TEN-360 review). This is the path that has no entity in front of it — the turn hands back
+     * whatever the service returned — and the update tool preserves the row's own currency and
+     * rate, so a foreign-currency row updated through chat is where a conversion recovered from
+     * the two-place display amount would visibly diverge.
+     */
+    @Test
+    void updateRecurring_v2ChatEcho_convertsFromTheStoredAmount() throws Exception {
+        categoryNamed("Entertainment");
+        com.teng.app.gastosai.dto.RecurringExpenseResponse created = recurringExpenseService.create(
+                new com.teng.app.gastosai.dto.RecurringExpenseRequest("Cloud Hosting",
+                        new BigDecimal("20.00"), "Entertainment",
+                        com.teng.app.gastosai.entity.Frequency.MONTHLY, 5, null, null,
+                        true, "USD", new BigDecimal("58.7500")), user1);
+
+        when(sqlGenerator.classifyIntent(anyString()))
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("update_recurring",
+                        "{\"id\":" + created.id() + ",\"amount\":20.0049}")));
+
+        // 20.0049 x 58.75 = 1175.287875 -> 117529 centavos. The display amount, 20.00, would give
+        // 117500 — a 29-centavo error, and one the client cannot detect.
+        mockMvc.perform(post("/api/v2/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"Cloud Hosting is 20.0049 now\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("action"))
+                .andExpect(jsonPath("$.result.amount").value(2000))
+                .andExpect(jsonPath("$.result.amountInBaseCurrency").value(117529));
+    }
+
+    /** The same turn on v1 still serves the response alone, in decimals, with no extra field. */
+    @Test
+    void updateRecurring_v1ChatEcho_isUnchanged() throws Exception {
+        categoryNamed("Entertainment");
+        com.teng.app.gastosai.dto.RecurringExpenseResponse created = recurringExpenseService.create(
+                new com.teng.app.gastosai.dto.RecurringExpenseRequest("Cloud Hosting",
+                        new BigDecimal("20.00"), "Entertainment",
+                        com.teng.app.gastosai.entity.Frequency.MONTHLY, 5, null, null,
+                        true, "USD", new BigDecimal("58.7500")), user1);
+
+        when(sqlGenerator.classifyIntent(anyString()))
+                .thenReturn(LlmResult.ofValue(new ChatToolCall("update_recurring",
+                        "{\"id\":" + created.id() + ",\"amount\":25.00}")));
+
+        mockMvc.perform(post("/ai/chat")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"Cloud Hosting is 25 now\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("action"))
+                .andExpect(jsonPath("$.result.amount").value(25.00))
+                .andExpect(jsonPath("$.result.currency").value("USD"))
+                .andExpect(jsonPath("$.result.amountInBaseCurrency").doesNotExist());
+    }
+
+    /**
+     * The create turn writes through {@code createWithBase} too, and its echo is unchanged: it is
+     * only reachable through {@code POST /ai/chat/confirm}, which has no v2 twin, so the pair must
+     * still serialize as the bare v1 response.
+     */
+    @Test
+    void createRecurring_confirmEcho_isTheUnchangedV1Response() throws Exception {
+        categoryNamed("Entertainment");
+
+        mockMvc.perform(post("/ai/chat/confirm")
+                        .header("Authorization", authHeaderUser1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"toolName\":\"create_recurring\",\"mode\":\"execute\",\"params\":"
+                                + "{\"name\":\"Netflix\",\"amount\":499,\"frequency\":\"MONTHLY\","
+                                + "\"categoryName\":\"Entertainment\",\"dayOfMonth\":15}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("action"))
+                .andExpect(jsonPath("$.result.amount").value(499.00))
+                .andExpect(jsonPath("$.result.currency").value("PHP"))
+                .andExpect(jsonPath("$.result.amountInBaseCurrency").doesNotExist());
     }
 
     @Test

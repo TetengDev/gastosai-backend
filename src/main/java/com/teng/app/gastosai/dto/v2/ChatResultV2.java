@@ -65,8 +65,11 @@ final class ChatResultV2 {
 			case ExpenseResponse expense -> ExpenseResponseV2.from(expense);
 			case BudgetResponse budget -> BudgetResponseV2.from(budget);
 			case GoalResponse goal -> GoalResponseV2.from(goal);
-			case RecurringExpenseResponse recurring ->
-					RecurringExpenseResponseV2.from(RecurringExpenseWithBase.fromPublishedRate(recurring));
+			// A recurring turn hands over the pair, not the bare response: `amountInBaseCurrency` is
+			// computed from the stored NUMERIC(19,4) amount, which the response has already rounded
+			// to two places for display. Only the service can see that amount, so the conversion
+			// cannot be recovered here.
+			case RecurringExpenseWithBase recurring -> RecurringExpenseResponseV2.from(recurring);
 			case Map<?, ?> map -> fromMap(map);
 			case List<?> list -> list.stream().map(ChatResultV2::from).toList();
 			default -> result;

@@ -785,7 +785,9 @@ public class ChatActionService {
 		Integer dayOfWeek = params.path("dayOfWeek").isMissingNode() ? null : params.path("dayOfWeek").asInt();
 		RecurringExpenseRequest req = new RecurringExpenseRequest(name, amount, categoryName, frequency, dayOfMonth, dayOfWeek, null, null, null, null);
 		try {
-			Object result = recurringExpenseService.create(req, user, false);
+			// The pair, not the bare response: it serializes as the response on the v1 wire and is
+			// what lets the v2 turn carry amountInBaseCurrency computed from the stored amount.
+			Object result = recurringExpenseService.createWithBase(req, user, false);
 			return new ChatResponse("action", "Recurring expense created: " + name + " (₱" + amount.toPlainString() + ").", result);
 		} catch (ResponseStatusException e) {
 			if (e.getStatusCode() == HttpStatus.CONFLICT) {
@@ -967,7 +969,9 @@ public class ChatActionService {
 				recurring.getName(), amount, categoryName, frequency,
 				dayOfMonth, dayOfWeek, recurring.getMonthOfYear(), active,
 				recurring.getCurrency(), recurring.getExchangeRate());
-		Object result = recurringExpenseService.update(recurring.getId(), req, user);
+		// The pair, for the reason handleCreateRecurring gives — and this path matters more, because
+		// it preserves the row's own currency and rate, so the amount it converts need not be PHP.
+		Object result = recurringExpenseService.updateWithBase(recurring.getId(), req, user);
 		return new ChatResponse("action", "Recurring expense \"" + recurring.getName() + "\" updated.", result);
 	}
 
