@@ -37,13 +37,13 @@ public class RecurringExpenseV2Controller {
 	public RecurringExpenseResponseV2 create(@Valid @RequestBody RecurringExpenseRequestV2 request,
 			@RequestParam(name = "force", defaultValue = "false") boolean force,
 			@AuthenticationPrincipal User user) {
-		return RecurringExpenseResponseV2.from(delegate.create(request.toV1(), force, user));
+		return RecurringExpenseResponseV2.from(delegate.createWithBase(request.toV1(), force, user));
 	}
 
 	@GetMapping
 	@Operation(operationId = "v2ListRecurringExpenses")
 	public List<RecurringExpenseResponseV2> findAll(@AuthenticationPrincipal User user) {
-		return delegate.findAll(user).stream().map(RecurringExpenseResponseV2::from).toList();
+		return delegate.findAllWithBase(user).stream().map(RecurringExpenseResponseV2::from).toList();
 	}
 
 	@PutMapping("/{id}")
@@ -51,7 +51,7 @@ public class RecurringExpenseV2Controller {
 	public RecurringExpenseResponseV2 update(@PathVariable Long id,
 			@Valid @RequestBody RecurringExpenseRequestV2 request,
 			@AuthenticationPrincipal User user) {
-		return RecurringExpenseResponseV2.from(delegate.update(id, request.toV1(), user));
+		return RecurringExpenseResponseV2.from(delegate.updateWithBase(id, request.toV1(), user));
 	}
 
 	@DeleteMapping("/{id}")
@@ -72,7 +72,7 @@ public class RecurringExpenseV2Controller {
 	@Operation(operationId = "v2UpcomingBills")
 	public List<UpcomingBillResponseV2> getUpcoming(@RequestParam String month,
 			@AuthenticationPrincipal User user) {
-		return delegate.getUpcomingWithRate(month, user).stream()
+		return delegate.getUpcomingWithBase(month, user).stream()
 				.map(UpcomingBillResponseV2::from)
 				.toList();
 	}

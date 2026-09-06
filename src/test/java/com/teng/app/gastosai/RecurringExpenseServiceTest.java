@@ -2,7 +2,9 @@ package com.teng.app.gastosai;
 
 import com.teng.app.gastosai.dto.RecurringExpenseRequest;
 import com.teng.app.gastosai.dto.RecurringExpenseResponse;
+import com.teng.app.gastosai.dto.RecurringExpenseWithBase;
 import com.teng.app.gastosai.dto.UpcomingBillResponse;
+import com.teng.app.gastosai.dto.UpcomingBillWithBase;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Frequency;
 import com.teng.app.gastosai.entity.RecurringExpense;
@@ -106,6 +108,65 @@ class RecurringExpenseServiceTest {
 		assertThatThrownBy(() -> recurringExpenseService.delete(999L, user))
 				.isInstanceOf(ResourceNotFoundException.class)
 				.hasMessageContaining("RecurringExpense not found");
+	}
+
+	/**
+	 * The converted amount comes from the stored amount, not from the two-place amount the v1
+	 * response displays (TEN-360). A recurring expense may hold four decimals — the column is
+	 * NUMERIC(19,4) and the request carries no fraction limit — and converting from the rounded
+	 * value would land a centavo or more away from what ExpenseService stores for an expense with
+	 * the same amount and rate.
+	 */
+	@Test
+	void findAllWithBase_convertsFromTheStoredAmountNotTheDisplayedOne() {
+		User user = testUser();
+		RecurringExpense bill = RecurringExpense.builder()
+				.id(1L).user(user).name("Cloud Hosting").amount(new BigDecimal("20.0049"))
+				.category(testCategory()).frequency(Frequency.MONTHLY).dayOfMonth(5).active(true)
+				.currency("USD").exchangeRate(new BigDecimal("58.7500"))
+				.build();
+
+		when(recurringExpenseRepository.findAllByUser(user)).thenReturn(List.of(bill));
+
+		RecurringExpenseWithBase result = recurringExpenseService.findAllWithBase(user).get(0);
+
+		// 20.0049 x 58.75 = 1175.287875, to NUMERIC(19,4) scale.
+		assertThat(result.amountInBaseCurrency()).isEqualByComparingTo("1175.2879");
+		// The displayed amount is still rounded to two places, as v1 has always served it.
+		assertThat(result.response().amount()).isEqualByComparingTo("20.00");
+	}
+
+	@Test
+	void getUpcomingWithBase_convertsFromTheStoredAmountNotTheDisplayedOne() {
+		User user = testUser();
+		RecurringExpense bill = RecurringExpense.builder()
+				.id(1L).user(user).name("Cloud Hosting").amount(new BigDecimal("20.0049"))
+				.category(testCategory()).frequency(Frequency.MONTHLY).dayOfMonth(5).active(true)
+				.currency("USD").exchangeRate(new BigDecimal("58.7500"))
+				.build();
+
+		when(recurringExpenseRepository.findAllByUserAndActiveTrue(user)).thenReturn(List.of(bill));
+
+		List<UpcomingBillWithBase> results = recurringExpenseService.getUpcomingWithBase("2026-06", user);
+
+		assertThat(results).hasSize(1);
+		assertThat(results.get(0).amountInBaseCurrency()).isEqualByComparingTo("1175.2879");
+	}
+
+	@Test
+	void baseAmountOfAPesoBillIsTheAmountItself() {
+		User user = testUser();
+		RecurringExpense bill = RecurringExpense.builder()
+				.id(1L).user(user).name("Rent").amount(new BigDecimal("5000.00"))
+				.category(testCategory()).frequency(Frequency.MONTHLY).dayOfMonth(15).active(true)
+				.build();
+
+		when(recurringExpenseRepository.findAllByUserAndActiveTrue(user)).thenReturn(List.of(bill));
+
+		UpcomingBillWithBase result = recurringExpenseService.getUpcomingWithBase("2026-06", user).get(0);
+
+		assertThat(result.bill().currency()).isEqualTo("PHP");
+		assertThat(result.amountInBaseCurrency()).isEqualByComparingTo(result.bill().amount());
 	}
 
 	@Test

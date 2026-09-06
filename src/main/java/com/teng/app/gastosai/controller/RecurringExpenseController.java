@@ -2,8 +2,9 @@ package com.teng.app.gastosai.controller;
 
 import com.teng.app.gastosai.dto.RecurringExpenseRequest;
 import com.teng.app.gastosai.dto.RecurringExpenseResponse;
+import com.teng.app.gastosai.dto.RecurringExpenseWithBase;
 import com.teng.app.gastosai.dto.UpcomingBillResponse;
-import com.teng.app.gastosai.dto.UpcomingBillWithRate;
+import com.teng.app.gastosai.dto.UpcomingBillWithBase;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.service.RecurringExpenseService;
 import jakarta.validation.Valid;
@@ -35,7 +36,13 @@ public class RecurringExpenseController {
 	public RecurringExpenseResponse create(@Valid @RequestBody RecurringExpenseRequest request,
 			@RequestParam(name = "force", defaultValue = "false") boolean force,
 			@AuthenticationPrincipal User user) {
-		return recurringExpenseService.create(request, user, force);
+		return createWithBase(request, force, user).response();
+	}
+
+	/** {@link #create} with the converted amount attached — see {@link #getUpcomingWithBase}. */
+	public RecurringExpenseWithBase createWithBase(RecurringExpenseRequest request, boolean force,
+			User user) {
+		return recurringExpenseService.createWithBase(request, user, force);
 	}
 
 	@GetMapping
@@ -43,11 +50,22 @@ public class RecurringExpenseController {
 		return recurringExpenseService.findAll(user);
 	}
 
+	/** {@link #findAll} with each converted amount attached — see {@link #getUpcomingWithBase}. */
+	public List<RecurringExpenseWithBase> findAllWithBase(User user) {
+		return recurringExpenseService.findAllWithBase(user);
+	}
+
 	@PutMapping("/{id}")
 	public RecurringExpenseResponse update(@PathVariable Long id,
 			@Valid @RequestBody RecurringExpenseRequest request,
 			@AuthenticationPrincipal User user) {
-		return recurringExpenseService.update(id, request, user);
+		return updateWithBase(id, request, user).response();
+	}
+
+	/** {@link #update} with the converted amount attached — see {@link #getUpcomingWithBase}. */
+	public RecurringExpenseWithBase updateWithBase(Long id, RecurringExpenseRequest request,
+			User user) {
+		return recurringExpenseService.updateWithBase(id, request, user);
 	}
 
 	@DeleteMapping("/{id}")
@@ -77,24 +95,24 @@ public class RecurringExpenseController {
 	@GetMapping("/upcoming")
 	public List<UpcomingBillResponse> getUpcoming(@RequestParam String month,
 			@AuthenticationPrincipal User user) {
-		return getUpcomingWithRate(month, user).stream()
-				.map(UpcomingBillWithRate::bill)
+		return getUpcomingWithBase(month, user).stream()
+				.map(UpcomingBillWithBase::bill)
 				.toList();
 	}
 
 	/**
-	 * The same bills with the stored exchange rate attached, for the v2 controller that delegates
-	 * here.
+	 * The same bills with the converted amount attached, for the v2 controller that delegates here.
 	 *
-	 * <p>Deliberately not a request mapping: it is not an endpoint and does not appear in the
-	 * published contract. It exists so v2 can compute {@code amountInBaseCurrency} server-side
-	 * while still going through this method's month validation, and while v1's response shape stays
-	 * exactly what it has always been.
+	 * <p>Deliberately not a request mapping — this and its three siblings above are not endpoints
+	 * and do not appear in the published contract. They exist so v2 can serve
+	 * {@code amountInBaseCurrency} computed from the stored amount, while still going through this
+	 * method's month validation, and while v1's response shape stays exactly what it has always
+	 * been.
 	 */
-	public List<UpcomingBillWithRate> getUpcomingWithRate(String month, User user) {
+	public List<UpcomingBillWithBase> getUpcomingWithBase(String month, User user) {
 		if (!month.matches("\\d{4}-\\d{2}")) {
 			throw new IllegalArgumentException("Invalid month format. Expected YYYY-MM.");
 		}
-		return recurringExpenseService.getUpcomingWithRate(month, user);
+		return recurringExpenseService.getUpcomingWithBase(month, user);
 	}
 }

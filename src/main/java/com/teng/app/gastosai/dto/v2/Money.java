@@ -43,27 +43,6 @@ public final class Money {
 	}
 
 	/**
-	 * An amount converted to the base currency and expressed as integer centavos, or {@code null}
-	 * if the amount is absent.
-	 *
-	 * <p>Two steps, in the order the rest of the application already uses: the product is first
-	 * reduced to the {@code NUMERIC(19,4)} scale the stored {@code amountInBaseCurrency} columns
-	 * hold, then to a whole centavo. Doing it this way makes a converted amount computed here read
-	 * identically to one read out of a stored column — an expense and a recurring bill with the
-	 * same amount and rate cannot disagree by a centavo.
-	 *
-	 * <p>A missing rate is treated as {@code 1}, which is what an amount already in the base
-	 * currency means; the row shape allows null and PHP rows are stored with a rate of one.
-	 */
-	public static Long toBaseCentavos(BigDecimal amount, BigDecimal exchangeRate) {
-		if (amount == null) {
-			return null;
-		}
-		BigDecimal rate = exchangeRate == null ? BigDecimal.ONE : exchangeRate;
-		return toCentavos(amount.multiply(rate).setScale(4, RoundingMode.HALF_UP));
-	}
-
-	/**
 	 * An inbound centavo amount as the decimal the domain and the {@code NUMERIC(19,4)} columns
 	 * expect, or {@code null} if it is absent.
 	 *

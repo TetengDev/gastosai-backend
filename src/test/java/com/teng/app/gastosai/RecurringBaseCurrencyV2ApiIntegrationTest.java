@@ -152,6 +152,35 @@ class RecurringBaseCurrencyV2ApiIntegrationTest extends PostgresBackedTest {
 				.andExpect(jsonPath("$[0].amountInBaseCurrency").value(500));
 	}
 
+	/**
+	 * The conversion reads the stored amount, not the two-place amount v1 displays (TEN-360
+	 * review). Created through v1, which accepts the four decimals the column holds.
+	 */
+	@Test
+	void convertsFromTheStoredAmountWhenItHasMoreThanTwoDecimals() throws Exception {
+		mockMvc.perform(post("/recurring")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"name":"Fractional","amount":20.0049,"categoryName":"Software",
+								"frequency":"MONTHLY","dayOfMonth":5,"currency":"USD","exchangeRate":58.7500}
+								"""))
+				.andExpect(status().isCreated());
+
+		// 20.0049 x 58.75 = 1175.287875 -> 1175.2879 -> 117529 centavos. Converting from the
+		// displayed 20.00 would give 117500, a 29-centavo error.
+		mockMvc.perform(get("/api/v2/recurring").header("Authorization", authHeader))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[0].amount").value(2000))
+				.andExpect(jsonPath("$[0].amountInBaseCurrency").value(117529));
+
+		mockMvc.perform(get("/api/v2/recurring/upcoming")
+						.header("Authorization", authHeader)
+						.param("month", "2026-06"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[0].amountInBaseCurrency").value(117529));
+	}
+
 	/** The v1 responses are untouched — neither of them gained the field. */
 	@Test
 	void v1ResponsesDoNotCarryTheField() throws Exception {
