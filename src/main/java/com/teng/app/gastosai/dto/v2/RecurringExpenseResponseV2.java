@@ -5,7 +5,14 @@ import com.teng.app.gastosai.entity.Frequency;
 
 import java.math.BigDecimal;
 
-/** {@link RecurringExpenseResponse} with {@code amount} as integer centavos. */
+/**
+ * {@link RecurringExpenseResponse} with {@code amount} as integer centavos.
+ *
+ * <p>{@code amountInBaseCurrency} is the same amount converted with the stored
+ * {@code exchangeRate}, matching what {@link ExpenseResponseV2} and {@link BudgetResponseV2}
+ * already serve. Without it a client showing a foreign-currency bill in pesos had to multiply the
+ * amount by the rate itself, which is a currency conversion in float arithmetic on money.
+ */
 public record RecurringExpenseResponseV2(
 		Long id,
 		String name,
@@ -17,7 +24,8 @@ public record RecurringExpenseResponseV2(
 		Integer monthOfYear,
 		boolean active,
 		String currency,
-		BigDecimal exchangeRate
+		BigDecimal exchangeRate,
+		Long amountInBaseCurrency
 ) {
 
 	public static RecurringExpenseResponseV2 from(RecurringExpenseResponse v1) {
@@ -32,6 +40,7 @@ public record RecurringExpenseResponseV2(
 				v1.monthOfYear(),
 				v1.active(),
 				v1.currency(),
-				v1.exchangeRate());
+				v1.exchangeRate(),
+				Money.toBaseCentavos(v1.amount(), v1.exchangeRate()));
 	}
 }

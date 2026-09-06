@@ -3,6 +3,7 @@ package com.teng.app.gastosai.service;
 import com.teng.app.gastosai.dto.RecurringExpenseRequest;
 import com.teng.app.gastosai.dto.RecurringExpenseResponse;
 import com.teng.app.gastosai.dto.UpcomingBillResponse;
+import com.teng.app.gastosai.dto.UpcomingBillWithRate;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Frequency;
 import com.teng.app.gastosai.entity.RecurringExpense;
@@ -113,12 +114,26 @@ public class RecurringExpenseService {
 
 	@Transactional(readOnly = true)
 	public List<UpcomingBillResponse> getUpcoming(String month, User user) {
+		return getUpcomingWithRate(month, user).stream()
+				.map(UpcomingBillWithRate::bill)
+				.toList();
+	}
+
+	/**
+	 * The same bills, each paired with the exchange rate stored on its recurring expense.
+	 *
+	 * <p>{@code /api/v2} converts the amount to base currency from that rate, and the v1 response
+	 * does not carry one. Reading both out of the same entities keeps the conversion server-side
+	 * without changing the v1 shape.
+	 */
+	@Transactional(readOnly = true)
+	public List<UpcomingBillWithRate> getUpcomingWithRate(String month, User user) {
 		YearMonth yearMonth = YearMonth.parse(month);
 		int year = yearMonth.getYear();
 		int monthValue = yearMonth.getMonthValue();
 
 		List<RecurringExpense> bills = recurringExpenseRepository.findAllByUserAndActiveTrue(user);
-		List<UpcomingBillResponse> results = new ArrayList<>();
+		List<UpcomingBillWithRate> results = new ArrayList<>();
 
 		for (RecurringExpense bill : bills) {
 			if (bill.getFrequency() == Frequency.MONTHLY) {
@@ -144,12 +159,12 @@ public class RecurringExpenseService {
 			}
 		}
 
-		results.sort(Comparator.comparing(UpcomingBillResponse::dueDate));
+		results.sort(Comparator.comparing(result -> result.bill().dueDate()));
 		return results;
 	}
 
-	private UpcomingBillResponse toUpcomingResponse(RecurringExpense bill, LocalDate due) {
-		return new UpcomingBillResponse(
+	private UpcomingBillWithRate toUpcomingResponse(RecurringExpense bill, LocalDate due) {
+		UpcomingBillResponse response = new UpcomingBillResponse(
 				bill.getId(),
 				bill.getName(),
 				bill.getAmount().setScale(2, RoundingMode.HALF_UP),
@@ -158,6 +173,10 @@ public class RecurringExpenseService {
 				due.format(DateTimeFormatter.ISO_LOCAL_DATE),
 				bill.getCurrency()
 		);
+		BigDecimal rate = bill.getExchangeRate() != null
+				? bill.getExchangeRate().setScale(4, RoundingMode.HALF_UP)
+				: BigDecimal.ONE;
+		return new UpcomingBillWithRate(response, rate);
 	}
 
 	private RecurringExpenseResponse toResponse(RecurringExpense e) {

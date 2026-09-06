@@ -419,7 +419,7 @@ class OpenApiContractTest {
 				Map.entry("ExpenseResponseV2", Set.of("amount", "amountInBaseCurrency")),
 				Map.entry("BudgetResponseV2", Set.of("amountLimit", "amountLimitInBaseCurrency")),
 				Map.entry("GoalResponseV2", Set.of("targetAmount", "savedAmount")),
-				Map.entry("RecurringExpenseResponseV2", Set.of("amount")));
+				Map.entry("RecurringExpenseResponseV2", Set.of("amount", "amountInBaseCurrency")));
 
 		Set<String> offenders = new TreeSet<>();
 		money.forEach((schema, properties) -> properties.forEach(property -> {

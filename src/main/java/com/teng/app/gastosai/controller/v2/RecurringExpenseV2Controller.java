@@ -72,6 +72,8 @@ public class RecurringExpenseV2Controller {
 	@Operation(operationId = "v2UpcomingBills")
 	public List<UpcomingBillResponseV2> getUpcoming(@RequestParam String month,
 			@AuthenticationPrincipal User user) {
-		return delegate.getUpcoming(month, user).stream().map(UpcomingBillResponseV2::from).toList();
+		return delegate.getUpcomingWithRate(month, user).stream()
+				.map(UpcomingBillResponseV2::from)
+				.toList();
 	}
 }

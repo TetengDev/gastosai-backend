@@ -3,6 +3,7 @@ package com.teng.app.gastosai.controller;
 import com.teng.app.gastosai.dto.RecurringExpenseRequest;
 import com.teng.app.gastosai.dto.RecurringExpenseResponse;
 import com.teng.app.gastosai.dto.UpcomingBillResponse;
+import com.teng.app.gastosai.dto.UpcomingBillWithRate;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.service.RecurringExpenseService;
 import jakarta.validation.Valid;
@@ -76,9 +77,24 @@ public class RecurringExpenseController {
 	@GetMapping("/upcoming")
 	public List<UpcomingBillResponse> getUpcoming(@RequestParam String month,
 			@AuthenticationPrincipal User user) {
+		return getUpcomingWithRate(month, user).stream()
+				.map(UpcomingBillWithRate::bill)
+				.toList();
+	}
+
+	/**
+	 * The same bills with the stored exchange rate attached, for the v2 controller that delegates
+	 * here.
+	 *
+	 * <p>Deliberately not a request mapping: it is not an endpoint and does not appear in the
+	 * published contract. It exists so v2 can compute {@code amountInBaseCurrency} server-side
+	 * while still going through this method's month validation, and while v1's response shape stays
+	 * exactly what it has always been.
+	 */
+	public List<UpcomingBillWithRate> getUpcomingWithRate(String month, User user) {
 		if (!month.matches("\\d{4}-\\d{2}")) {
 			throw new IllegalArgumentException("Invalid month format. Expected YYYY-MM.");
 		}
-		return recurringExpenseService.getUpcoming(month, user);
+		return recurringExpenseService.getUpcomingWithRate(month, user);
 	}
 }

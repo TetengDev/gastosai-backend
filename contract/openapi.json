@@ -2877,6 +2877,10 @@
             "format" : "int64",
             "type" : "integer"
           },
+          "amountInBaseCurrency" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
           "categoryName" : {
             "type" : "string"
           },
@@ -3164,6 +3168,10 @@
       "UpcomingBillResponseV2" : {
         "properties" : {
           "amount" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "amountInBaseCurrency" : {
             "format" : "int64",
             "type" : "integer"
           },
