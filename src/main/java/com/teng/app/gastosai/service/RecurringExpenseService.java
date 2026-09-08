@@ -2,7 +2,9 @@ package com.teng.app.gastosai.service;
 
 import com.teng.app.gastosai.dto.RecurringExpenseRequest;
 import com.teng.app.gastosai.dto.RecurringExpenseResponse;
+import com.teng.app.gastosai.dto.RecurringExpenseWithBase;
 import com.teng.app.gastosai.dto.UpcomingBillResponse;
+import com.teng.app.gastosai.dto.UpcomingBillWithBase;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Frequency;
 import com.teng.app.gastosai.entity.RecurringExpense;
@@ -39,6 +41,12 @@ public class RecurringExpenseService {
 
 	@Transactional
 	public RecurringExpenseResponse create(RecurringExpenseRequest req, User user, boolean force) {
+		return createWithBase(req, user, force).response();
+	}
+
+	/** {@link #create(RecurringExpenseRequest, User, boolean)} with the converted amount attached. */
+	@Transactional
+	public RecurringExpenseWithBase createWithBase(RecurringExpenseRequest req, User user, boolean force) {
 		if (!force && recurringExpenseRepository.existsByUserAndNameIgnoreCaseAndFrequency(user, req.name(), req.frequency())) {
 			throw new ResponseStatusException(HttpStatus.CONFLICT,
 					"A " + req.frequency().name().toLowerCase() + " recurring expense named \"" + req.name() + "\" already exists.");
@@ -67,6 +75,14 @@ public class RecurringExpenseService {
 
 	@Transactional(readOnly = true)
 	public List<RecurringExpenseResponse> findAll(User user) {
+		return findAllWithBase(user).stream()
+				.map(RecurringExpenseWithBase::response)
+				.toList();
+	}
+
+	/** {@link #findAll(User)} with each row's converted amount attached. */
+	@Transactional(readOnly = true)
+	public List<RecurringExpenseWithBase> findAllWithBase(User user) {
 		return recurringExpenseRepository.findAllByUser(user).stream()
 				.map(this::toResponse)
 				.toList();
@@ -74,6 +90,12 @@ public class RecurringExpenseService {
 
 	@Transactional
 	public RecurringExpenseResponse update(Long id, RecurringExpenseRequest req, User user) {
+		return updateWithBase(id, req, user).response();
+	}
+
+	/** {@link #update(Long, RecurringExpenseRequest, User)} with the converted amount attached. */
+	@Transactional
+	public RecurringExpenseWithBase updateWithBase(Long id, RecurringExpenseRequest req, User user) {
 		RecurringExpense expense = recurringExpenseRepository.findByIdAndUser(id, user)
 				.orElseThrow(() -> new ResourceNotFoundException("RecurringExpense not found: " + id));
 
@@ -113,12 +135,26 @@ public class RecurringExpenseService {
 
 	@Transactional(readOnly = true)
 	public List<UpcomingBillResponse> getUpcoming(String month, User user) {
+		return getUpcomingWithBase(month, user).stream()
+				.map(UpcomingBillWithBase::bill)
+				.toList();
+	}
+
+	/**
+	 * The same bills, each paired with its amount converted to the base currency.
+	 *
+	 * <p>{@code /api/v2} serves that converted amount and the v1 response carries neither it nor
+	 * the rate to derive one. Computing it here, from the entity, keeps the conversion server-side
+	 * and at the stored precision without changing the v1 shape.
+	 */
+	@Transactional(readOnly = true)
+	public List<UpcomingBillWithBase> getUpcomingWithBase(String month, User user) {
 		YearMonth yearMonth = YearMonth.parse(month);
 		int year = yearMonth.getYear();
 		int monthValue = yearMonth.getMonthValue();
 
 		List<RecurringExpense> bills = recurringExpenseRepository.findAllByUserAndActiveTrue(user);
-		List<UpcomingBillResponse> results = new ArrayList<>();
+		List<UpcomingBillWithBase> results = new ArrayList<>();
 
 		for (RecurringExpense bill : bills) {
 			if (bill.getFrequency() == Frequency.MONTHLY) {
@@ -144,12 +180,12 @@ public class RecurringExpenseService {
 			}
 		}
 
-		results.sort(Comparator.comparing(UpcomingBillResponse::dueDate));
+		results.sort(Comparator.comparing(result -> result.bill().dueDate()));
 		return results;
 	}
 
-	private UpcomingBillResponse toUpcomingResponse(RecurringExpense bill, LocalDate due) {
-		return new UpcomingBillResponse(
+	private UpcomingBillWithBase toUpcomingResponse(RecurringExpense bill, LocalDate due) {
+		UpcomingBillResponse response = new UpcomingBillResponse(
 				bill.getId(),
 				bill.getName(),
 				bill.getAmount().setScale(2, RoundingMode.HALF_UP),
@@ -158,10 +194,11 @@ public class RecurringExpenseService {
 				due.format(DateTimeFormatter.ISO_LOCAL_DATE),
 				bill.getCurrency()
 		);
+		return new UpcomingBillWithBase(response, amountInBaseCurrency(bill));
 	}
 
-	private RecurringExpenseResponse toResponse(RecurringExpense e) {
-		return new RecurringExpenseResponse(
+	private RecurringExpenseWithBase toResponse(RecurringExpense e) {
+		RecurringExpenseResponse response = new RecurringExpenseResponse(
 				e.getId(),
 				e.getName(),
 				e.getAmount().setScale(2, RoundingMode.HALF_UP),
@@ -174,5 +211,20 @@ public class RecurringExpenseService {
 				e.getCurrency(),
 				e.getExchangeRate().setScale(4, RoundingMode.HALF_UP)
 		);
+		return new RecurringExpenseWithBase(response, amountInBaseCurrency(e));
+	}
+
+	/**
+	 * The amount converted to the base currency, at the {@code NUMERIC(19,4)} scale the stored
+	 * {@code amount_in_base_currency} columns hold.
+	 *
+	 * <p>Deliberately reads {@code e.getAmount()} rather than the two-place amount the response
+	 * displays: an amount stored with a third or fourth decimal would otherwise be converted from
+	 * a rounded value, and land a centavo away from what {@code ExpenseService} stores for an
+	 * expense with the same amount and rate. Same expression, same rounding mode, as that method.
+	 */
+	private BigDecimal amountInBaseCurrency(RecurringExpense e) {
+		BigDecimal rate = e.getExchangeRate() != null ? e.getExchangeRate() : BigDecimal.ONE;
+		return e.getAmount().multiply(rate).setScale(4, RoundingMode.HALF_UP);
 	}
 }

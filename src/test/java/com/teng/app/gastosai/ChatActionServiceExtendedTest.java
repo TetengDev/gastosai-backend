@@ -317,9 +317,12 @@ class ChatActionServiceExtendedTest {
                 .frequency(Frequency.MONTHLY).category(cat).active(true)
                 .currency("PHP").exchangeRate(BigDecimal.ONE).build();
         when(recurringExpenseRepository.findAllByUser(any())).thenReturn(List.of(existing));
-        when(recurringExpenseService.update(anyLong(), any(), any())).thenReturn(
-                new RecurringExpenseResponse(10L, "Netflix", new BigDecimal("499.00"),
-                        "Utilities", Frequency.MONTHLY, null, null, null, false, "PHP", BigDecimal.ONE));
+        when(recurringExpenseService.updateWithBase(anyLong(), any(), any())).thenReturn(
+                new com.teng.app.gastosai.dto.RecurringExpenseWithBase(
+                        new RecurringExpenseResponse(10L, "Netflix", new BigDecimal("499.00"),
+                                "Utilities", Frequency.MONTHLY, null, null, null, false, "PHP",
+                                BigDecimal.ONE),
+                        new BigDecimal("499.0000")));
 
         ChatResponse resp = chatActionService.dispatch("Pause Netflix recurring", null, user());
 
@@ -375,7 +378,7 @@ class ChatActionServiceExtendedTest {
                 {"name":"Rent","amount":5000,"frequency":"MONTHLY"}
                 """;
         when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(new ChatToolCall("create_recurring", paramsJson)));
-        when(recurringExpenseService.create(any(), any(), eq(false)))
+        when(recurringExpenseService.createWithBase(any(), any(), eq(false)))
                 .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "A monthly recurring expense named \"Rent\" already exists."));
         Category cat = Category.builder().id(1L).name("Utilities").build();
         RecurringExpense existing = RecurringExpense.builder()
