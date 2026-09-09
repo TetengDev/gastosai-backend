@@ -11,6 +11,7 @@ import com.teng.app.gastosai.dto.ParsedExpenseResult;
 import com.teng.app.gastosai.dto.ProjectReportItem;
 import com.teng.app.gastosai.dto.ProjectRequest;
 import com.teng.app.gastosai.dto.ProjectResponse;
+import com.teng.app.gastosai.dto.v2.Money;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
 import com.teng.app.gastosai.entity.ExpenseSource;
@@ -108,7 +109,7 @@ public class ExpenseService {
 		boolean reimbursable = request.reimbursable() != null && request.reimbursable();
 		String currency = (request.currency() == null || request.currency().isBlank()) ? "PHP" : request.currency();
 		BigDecimal rate = (request.exchangeRate() == null) ? BigDecimal.ONE : request.exchangeRate();
-		BigDecimal base = request.amount().multiply(rate).setScale(4, RoundingMode.HALF_UP);
+		BigDecimal base = Money.toBaseCurrency(request.amount(), rate);
 		Expense expense = Expense.builder()
 				.amount(request.amount())
 				.user(user)
@@ -383,7 +384,7 @@ public class ExpenseService {
 		}
 		String currency = (request.currency() == null || request.currency().isBlank()) ? "PHP" : request.currency();
 		BigDecimal rate = (request.exchangeRate() == null) ? BigDecimal.ONE : request.exchangeRate();
-		BigDecimal base = request.amount().multiply(rate).setScale(4, RoundingMode.HALF_UP);
+		BigDecimal base = Money.toBaseCurrency(request.amount(), rate);
 		expense.setCurrency(currency);
 		expense.setExchangeRate(rate);
 		expense.setAmountInBaseCurrency(base);

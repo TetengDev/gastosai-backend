@@ -187,8 +187,8 @@ public class AppDataLoader implements ApplicationRunner {
 					String trimmed = sample.categoryName().trim();
 					Category category = byName.get(trimmed);
 					java.math.BigDecimal rate = sample.exchangeRate();
-					java.math.BigDecimal base = sample.amount().multiply(rate)
-							.setScale(4, java.math.RoundingMode.HALF_UP);
+					java.math.BigDecimal base = com.teng.app.gastosai.dto.v2.Money
+							.toBaseCurrency(sample.amount(), rate);
 					return Expense.builder()
 							.amount(sample.amount())
 							.user(demoUser)
