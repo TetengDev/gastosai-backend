@@ -100,6 +100,63 @@ jobs:
           fi
           echo "Committed contract matches the generated spec ($(jq '.paths | length' contract/openapi.json) paths)."
 
+  contract-version:
+    name: Contract version is publishable
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # TEN-345. publish-contract.yml publishes and tags a contract version bump automatically
+      # once it lands on main, so nothing here has to remind a human to cut a tag. What that lane
+      # cannot recover from is a bump it has to skip: a version that is already tagged (the
+      # registry would 409) or one that moves backwards. Both would put the repo back in the state
+      # this issue exists to end — a version field that no published package matches, discovered
+      # weeks later by a client that cannot resolve its pin. So they are rejected here, on the PR,
+      # while the diff is still in front of someone.
+      #
+      # A PR that does not move the version prints one line and passes.
+      - name: Contract version bump can be published
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+
+          git fetch origin "$BASE" --depth=1
+          BASE_VERSION=$(git show "origin/$BASE:contract/package.json" | jq -r '.version')
+          HEAD_VERSION=$(jq -r '.version' contract/package.json)
+
+          if [ "$BASE_VERSION" = "$HEAD_VERSION" ]; then
+            echo "Contract version unchanged ($HEAD_VERSION) — nothing to publish, nothing to check."
+            exit 0
+          fi
+
+          echo "Contract version moves $BASE_VERSION -> $HEAD_VERSION."
+
+          if ! printf '%s' "$HEAD_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$HEAD_VERSION' is not a semver version, so publish-contract.yml cannot publish it."
+            exit 1
+          fi
+
+          git fetch origin --tags --force --quiet
+          if git rev-parse -q --verify "refs/tags/contract-v$HEAD_VERSION" >/dev/null; then
+            echo "::error::contract-v$HEAD_VERSION already exists, so $HEAD_VERSION is already on GitHub Packages. Publishing it again would be rejected by the registry and this bump would never reach a client. Pick the next unused version."
+            exit 1
+          fi
+
+          # Ordering only; -V is enough for the X.Y.Z versions this contract uses. A prerelease
+          # suffix sorts after its release under -V, which is wrong per semver but cannot make a
+          # forward bump look backwards, so it is not worth a semver parser here.
+          NEWEST=$(printf '%s\n%s\n' "$BASE_VERSION" "$HEAD_VERSION" | sort -V | tail -1)
+          if [ "$NEWEST" != "$HEAD_VERSION" ]; then
+            echo "::error::$HEAD_VERSION is not newer than $BASE_VERSION. A contract version only ever moves forward — clients pin exact versions and a reused number changes what an existing pin resolves to."
+            exit 1
+          fi
+
+          echo "$HEAD_VERSION is unpublished and newer than $BASE_VERSION. Merging this PR publishes it and cuts contract-v$HEAD_VERSION automatically."
+
   security-scan:
     name: Dependency vulnerability scan
     runs-on: ubuntu-latest
