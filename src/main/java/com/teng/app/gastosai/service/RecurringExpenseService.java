@@ -5,6 +5,7 @@ import com.teng.app.gastosai.dto.RecurringExpenseResponse;
 import com.teng.app.gastosai.dto.RecurringExpenseWithBase;
 import com.teng.app.gastosai.dto.UpcomingBillResponse;
 import com.teng.app.gastosai.dto.UpcomingBillWithBase;
+import com.teng.app.gastosai.dto.v2.Money;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Frequency;
 import com.teng.app.gastosai.entity.RecurringExpense;
@@ -221,10 +222,10 @@ public class RecurringExpenseService {
 	 * <p>Deliberately reads {@code e.getAmount()} rather than the two-place amount the response
 	 * displays: an amount stored with a third or fourth decimal would otherwise be converted from
 	 * a rounded value, and land a centavo away from what {@code ExpenseService} stores for an
-	 * expense with the same amount and rate. Same expression, same rounding mode, as that method.
+	 * expense with the same amount and rate. The conversion itself lives in
+	 * {@link Money#toBaseCurrency}, which is the same call {@code ExpenseService} makes.
 	 */
 	private BigDecimal amountInBaseCurrency(RecurringExpense e) {
-		BigDecimal rate = e.getExchangeRate() != null ? e.getExchangeRate() : BigDecimal.ONE;
-		return e.getAmount().multiply(rate).setScale(4, RoundingMode.HALF_UP);
+		return Money.toBaseCurrency(e.getAmount(), e.getExchangeRate());
 	}
 }
