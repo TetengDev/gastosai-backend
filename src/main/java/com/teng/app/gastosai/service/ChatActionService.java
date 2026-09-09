@@ -24,6 +24,7 @@ import com.teng.app.gastosai.dto.GoalRequest;
 import com.teng.app.gastosai.dto.GoalResponse;
 import com.teng.app.gastosai.dto.RecurringExpenseRequest;
 import com.teng.app.gastosai.dto.RecurringExpenseResponse;
+import com.teng.app.gastosai.dto.RecurringExpenseWithBase;
 import com.teng.app.gastosai.dto.UpcomingBillResponse;
 import com.teng.app.gastosai.entity.AiUsageStatus;
 import com.teng.app.gastosai.entity.Budget;
@@ -72,6 +73,9 @@ public class ChatActionService {
 
 	/** Like {@link #MODE_EXECUTE} but also bypasses the duplicate-expense check (user already chose "add anyway"). */
 	private static final String MODE_FORCE = "force";
+
+	/** {@code Conversation.lastEntityType} for a recurring expense; the expense one is {@code "expense"}. */
+	private static final String RECURRING_ENTITY = "recurring";
 
 	private static boolean isRunMode(String mode) {
 		return MODE_EXECUTE.equals(mode) || MODE_FORCE.equals(mode);
@@ -143,9 +147,15 @@ public class ChatActionService {
 		if (!transcript.isBlank()) {
 			ctx.append("Conversation so far:\n").append(transcript).append("\n\n");
 		}
-		if ("expense".equals(conversation.getLastEntityType()) && conversation.getLastEntityId() != null) {
-			ctx.append("If the user refers to \"it\" / \"that one\" / \"the last expense\" without an id, ")
-					.append("use expense id ").append(conversation.getLastEntityId()).append(".\n\n");
+		if (conversation.getLastEntityId() != null) {
+			if ("expense".equals(conversation.getLastEntityType())) {
+				ctx.append("If the user refers to \"it\" / \"that one\" / \"the last expense\" without an id, ")
+						.append("use expense id ").append(conversation.getLastEntityId()).append(".\n\n");
+			} else if (RECURRING_ENTITY.equals(conversation.getLastEntityType())) {
+				ctx.append("If the user refers to \"it\" / \"that one\" / \"the last recurring expense\" without an id, ")
+						.append("use recurring expense id ").append(conversation.getLastEntityId())
+						.append(" with the recurring tools (update_recurring / delete_recurring), not the expense tools.\n\n");
+			}
 		}
 		if (ctx.length() == 0) {
 			return message;
@@ -153,10 +163,34 @@ public class ChatActionService {
 		return ctx.append("Current message: ").append(message).toString();
 	}
 
-	/** Remembers the single expense a turn created/updated so the next turn can refer back to it. */
+	/**
+	 * Remembers the single entity a turn created/updated so the next turn can refer back to it.
+	 *
+	 * <p>Two kinds are remembered, and the rule that picks them is "the turn returned exactly one
+	 * entity it just wrote": an expense ({@code create_expense} / {@code update_expense}) and a
+	 * recurring expense ({@code create_recurring} / {@code update_recurring}). Deletes are excluded
+	 * because a deleted row is not a referent, and the read tools are excluded because a list is not
+	 * one either — both return no entity here, so the pattern match already skips them.
+	 *
+	 * <p>TEN-364 asked whether widening past expenses is safe, since the last entity is what an
+	 * ambiguous "delete it" resolves to. It is, and it is the narrower behaviour: capture always
+	 * overwrites, so the referent is the most recent write either way. Before this, a recurring turn
+	 * left the previous <em>expense</em> in place, and "delete it" then hit an unrelated row the user
+	 * had stopped talking about several turns ago. {@link #withContext} names the kind it hints at,
+	 * so the classifier is pointed at the recurring tools rather than the expense ones.
+	 */
 	private void captureEntity(Conversation conversation, ChatResponse response) {
-		if (response.result() instanceof com.teng.app.gastosai.dto.ExpenseResponse er && er.id() != null) {
+		if (response.result() instanceof ExpenseResponse er && er.id() != null) {
 			conversationService.recordEntity(conversation, "expense", er.id());
+		}
+		// The v2 pair, not the bare response: a chat turn carries the recurring expense as
+		// RecurringExpenseWithBase (TEN-360), which serializes as the response on the v1 wire.
+		else if (response.result() instanceof RecurringExpenseWithBase pair && pair.response() != null
+				&& pair.response().id() != null) {
+			conversationService.recordEntity(conversation, RECURRING_ENTITY, pair.response().id());
+		}
+		else if (response.result() instanceof RecurringExpenseResponse rr && rr.id() != null) {
+			conversationService.recordEntity(conversation, RECURRING_ENTITY, rr.id());
 		}
 	}
 
