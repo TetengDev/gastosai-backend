@@ -5,7 +5,13 @@ import java.math.RoundingMode;
 
 /**
  * The one place {@code /api/v2} converts between the decimal amounts the domain works in and the
- * integer centavos the v2 contract puts on the wire.
+ * integer centavos the v2 contract puts on the wire, and the one home of the amount-times-rate
+ * conversion both surfaces share.
+ *
+ * <p>{@link #toCentavos} and {@link #toDecimal} are the wire edge and belong to v2 alone.
+ * {@link #toBaseCurrency} is not: it is the conversion {@code ExpenseService} stores on a v1 row
+ * and {@code RecurringExpenseService} reads back for a v2 response, and it lives here because the
+ * rounding rule below is the rule it has to follow.
  *
  * <p>The rows are unchanged: {@code /api/v1} and {@code /api/v2} read the same
  * {@code NUMERIC(19,4)} columns through the same services, and this class only reshapes the value
