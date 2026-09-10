@@ -2,7 +2,7 @@ name: Publish API contract
 
 # Publishes @tetengdev/gastosai-api-contract to GitHub Packages.
 #
-# There are two lanes into this workflow, and the first one is the mechanism that makes a
+# There are three lanes into this workflow, and the first one is the mechanism that makes a
 # publish guaranteed rather than remembered (TEN-345):
 #
 #   1. A push to `main` that MOVES the `version` field of contract/package.json. The workflow
@@ -13,6 +13,11 @@ name: Publish API contract
 #
 #   2. A `contract-v*` tag pushed by hand, kept for backfills and re-publishes of a commit that
 #      predates lane 1.
+#
+#   3. workflow_dispatch, for a publish someone has to drive by hand. It publishes and does NOT
+#      tag: a dispatch can run against any ref, and a contract-v* tag pointing at a commit that
+#      never reached main would say "this is what was published" about a commit nobody reviewed.
+#      Tag it by hand afterwards (lane 2) if the publish should carry a receipt.
 #
 # The tag lane still exists because lane 1 pushes its tag with the workflow's GITHUB_TOKEN, and
 # GitHub deliberately does not re-trigger workflows from such a push — so lane 1 tags without
@@ -33,10 +38,19 @@ on:
         description: 'Contract semver to publish (e.g. 1.1.0)'
         required: true
 
+# One publish at a time. Tag names are unique per version so two concurrent runs could not
+# overwrite each other's receipt, but they could interleave a dispatch and a main-push publish of
+# different versions, and queueing is free.
+concurrency:
+  group: publish-contract
+  cancel-in-progress: false
+
 jobs:
   resolve:
     name: Decide whether a publish is due
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       version: ${{ steps.decide.outputs.version }}
       publish: ${{ steps.decide.outputs.publish }}
@@ -58,6 +72,11 @@ jobs:
           set -euo pipefail
 
           FILE_VERSION=$(jq -r '.version' contract/package.json)
+
+          # KNOWN_BUMP is set only on the main lane, and only when the previous commit's version
+          # was actually readable — it is what lets an already-tagged version below be told apart
+          # from an undecidable one.
+          KNOWN_BUMP=no
 
           if [ -n "${INPUT_VERSION:-}" ]; then
             VERSION="$INPUT_VERSION"
@@ -81,7 +100,15 @@ jobs:
               echo "publish=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            echo "Contract version moved from '${PREVIOUS:-unknown}' to '$VERSION' on $REF."
+            if [ -n "$PREVIOUS" ]; then
+              KNOWN_BUMP=yes
+              echo "Contract version moved from '$PREVIOUS' to '$VERSION' on $REF."
+            else
+              # github.event.before did not resolve — a force-push over main, or history GitHub has
+              # collected. Whether the version moved is undecidable, so this falls through to the
+              # tag check and is treated as a bump only if no tag claims the version already.
+              echo "::warning::Could not read the previous commit's contract version (before=${BEFORE:-empty}). Deciding from the tags alone."
+            fi
           fi
 
           if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
@@ -89,11 +116,21 @@ jobs:
             exit 1
           fi
 
-          # On the main lane an existing tag means this version was already published; publishing
-          # again would 409 against the registry. The PR-time guard in continuous-integration.yml
-          # ("Contract version is publishable") rejects that bump before it can get here, so this
-          # is the second line, not the first.
+          # An existing tag means this version was already published, so there is nothing to do.
+          # What happens next depends on whether we know a bump just landed:
+          #
+          #   - We do (KNOWN_BUMP=yes) -> this run FAILS. A bump merged and will never publish,
+          #     which is the TEN-345 failure exactly, one lane over. It happens when two PRs bump
+          #     to the same version and the second is merged stale — the PR-time guard checked its
+          #     base before the first one landed. Failing here is the whole point: the alternative
+          #     is a green main and a version nobody publishes.
+          #   - We do not -> exit green. The version is published, the tag proves it, and there is
+          #     no evidence anything was expected to change.
           if [ "$REF_TYPE" != "tag" ] && git rev-parse -q --verify "refs/tags/contract-v$VERSION" >/dev/null; then
+            if [ "$KNOWN_BUMP" = "yes" ]; then
+              echo "::error::contract/package.json was bumped to $VERSION, but contract-v$VERSION already exists — that version is published and cannot be published again. This bump will never reach a client. Bump to an unused version (most likely this PR was merged stale, after another version bump landed)."
+              exit 1
+            fi
             echo "::notice::contract-v$VERSION already exists — $VERSION was published before. Nothing to do."
             echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "publish=false" >> "$GITHUB_OUTPUT"
@@ -109,8 +146,10 @@ jobs:
     if: needs.resolve.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
-      # contents: write, because the main lane cuts the contract-v* tag once the publish succeeds.
-      contents: write
+      # Read only. This job runs ./mvnw test and npm publish, so third-party build code executes
+      # here; the token it executes beside must not be able to write refs. The tag push lives in
+      # the separate `tag` job below, which runs no dependency code at all.
+      contents: read
       # Publishing uses the built-in GITHUB_TOKEN rather than a stored PAT: it is scoped to
       # this single run, expires with it, and needs no rotation. Sufficient here because the
       # @tetengdev package and this repo share the TetengDev owner.
@@ -152,9 +191,15 @@ jobs:
             exit 1
           fi
 
+      # The version reaches these steps through env rather than a ${{ }} expansion inside the
+      # script body. It is regex-constrained to semver in `resolve`, so it is safe either way
+      # today — but the inline form is the shape of an Actions script injection, and a guard one
+      # edit away from being unsafe is not worth keeping for the characters it saves.
       - name: Set package version
         working-directory: contract
-        run: npm version "${{ needs.resolve.outputs.version }}" --no-git-tag-version --allow-same-version
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Publish to GitHub Packages
         working-directory: contract
@@ -162,11 +207,41 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm publish
 
-      # Only after the publish succeeded: the tag records what is on the registry. A tag that
-      # exists but was never published is exactly the failure this workflow was rewritten to end,
-      # so the order here is not incidental.
-      - name: Tag the published commit
-        if: github.ref_type != 'tag'
+      - name: Summary
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          {
+            echo "### Contract published"
+            echo ""
+            echo "\`@tetengdev/gastosai-api-contract@$VERSION\`"
+            echo ""
+            echo "Clients must pin this **exact** version, run \`gen:api\`, and commit the regenerated output."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The receipt. Separate from `publish` for two reasons:
+  #
+  #   - Blast radius. contents: write is the only permission here, and this job runs no Maven or
+  #     npm code — so a compromised build dependency in `publish` never executes beside a token
+  #     that can push refs.
+  #   - Ordering. `needs: publish` means the tag is written only after npm publish returned. A tag
+  #     that exists without a package behind it is the TEN-345 failure in mirror image.
+  #
+  # Restricted to the push-to-main lane. A workflow_dispatch can run against any ref, and a
+  # contract-v* tag on a commit that never reached main would claim a receipt for something
+  # nobody reviewed.
+  tag:
+    name: Tag the published commit
+    needs: [resolve, publish]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cut and push the contract tag
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
@@ -176,15 +251,4 @@ jobs:
           git tag "contract-v$VERSION" "$GITHUB_SHA"
           git push origin "contract-v$VERSION"
           echo "Tagged contract-v$VERSION at $GITHUB_SHA."
-
-      - name: Summary
-        run: |
-          {
-            echo "### Contract published"
-            echo ""
-            echo "\`@tetengdev/gastosai-api-contract@${{ needs.resolve.outputs.version }}\`"
-            echo ""
-            echo "Tagged \`contract-v${{ needs.resolve.outputs.version }}\`."
-            echo ""
-            echo "Clients must pin this **exact** version, run \`gen:api\`, and commit the regenerated output."
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Published \`@tetengdev/gastosai-api-contract@$VERSION\`, tagged \`contract-v$VERSION\`." >> "$GITHUB_STEP_SUMMARY"
