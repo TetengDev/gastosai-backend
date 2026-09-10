@@ -76,8 +76,68 @@ class ContractPublishLaneTest {
 						+ "version that looks published and is not — the TEN-345 failure in mirror image.");
 		assertTrue(workflow.contains("git push origin \"contract-v$VERSION\""),
 				"The tag must be pushed, or it exists only on the runner and records nothing.");
-		assertTrue(workflow.contains("contents: write"),
-				"The publish job needs contents: write to push the tag it cuts.");
+		assertTrue(workflow.contains("\n  tag:") && workflow.contains("needs: [resolve, publish]"),
+				"The tag must be cut by its own job that needs the publish job. Ordering enforced by "
+						+ "`needs` survives an edit to the step list; ordering enforced by position does not.");
+	}
+
+	@Test
+	void onlyTheTagJobCanWriteRefs() throws IOException {
+		String workflow = Files.readString(WORKFLOW);
+
+		String publishJob = job(workflow, "\n  publish:", "\n  tag:");
+		assertTrue(publishJob.contains("contents: read"),
+				"The publish job runs ./mvnw test and npm publish, so third-party build code executes "
+						+ "beside its token. That token must not be able to push refs.");
+		assertTrue(!publishJob.contains("contents: write"),
+				"contents: write in the job that executes dependency code is the blast radius the "
+						+ "separate tag job exists to remove.");
+
+		String tagJob = job(workflow, "\n  tag:", null);
+		assertTrue(tagJob.contains("contents: write"),
+				"The tag job pushes the contract-v* tag and needs contents: write to do it.");
+		assertTrue(!tagJob.contains("mvnw") && !tagJob.contains("npm "),
+				"The tag job must run no build or package code — that separation is the reason it "
+						+ "holds the only write-capable token in the workflow.");
+	}
+
+	@Test
+	void aBumpToAnAlreadyPublishedVersionFailsTheMainLane() throws IOException {
+		String workflow = Files.readString(WORKFLOW);
+
+		assertTrue(workflow.contains("KNOWN_BUMP"),
+				"The main lane must distinguish a bump it observed from a push whose previous version "
+						+ "it could not read, or it cannot tell an already-published version apart from a "
+						+ "version that never moved.");
+		assertTrue(workflow.contains("This bump will never reach a client."),
+				"A bump to a version that is already tagged can never publish. The lane must fail "
+						+ "rather than exit green — a green main and an unpublished version is the exact "
+						+ "TEN-345 failure, one lane over.");
+	}
+
+	@Test
+	void theVersionReachesTheShellThroughEnvNotAnInlineExpansion() throws IOException {
+		String workflow = Files.readString(WORKFLOW);
+
+		assertTrue(!workflow.contains("npm version \"${{"),
+				"An Actions expression expanded inside a run body is textual substitution before the "
+						+ "shell sees it. The version is semver-constrained in `resolve` today, so this is "
+						+ "shape rather than an open hole — but the shape is one edit from being a hole.");
+	}
+
+	/**
+	 * The slice of the workflow between two job keys, so a permission is read against its own job.
+	 * Comment lines are stripped: the comments here discuss the permissions of the job next door,
+	 * and a test that reads them would pass on prose while the YAML said the opposite.
+	 */
+	private static String job(String workflow, String start, String end) {
+		int from = workflow.indexOf(start);
+		assertTrue(from >= 0, "publish-contract.yml must define the" + start.trim() + " job.");
+		int to = end == null ? -1 : workflow.indexOf(end, from);
+		String slice = to >= 0 ? workflow.substring(from, to) : workflow.substring(from);
+		return slice.lines()
+				.filter(line -> !line.trim().startsWith("#"))
+				.reduce("", (a, b) -> a + "\n" + b);
 	}
 
 	@Test
