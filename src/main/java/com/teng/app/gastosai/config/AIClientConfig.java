@@ -21,7 +21,7 @@ import com.teng.app.gastosai.ai.OpenAiSqlGenerator;
 import com.teng.app.gastosai.ai.SqlGenerator;
 
 @Configuration
-@EnableConfigurationProperties({OpenAiProperties.class, ClaudeProperties.class, AiProviderProperties.class, AiManagedProperties.class, AiCostProperties.class, FeatureProperties.class, JwtProperties.class, MonetizationProperties.class, CacheProperties.class, CategoryLimitProperties.class, PayMongoProperties.class, PricingProperties.class, AlertProperties.class})
+@EnableConfigurationProperties({OpenAiProperties.class, ClaudeProperties.class, AiProviderProperties.class, AiLanguageProperties.class, AiManagedProperties.class, AiCostProperties.class, FeatureProperties.class, JwtProperties.class, MonetizationProperties.class, CacheProperties.class, CategoryLimitProperties.class, PayMongoProperties.class, PricingProperties.class, AlertProperties.class})
 public class AIClientConfig
 {
 

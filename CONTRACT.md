@@ -162,6 +162,27 @@ actual consumer, or one with no fallback path already serving the old shape, sti
 
 ---
 
+## 3.3.0 — `GET /ai/languages`, the AI language set as configuration
+
+*Recorded 2026-09-11 (TEN-388).*
+
+**Additive, so a minor.** One new authenticated endpoint, `GET /ai/languages`, returning
+`[{ "code": "en", "displayName": "English" }, …]` in picker order. Nothing existing changed shape:
+`insightLanguage` and `chatLanguage` on `/user/ai-settings` are the same nullable strings they were
+in 3.2.0, and English is still what an unset value means.
+
+**What a client must understand.** The accepted set is no longer the two values `en` and `fil`
+baked into an enum — it is whatever the server has configured, and it can grow without a contract
+version. So a client must render its picker from this endpoint rather than from a hardcoded list,
+and must treat the code as an opaque string. A code the server does not know is still rejected with
+a 400 whose message names the accepted ones; that validation did not loosen.
+
+**Why the set is not in the spec.** Publishing the eleven current languages as an enum in
+`openapi.json` would put the whole point back: adding a twelfth would then be a contract change and
+two client releases. The schema says `string`, and the endpoint says which strings.
+
+---
+
 ## Cross-repo change ordering
 
 A change that spans the contract is **not** one commit anymore — it's an ordered

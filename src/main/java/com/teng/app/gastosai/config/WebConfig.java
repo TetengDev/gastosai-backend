@@ -64,7 +64,9 @@ public class WebConfig implements WebMvcConfigurer {
 						"/auth/magic-link", "/auth/magic-link/verify", "/submissions"))
 				.addPathPatterns("/webhooks/paymongo");
 		// /expenses/parse also calls the LLM, so it needs the per-user key (BYO) like /ai/**.
-		// /ai/usage is informational only (no LLM call), so it is exempt from the key and rate-limit gates.
+		// /ai/usage and /ai/languages are informational only (no LLM call), so they are exempt from the
+		// key and rate-limit gates. /ai/languages in particular is the settings picker's source: gating
+		// it on a BYO key would 402 the screen on which the user sets that key.
 		// /expenses/quick-add parses free text through the model exactly as /expenses/parse does, so
 		// it needs the same two gates. Registration here is by path, and a new route joins neither
 		// list by default — the omission has no failing signal, because the missing line lives in a
@@ -72,11 +74,11 @@ public class WebConfig implements WebMvcConfigurer {
 		registry.addInterceptor(aiKeyContextInterceptor)
 				.addPathPatterns(PublicEndpoints.atEveryVersion(
 						"/ai/**", "/expenses/parse", "/expenses/quick-add"))
-				.excludePathPatterns(PublicEndpoints.atEveryVersion("/ai/usage"));
+				.excludePathPatterns(PublicEndpoints.atEveryVersion("/ai/usage", "/ai/languages"));
 		registry.addInterceptor(aiRateLimitInterceptor)
 				.addPathPatterns(PublicEndpoints.atEveryVersion(
 						"/ai/**", "/expenses/parse", "/expenses/quick-add"))
-				.excludePathPatterns(PublicEndpoints.atEveryVersion("/ai/usage"));
+				.excludePathPatterns(PublicEndpoints.atEveryVersion("/ai/usage", "/ai/languages"));
 		registry.addInterceptor(authenticatedWriteRateLimitInterceptor)
 				.addPathPatterns(PublicEndpoints.atEveryVersion("/expenses/**", "/categories/**",
 						"/budgets/**", "/recurring/**", "/goals/**", "/alerts/**"));

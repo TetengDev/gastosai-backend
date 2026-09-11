@@ -2,6 +2,8 @@ package com.teng.app.gastosai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teng.app.gastosai.ai.AiLanguage;
+import com.teng.app.gastosai.ai.AiLanguageRegistry;
+import com.teng.app.gastosai.config.AiLanguageProperties;
 import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.ai.LlmUsage;
 import com.teng.app.gastosai.ai.SqlGenerator;
@@ -58,6 +60,21 @@ class AiInsightServiceTest {
     @Mock
     ClaudeProperties claudeProperties;
 
+    /**
+     * The real registry over a minimal configured set, not a mock: what these tests care about is
+     * that an unset language resolves to English, and a mock would assert that against itself.
+     */
+    @Spy
+    AiLanguageRegistry languages = new AiLanguageRegistry(englishAndFilipino());
+
+    private static AiLanguageProperties englishAndFilipino() {
+        AiLanguageProperties properties = new AiLanguageProperties();
+        properties.setSupported(List.of(
+                new AiLanguageProperties.Entry("en", "English"),
+                new AiLanguageProperties.Entry("fil", "Filipino")));
+        return properties;
+    }
+
     @InjectMocks
     AiInsightService aiInsightService;
 
@@ -100,7 +117,7 @@ class AiInsightServiceTest {
                 new MonthlyComparisonResponse("2026-06", new BigDecimal("1200.00"), new BigDecimal("1000.00"), new BigDecimal("20.00"))
         );
         ArgumentCaptor<String> contextCaptor = ArgumentCaptor.forClass(String.class);
-        when(sqlGenerator.generateInsightSummary(contextCaptor.capture(), eq("month-summary"), eq("plain"), eq(AiLanguage.EN)))
+        when(sqlGenerator.generateInsightSummary(contextCaptor.capture(), eq("month-summary"), eq("plain"), eq(AiLanguage.DEFAULT)))
                 .thenReturn(LlmResult.of("You spent ₱1200 in June.", new LlmUsage(100, 50)));
 
         MonthSummaryInsightResponse result = aiInsightService.getMonthSummary(user, "2026-06");
@@ -119,7 +136,7 @@ class AiInsightServiceTest {
         when(expenseService.monthlyComparison(user, "2026-06")).thenReturn(
                 new MonthlyComparisonResponse("2026-06", new BigDecimal("1200.00"), new BigDecimal("1000.00"), new BigDecimal("20.00"))
         );
-        when(sqlGenerator.generateInsightSummary(any(), eq("recommendations"), eq("plain"), eq(AiLanguage.EN)))
+        when(sqlGenerator.generateInsightSummary(any(), eq("recommendations"), eq("plain"), eq(AiLanguage.DEFAULT)))
                 .thenReturn(LlmResult.of("[\"Reduce Food spending.\",\"Set a budget for Transport.\"]", new LlmUsage(80, 40)));
 
         RecommendationsInsightResponse result = aiInsightService.getRecommendations(user, "2026-06");

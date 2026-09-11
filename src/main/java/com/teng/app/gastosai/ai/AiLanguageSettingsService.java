@@ -20,7 +20,7 @@ import java.util.Objects;
 
 /**
  * The language half of {@code /user/ai-settings}: validates the submitted codes against
- * {@link AiLanguage}, persists them, and keeps the cached insights honest when the insight
+ * {@link AiLanguageRegistry}, persists them, and keeps the cached insights honest when the insight
  * language changes. API-key handling stays in {@link UserAiSettingsService}; this type wraps it so
  * the controller still talks to one service.
  *
@@ -34,6 +34,7 @@ public class AiLanguageSettingsService {
 	private final UserAiSettingsService keySettings;
 	private final UserRepository userRepository;
 	private final CacheManager cacheManager;
+	private final AiLanguageRegistry languages;
 
 	@Transactional(readOnly = true)
 	public AiSettingsResponse get(String email) {
@@ -42,8 +43,7 @@ public class AiLanguageSettingsService {
 
 	/**
 	 * A null language leaves the current choice alone; a blank one clears it, returning the user to
-	 * the {@link AiLanguage#DEFAULT} the API reports as null. Anything else must be on the
-	 * allow-list.
+	 * the {@link AiLanguage#DEFAULT_CODE} the API reports as null. Anything else must be configured.
 	 */
 	@Transactional
 	public AiSettingsResponse update(String email, AiSettingsRequest request) {
@@ -74,16 +74,16 @@ public class AiLanguageSettingsService {
 		return withLanguages(keySettings.clear(email, provider), findUser(email));
 	}
 
-	private static String validate(String code, String field) {
+	private String validate(String code, String field) {
 		if (code == null || code.isBlank()) {
 			return null;
 		}
 		try {
-			return AiLanguage.fromCode(code).code();
+			return languages.fromCode(code).code();
 		}
 		catch (IllegalArgumentException e) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-					field + " must be one of: " + AiLanguage.acceptedCodes());
+					field + " must be one of: " + languages.acceptedCodes());
 		}
 	}
 
