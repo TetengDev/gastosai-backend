@@ -12,6 +12,8 @@ import org.springframework.cache.CacheManager;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Objects;
@@ -62,7 +64,7 @@ public class AiLanguageSettingsService {
 		// The cache key carries the language, so a switch already misses rather than serving the old
 		// language back. Evicting as well keeps a switch-and-switch-back from replaying stale text.
 		if (!Objects.equals(previousInsightLanguage, saved.getInsightLanguage())) {
-			evictInsightCaches();
+			evictAfterCommit(saved.getId());
 		}
 		return withLanguages(keys, saved);
 	}
@@ -85,11 +87,40 @@ public class AiLanguageSettingsService {
 		}
 	}
 
-	private void evictInsightCaches() {
-		for (String cacheName : CacheConfig.INSIGHT_CACHES) {
+	/**
+	 * Evicts once the language change has actually committed. Clearing inside the transaction
+	 * would throw away warm entries for a write that then rolled back.
+	 */
+	private void evictAfterCommit(Long userId) {
+		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+			evictInsightsOf(userId);
+			return;
+		}
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void afterCommit() {
+				evictInsightsOf(userId);
+			}
+		});
+	}
+
+	/**
+	 * Drops only this user's prose insights. {@code cache.clear()} would be far simpler, but the
+	 * insight caches are shared across every tenant and this endpoint carries no rate limit — one
+	 * user toggling their language would force every other tenant's next insight back through the
+	 * paid LLM path and onto their own {@code ai_usage} meter.
+	 */
+	private void evictInsightsOf(Long userId) {
+		String prefix = userId + "-";
+		for (String cacheName : CacheConfig.LANGUAGE_KEYED_INSIGHT_CACHES) {
 			Cache cache = cacheManager.getCache(cacheName);
-			if (cache != null) {
-				cache.clear();
+			if (cache == null) {
+				continue;
+			}
+			// Caffeine when caching is enabled; a NoOpCache has nothing to walk.
+			if (cache.getNativeCache() instanceof com.github.benmanes.caffeine.cache.Cache<?, ?> caffeine) {
+				caffeine.asMap().keySet()
+						.removeIf(key -> key instanceof String entry && entry.startsWith(prefix));
 			}
 		}
 	}

@@ -18,8 +18,17 @@ import java.util.concurrent.TimeUnit;
 @EnableCaching
 public class CacheConfig {
 
-	public static final String[] INSIGHT_CACHES = {
+	static final String[] INSIGHT_CACHES = {
 			"insightTopCategory", "insightMonthSummary", "insightRecommendations"
+	};
+
+	/**
+	 * The insight caches holding AI-written prose, whose key carries the language. A language
+	 * change invalidates the caller's entries here and nowhere else — {@code insightTopCategory}
+	 * is a category name and two numbers, so no language change can stale it.
+	 */
+	public static final String[] LANGUAGE_KEYED_INSIGHT_CACHES = {
+			"insightMonthSummary", "insightRecommendations"
 	};
 
 	@Bean
