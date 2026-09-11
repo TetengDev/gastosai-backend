@@ -22,6 +22,15 @@ public class CacheConfig {
 			"insightTopCategory", "insightMonthSummary", "insightRecommendations"
 	};
 
+	/**
+	 * The insight caches holding AI-written prose, whose key carries the language. A language
+	 * change invalidates the caller's entries here and nowhere else — {@code insightTopCategory}
+	 * is a category name and two numbers, so no language change can stale it.
+	 */
+	public static final String[] LANGUAGE_KEYED_INSIGHT_CACHES = {
+			"insightMonthSummary", "insightRecommendations"
+	};
+
 	@Bean
 	public CacheManager cacheManager(CacheProperties properties) {
 		if (!properties.isEnabled()) {

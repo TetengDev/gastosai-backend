@@ -209,23 +209,29 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 		}
 	}
 
-	private static String resolveSummaryPrompt(String mode) {
-		return switch (mode) {
+	static String resolveInsightPrompt(String insightType, AiLanguage language) {
+		String prompt = "recommendations".equals(insightType) ? RECOMMENDATIONS_PROMPT : INSIGHT_SUMMARY_PROMPT;
+		return prompt + language.promptInstruction();
+	}
+
+	static String resolveSummaryPrompt(String mode, AiLanguage language) {
+		String persona = switch (mode) {
 			case "professional" -> SUMMARY_PROMPT_PROFESSIONAL;
 			case "genz" -> SUMMARY_PROMPT_GENZ;
 			default -> SUMMARY_PROMPT_PLAIN;
 		};
+		return persona + language.promptInstruction();
 	}
 
 	@Override
-	public LlmResult<String> generateSummary(String question, String dataJson, String mode) {
+	public LlmResult<String> generateSummary(String question, String dataJson, String mode, AiLanguage language) {
 		ObjectNode body = objectMapper.createObjectNode();
 		body.put("model", openAiProperties.getModel());
 		body.put("max_completion_tokens", 256);
 		ArrayNode messages = body.putArray("messages");
 		ObjectNode system = messages.addObject();
 		system.put("role", "system");
-		system.put("content", resolveSummaryPrompt(mode));
+		system.put("content", resolveSummaryPrompt(mode, language));
 		ObjectNode user = messages.addObject();
 		user.put("role", "user");
 		user.put("content", "Question: " + question + "\nData: " + dataJson);
@@ -248,8 +254,8 @@ public class OpenAiSqlGenerator implements SqlGenerator {
 	}
 
 	@Override
-	public LlmResult<String> generateInsightSummary(String contextJson, String insightType, String mode) {
-		String systemPrompt = "recommendations".equals(insightType) ? RECOMMENDATIONS_PROMPT : INSIGHT_SUMMARY_PROMPT;
+	public LlmResult<String> generateInsightSummary(String contextJson, String insightType, String mode, AiLanguage language) {
+		String systemPrompt = resolveInsightPrompt(insightType, language);
 		ObjectNode body = objectMapper.createObjectNode();
 		body.put("model", openAiProperties.getModel());
 		body.put("max_completion_tokens", 512);

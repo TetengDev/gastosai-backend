@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teng.app.gastosai.ai.AiFeature;
+import com.teng.app.gastosai.ai.AiLanguage;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.config.AiProviderProperties;
 import com.teng.app.gastosai.config.ClaudeProperties;
@@ -58,12 +59,13 @@ public class AiInsightService {
                 top.total().setScale(2, RoundingMode.HALF_UP), percent);
     }
 
-    @Cacheable(cacheNames = "insightMonthSummary", key = "#user.id + '-' + #month")
+    @Cacheable(cacheNames = "insightMonthSummary", key = "#user.id + '-' + #month + '-' + T(com.teng.app.gastosai.ai.AiLanguage).fromCodeOrDefault(#user.insightLanguage).code()")
     @Transactional(readOnly = true)
     public MonthSummaryInsightResponse getMonthSummary(User user, String month) throws Exception {
+        AiLanguage language = AiLanguage.fromCodeOrDefault(user.getInsightLanguage());
         String contextJson = buildContext(user, month);
         try {
-            var result = sqlGenerator.generateInsightSummary(contextJson, "month-summary", "plain");
+            var result = sqlGenerator.generateInsightSummary(contextJson, "month-summary", "plain", language);
             aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
                     resolveModel(), AiFeature.MONTHLY_SUMMARY,
                     result.usage().inputTokens(), result.usage().outputTokens(), AiUsageStatus.SUCCESS, null);
@@ -76,12 +78,13 @@ public class AiInsightService {
         }
     }
 
-    @Cacheable(cacheNames = "insightRecommendations", key = "#user.id + '-' + #month")
+    @Cacheable(cacheNames = "insightRecommendations", key = "#user.id + '-' + #month + '-' + T(com.teng.app.gastosai.ai.AiLanguage).fromCodeOrDefault(#user.insightLanguage).code()")
     @Transactional(readOnly = true)
     public RecommendationsInsightResponse getRecommendations(User user, String month) throws Exception {
+        AiLanguage language = AiLanguage.fromCodeOrDefault(user.getInsightLanguage());
         String contextJson = buildContext(user, month);
         try {
-            var result = sqlGenerator.generateInsightSummary(contextJson, "recommendations", "plain");
+            var result = sqlGenerator.generateInsightSummary(contextJson, "recommendations", "plain", language);
             List<String> recs;
             try {
                 recs = objectMapper.readValue(result.value(), new TypeReference<List<String>>() {});

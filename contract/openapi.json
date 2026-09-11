@@ -190,7 +190,13 @@
       },
       "AiSettingsRequest" : {
         "properties" : {
+          "chatLanguage" : {
+            "type" : "string"
+          },
           "claudeApiKey" : {
+            "type" : "string"
+          },
+          "insightLanguage" : {
             "type" : "string"
           },
           "openaiApiKey" : {
@@ -204,8 +210,14 @@
           "aiAvailable" : {
             "type" : "boolean"
           },
+          "chatLanguage" : {
+            "type" : "string"
+          },
           "claudeKeySet" : {
             "type" : "boolean"
+          },
+          "insightLanguage" : {
+            "type" : "string"
           },
           "openaiKeySet" : {
             "type" : "boolean"

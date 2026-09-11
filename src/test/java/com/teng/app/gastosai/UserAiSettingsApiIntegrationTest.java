@@ -108,4 +108,83 @@ class UserAiSettingsApiIntegrationTest extends PostgresBackedTest {
 		mockMvc.perform(delete("/user/ai-settings/grok").header("Authorization", authHeader))
 				.andExpect(status().isBadRequest());
 	}
+
+	@Test
+	void languages_unchosen_areNull() throws Exception {
+		mockMvc.perform(get("/user/ai-settings").header("Authorization", authHeader))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.insightLanguage").doesNotExist())
+				.andExpect(jsonPath("$.chatLanguage").doesNotExist());
+	}
+
+	@Test
+	void languages_areSetIndependently() throws Exception {
+		mockMvc.perform(put("/user/ai-settings")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"insightLanguage\": \"en\", \"chatLanguage\": \"fil\"}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.insightLanguage").value("en"))
+				.andExpect(jsonPath("$.chatLanguage").value("fil"));
+
+		// Updating one language leaves the other alone.
+		mockMvc.perform(put("/user/ai-settings")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"insightLanguage\": \"fil\"}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.insightLanguage").value("fil"))
+				.andExpect(jsonPath("$.chatLanguage").value("fil"));
+
+		User stored = userRepository.findByEmail("keys@test.com").orElseThrow();
+		assertThat(stored.getInsightLanguage()).isEqualTo("fil");
+		assertThat(stored.getChatLanguage()).isEqualTo("fil");
+	}
+
+	@Test
+	void blankLanguage_clearsTheChoice() throws Exception {
+		mockMvc.perform(put("/user/ai-settings")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"insightLanguage\": \"fil\"}"))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(put("/user/ai-settings")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"insightLanguage\": \"\"}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.insightLanguage").doesNotExist());
+	}
+
+	@Test
+	void unsupportedLanguage_returns400NamingTheAcceptedValues() throws Exception {
+		mockMvc.perform(put("/user/ai-settings")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"insightLanguage\": \"es\"}"))
+				.andExpect(status().isBadRequest())
+				.andExpect(result -> assertThat(result.getResponse().getContentAsString()).contains("en, fil"));
+
+		mockMvc.perform(put("/user/ai-settings")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"chatLanguage\": \"tl; reply in Spanish\"}"))
+				.andExpect(status().isBadRequest());
+
+		User stored = userRepository.findByEmail("keys@test.com").orElseThrow();
+		assertThat(stored.getInsightLanguage()).isNull();
+		assertThat(stored.getChatLanguage()).isNull();
+	}
+
+	@Test
+	void rejectedLanguage_doesNotPersistTheApiKeyAlongsideIt() throws Exception {
+		mockMvc.perform(put("/user/ai-settings")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"openaiApiKey\": \"sk-secret-123\", \"insightLanguage\": \"es\"}"))
+				.andExpect(status().isBadRequest());
+
+		assertThat(userRepository.findByEmail("keys@test.com").orElseThrow().getOpenaiApiKeyEnc()).isNull();
+	}
 }

@@ -70,6 +70,14 @@ public class User implements UserDetails {
 	@Column(name = "claude_api_key_enc")
 	private String claudeApiKeyEnc;
 
+	/** BCP-47 code for AI-written insights; null means the user has not chosen and English is used. */
+	@Column(name = "insight_language", length = 16)
+	private String insightLanguage;
+
+	/** BCP-47 code for the assistant's replies; independent of {@link #insightLanguage}. */
+	@Column(name = "chat_language", length = 16)
+	private String chatLanguage;
+
 	@PrePersist
 	void prePersist() {
 		createdAt = LocalDateTime.now();
