@@ -2,6 +2,8 @@ package com.teng.app.gastosai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teng.app.gastosai.ai.AiLanguage;
+import com.teng.app.gastosai.ai.AiLanguageRegistry;
+import com.teng.app.gastosai.config.AiLanguageProperties;
 import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.ai.LlmUsage;
 import com.teng.app.gastosai.ai.SqlGenerator;
@@ -57,6 +59,21 @@ class AiInsightServiceTest {
 
     @Mock
     ClaudeProperties claudeProperties;
+
+    /**
+     * The real registry over a minimal configured set, not a mock: what these tests care about is
+     * that an unset language resolves to English, and a mock would assert that against itself.
+     */
+    @Spy
+    AiLanguageRegistry languages = new AiLanguageRegistry(englishAndFilipino());
+
+    private static AiLanguageProperties englishAndFilipino() {
+        AiLanguageProperties properties = new AiLanguageProperties();
+        properties.setSupported(List.of(
+                new AiLanguageProperties.Entry("en", "English"),
+                new AiLanguageProperties.Entry("fil", "Filipino")));
+        return properties;
+    }
 
     @InjectMocks
     AiInsightService aiInsightService;

@@ -168,6 +168,17 @@
         },
         "type" : "object"
       },
+      "AiLanguageOption" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "displayName" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "AiQueryRequest" : {
         "properties" : {
           "mode" : {
@@ -3665,6 +3676,30 @@
           "bearerAuth" : [ ]
         } ],
         "tags" : [ "ai-insight-controller" ]
+      }
+    },
+    "/ai/languages" : {
+      "get" : {
+        "operationId" : "list_5",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/AiLanguageOption"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "ai-language-controller" ]
       }
     },
     "/ai/query" : {
