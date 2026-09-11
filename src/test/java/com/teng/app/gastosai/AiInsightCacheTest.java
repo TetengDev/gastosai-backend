@@ -56,6 +56,10 @@ class AiInsightCacheTest extends PostgresBackedTest {
 	@MockitoBean
 	SqlGenerator sqlGenerator;
 
+	/** Configured in application.properties; built here rather than resolved, to pin the wording. */
+	static final AiLanguage FILIPINO = new AiLanguage("fil", "Filipino");
+	static final AiLanguage JAPANESE = new AiLanguage("ja", "日本語");
+
 	User user;
 
 	@BeforeEach
@@ -86,14 +90,41 @@ class AiInsightCacheTest extends PostgresBackedTest {
 	@Test
 	void switchingInsightLanguage_regeneratesRatherThanServingTheOldLanguage() throws Exception {
 		aiInsightService.getMonthSummary(user, "2026-06");
-		verify(sqlGenerator, times(1)).generateInsightSummary(any(), any(), any(), eq(AiLanguage.EN));
+		verify(sqlGenerator, times(1)).generateInsightSummary(any(), any(), any(), eq(AiLanguage.DEFAULT));
 
 		user.setInsightLanguage("fil");
 		user = userRepository.save(user);
 
 		// Same user, same month — but the language is part of the key, so this is a miss.
 		aiInsightService.getMonthSummary(user, "2026-06");
-		verify(sqlGenerator, times(1)).generateInsightSummary(any(), any(), any(), eq(AiLanguage.FIL));
+		verify(sqlGenerator, times(1)).generateInsightSummary(any(), any(), any(), eq(FILIPINO));
+
+		// And a third language, which was never an enum constant: the key carries whatever is
+		// configured, so no new cache dimension is needed to add one.
+		user.setInsightLanguage("ja");
+		user = userRepository.save(user);
+		aiInsightService.getMonthSummary(user, "2026-06");
+		verify(sqlGenerator, times(1)).generateInsightSummary(any(), any(), any(), eq(JAPANESE));
+	}
+
+	/**
+	 * The eviction path, not the key. The key alone makes a switch a miss; eviction is what keeps a
+	 * switch-and-switch-back from replaying stale text, and it was got wrong once already.
+	 */
+	@Test
+	void switchingToAThirdLanguageAndBack_doesNotReplayTheFirstLanguagesText() throws Exception {
+		aiInsightService.getMonthSummary(user, "2026-06");
+		verify(sqlGenerator, times(1)).generateInsightSummary(any(), any(), any(), eq(AiLanguage.DEFAULT));
+
+		aiLanguageSettingsService.update(user.getEmail(), new AiSettingsRequest(null, null, "ja", null));
+		user = userRepository.findById(user.getId()).orElseThrow();
+		aiInsightService.getMonthSummary(user, "2026-06");
+		verify(sqlGenerator, times(1)).generateInsightSummary(any(), any(), any(), eq(JAPANESE));
+
+		aiLanguageSettingsService.update(user.getEmail(), new AiSettingsRequest(null, null, "en", null));
+		user = userRepository.findById(user.getId()).orElseThrow();
+		aiInsightService.getMonthSummary(user, "2026-06");
+		verify(sqlGenerator, times(2)).generateInsightSummary(any(), any(), any(), eq(AiLanguage.DEFAULT));
 	}
 
 	@Test
@@ -103,7 +134,7 @@ class AiInsightCacheTest extends PostgresBackedTest {
 
 		aiInsightService.getRecommendations(user, "2026-07");
 		verify(sqlGenerator, times(1))
-				.generateInsightSummary(any(), eq("recommendations"), eq("plain"), eq(AiLanguage.EN));
+				.generateInsightSummary(any(), eq("recommendations"), eq("plain"), eq(AiLanguage.DEFAULT));
 	}
 
 	/**

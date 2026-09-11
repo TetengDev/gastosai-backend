@@ -76,7 +76,7 @@ class AiInsightIntegrationTest extends PostgresBackedTest {
 
     @Test
     void monthSummary_returns200() throws Exception {
-        when(sqlGenerator.generateInsightSummary(any(), eq("month-summary"), eq("plain"), eq(AiLanguage.EN)))
+        when(sqlGenerator.generateInsightSummary(any(), eq("month-summary"), eq("plain"), eq(AiLanguage.DEFAULT)))
                 .thenReturn(LlmResult.of("You had a quiet month spending-wise.", LlmUsage.absent()));
 
         mockMvc.perform(get("/ai/insights/month-summary")
@@ -89,7 +89,7 @@ class AiInsightIntegrationTest extends PostgresBackedTest {
 
     @Test
     void recommendations_returns200() throws Exception {
-        when(sqlGenerator.generateInsightSummary(any(), eq("recommendations"), eq("plain"), eq(AiLanguage.EN)))
+        when(sqlGenerator.generateInsightSummary(any(), eq("recommendations"), eq("plain"), eq(AiLanguage.DEFAULT)))
                 .thenReturn(LlmResult.of("[\"Reduce Food spending.\",\"Track Transport costs.\"]", LlmUsage.absent()));
 
         mockMvc.perform(get("/ai/insights/recommendations")

@@ -157,14 +157,35 @@ class UserAiSettingsApiIntegrationTest extends PostgresBackedTest {
 				.andExpect(jsonPath("$.insightLanguage").doesNotExist());
 	}
 
+	/**
+	 * A language that configuration does add — {@code ja} was never an enum constant — is stored
+	 * without a Java change. This is the acceptance criterion "adding a language is a properties
+	 * change only", asserted through the API rather than against the registry.
+	 */
+	@Test
+	void aLanguageBeyondTheOldTwoValueEnum_isAccepted() throws Exception {
+		mockMvc.perform(put("/user/ai-settings")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"insightLanguage\": \"ja\", \"chatLanguage\": \"zh-Hans\"}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.insightLanguage").value("ja"))
+				.andExpect(jsonPath("$.chatLanguage").value("zh-Hans"));
+
+		User stored = userRepository.findByEmail("keys@test.com").orElseThrow();
+		assertThat(stored.getInsightLanguage()).isEqualTo("ja");
+		assertThat(stored.getChatLanguage()).isEqualTo("zh-Hans");
+	}
+
 	@Test
 	void unsupportedLanguage_returns400NamingTheAcceptedValues() throws Exception {
 		mockMvc.perform(put("/user/ai-settings")
 						.header("Authorization", authHeader)
 						.contentType(MediaType.APPLICATION_JSON)
-						.content("{\"insightLanguage\": \"es\"}"))
+						.content("{\"insightLanguage\": \"xx\"}"))
 				.andExpect(status().isBadRequest())
-				.andExpect(result -> assertThat(result.getResponse().getContentAsString()).contains("en, fil"));
+				.andExpect(result -> assertThat(result.getResponse().getContentAsString())
+						.contains("en, fil, ceb"));
 
 		mockMvc.perform(put("/user/ai-settings")
 						.header("Authorization", authHeader)
@@ -182,7 +203,7 @@ class UserAiSettingsApiIntegrationTest extends PostgresBackedTest {
 		mockMvc.perform(put("/user/ai-settings")
 						.header("Authorization", authHeader)
 						.contentType(MediaType.APPLICATION_JSON)
-						.content("{\"openaiApiKey\": \"sk-secret-123\", \"insightLanguage\": \"es\"}"))
+						.content("{\"openaiApiKey\": \"sk-secret-123\", \"insightLanguage\": \"xx\"}"))
 				.andExpect(status().isBadRequest());
 
 		assertThat(userRepository.findByEmail("keys@test.com").orElseThrow().getOpenaiApiKeyEnc()).isNull();

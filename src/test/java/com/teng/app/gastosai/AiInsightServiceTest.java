@@ -100,7 +100,7 @@ class AiInsightServiceTest {
                 new MonthlyComparisonResponse("2026-06", new BigDecimal("1200.00"), new BigDecimal("1000.00"), new BigDecimal("20.00"))
         );
         ArgumentCaptor<String> contextCaptor = ArgumentCaptor.forClass(String.class);
-        when(sqlGenerator.generateInsightSummary(contextCaptor.capture(), eq("month-summary"), eq("plain"), eq(AiLanguage.EN)))
+        when(sqlGenerator.generateInsightSummary(contextCaptor.capture(), eq("month-summary"), eq("plain"), eq(AiLanguage.DEFAULT)))
                 .thenReturn(LlmResult.of("You spent ₱1200 in June.", new LlmUsage(100, 50)));
 
         MonthSummaryInsightResponse result = aiInsightService.getMonthSummary(user, "2026-06");
@@ -119,7 +119,7 @@ class AiInsightServiceTest {
         when(expenseService.monthlyComparison(user, "2026-06")).thenReturn(
                 new MonthlyComparisonResponse("2026-06", new BigDecimal("1200.00"), new BigDecimal("1000.00"), new BigDecimal("20.00"))
         );
-        when(sqlGenerator.generateInsightSummary(any(), eq("recommendations"), eq("plain"), eq(AiLanguage.EN)))
+        when(sqlGenerator.generateInsightSummary(any(), eq("recommendations"), eq("plain"), eq(AiLanguage.DEFAULT)))
                 .thenReturn(LlmResult.of("[\"Reduce Food spending.\",\"Set a budget for Transport.\"]", new LlmUsage(80, 40)));
 
         RecommendationsInsightResponse result = aiInsightService.getRecommendations(user, "2026-06");
