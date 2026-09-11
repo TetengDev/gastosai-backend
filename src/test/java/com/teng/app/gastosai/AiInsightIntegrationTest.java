@@ -1,5 +1,6 @@
 package com.teng.app.gastosai;
 
+import com.teng.app.gastosai.ai.AiLanguage;
 import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.ai.LlmUsage;
 import com.teng.app.gastosai.ai.SqlGenerator;
@@ -75,7 +76,7 @@ class AiInsightIntegrationTest extends PostgresBackedTest {
 
     @Test
     void monthSummary_returns200() throws Exception {
-        when(sqlGenerator.generateInsightSummary(any(), eq("month-summary"), eq("plain")))
+        when(sqlGenerator.generateInsightSummary(any(), eq("month-summary"), eq("plain"), eq(AiLanguage.EN)))
                 .thenReturn(LlmResult.of("You had a quiet month spending-wise.", LlmUsage.absent()));
 
         mockMvc.perform(get("/ai/insights/month-summary")
@@ -88,7 +89,7 @@ class AiInsightIntegrationTest extends PostgresBackedTest {
 
     @Test
     void recommendations_returns200() throws Exception {
-        when(sqlGenerator.generateInsightSummary(any(), eq("recommendations"), eq("plain")))
+        when(sqlGenerator.generateInsightSummary(any(), eq("recommendations"), eq("plain"), eq(AiLanguage.EN)))
                 .thenReturn(LlmResult.of("[\"Reduce Food spending.\",\"Track Transport costs.\"]", LlmUsage.absent()));
 
         mockMvc.perform(get("/ai/insights/recommendations")

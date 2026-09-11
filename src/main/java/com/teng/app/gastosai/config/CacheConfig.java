@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit;
 @EnableCaching
 public class CacheConfig {
 
-	static final String[] INSIGHT_CACHES = {
+	public static final String[] INSIGHT_CACHES = {
 			"insightTopCategory", "insightMonthSummary", "insightRecommendations"
 	};
 

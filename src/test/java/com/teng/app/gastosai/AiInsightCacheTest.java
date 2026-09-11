@@ -1,5 +1,6 @@
 package com.teng.app.gastosai;
 
+import com.teng.app.gastosai.ai.AiLanguage;
 import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.ai.LlmUsage;
 import com.teng.app.gastosai.ai.SqlGenerator;
@@ -51,7 +52,7 @@ class AiInsightCacheTest extends PostgresBackedTest {
 		user = userRepository.save(User.builder()
 				.name("Cache User").email("cache@test.com")
 				.password(passwordEncoder.encode("password")).build());
-		when(sqlGenerator.generateInsightSummary(any(), eq("month-summary"), eq("plain")))
+		when(sqlGenerator.generateInsightSummary(any(), eq("month-summary"), eq("plain"), any()))
 				.thenReturn(LlmResult.of("A quiet month.", LlmUsage.absent()));
 	}
 
@@ -60,13 +61,36 @@ class AiInsightCacheTest extends PostgresBackedTest {
 		aiInsightService.getMonthSummary(user, "2026-06");
 		aiInsightService.getMonthSummary(user, "2026-06");
 		// Second call served from cache — generator invoked once.
-		verify(sqlGenerator, times(1)).generateInsightSummary(any(), eq("month-summary"), eq("plain"));
+		verify(sqlGenerator, times(1)).generateInsightSummary(any(), eq("month-summary"), eq("plain"), any());
 
 		// An expense change evicts the insight caches.
 		expenseService.create(new ExpenseRequest(
 				new BigDecimal("100.00"), "Food", LocalDateTime.now(), "Lunch", null, null, null, null), user);
 
 		aiInsightService.getMonthSummary(user, "2026-06");
-		verify(sqlGenerator, times(2)).generateInsightSummary(any(), eq("month-summary"), eq("plain"));
+		verify(sqlGenerator, times(2)).generateInsightSummary(any(), eq("month-summary"), eq("plain"), any());
+	}
+
+	@Test
+	void switchingInsightLanguage_regeneratesRatherThanServingTheOldLanguage() throws Exception {
+		aiInsightService.getMonthSummary(user, "2026-06");
+		verify(sqlGenerator, times(1)).generateInsightSummary(any(), any(), any(), eq(AiLanguage.EN));
+
+		user.setInsightLanguage("fil");
+		user = userRepository.save(user);
+
+		// Same user, same month — but the language is part of the key, so this is a miss.
+		aiInsightService.getMonthSummary(user, "2026-06");
+		verify(sqlGenerator, times(1)).generateInsightSummary(any(), any(), any(), eq(AiLanguage.FIL));
+	}
+
+	@Test
+	void unchosenLanguage_alwaysAsksForEnglish() throws Exception {
+		when(sqlGenerator.generateInsightSummary(any(), eq("recommendations"), eq("plain"), any()))
+				.thenReturn(LlmResult.of("[\"Trim Food spending.\"]", LlmUsage.absent()));
+
+		aiInsightService.getRecommendations(user, "2026-07");
+		verify(sqlGenerator, times(1))
+				.generateInsightSummary(any(), eq("recommendations"), eq("plain"), eq(AiLanguage.EN));
 	}
 }
