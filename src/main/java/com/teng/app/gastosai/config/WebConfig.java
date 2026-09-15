@@ -79,9 +79,16 @@ public class WebConfig implements WebMvcConfigurer {
 				.addPathPatterns(PublicEndpoints.atEveryVersion(
 						"/ai/**", "/expenses/parse", "/expenses/quick-add"))
 				.excludePathPatterns(PublicEndpoints.atEveryVersion("/ai/usage", "/ai/languages"));
+		// /user/ai-settings/** covers PUT /user/ai-settings and DELETE /user/ai-settings/{provider}:
+		// a "/**" pattern matches the base path too, which is why POST /expenses is limited by
+		// "/expenses/**". GET stays usable — the interceptor exempts GET/HEAD/OPTIONS by method, so a
+		// settings screen's read on load never spends a token from the write bucket. This is the one
+		// authenticated write that had no bucket; it writes encrypted AI provider keys, and the next
+		// shared-resource effect put behind it would otherwise be unthrottled (TEN-383).
 		registry.addInterceptor(authenticatedWriteRateLimitInterceptor)
 				.addPathPatterns(PublicEndpoints.atEveryVersion("/expenses/**", "/categories/**",
-						"/budgets/**", "/recurring/**", "/goals/**", "/alerts/**"));
+						"/budgets/**", "/recurring/**", "/goals/**", "/alerts/**",
+						"/user/ai-settings/**"));
 		registry.addInterceptor(featureAccessInterceptor);
 	}
 }
