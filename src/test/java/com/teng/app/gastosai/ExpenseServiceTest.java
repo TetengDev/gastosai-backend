@@ -55,7 +55,7 @@ class ExpenseServiceTest {
 
     /** A write evicts the writer's insights; the eviction itself is covered by AiInsightCacheTest. */
     @Mock
-    org.springframework.cache.CacheManager cacheManager;
+    com.teng.app.gastosai.config.CacheConfig.InsightCacheEvictor insightCaches;
 
     @InjectMocks
     ExpenseService expenseService;

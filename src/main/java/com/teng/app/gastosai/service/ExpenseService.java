@@ -1,5 +1,6 @@
 package com.teng.app.gastosai.service;
 
+import com.teng.app.gastosai.config.CacheConfig.InsightCacheEvictor;
 import com.teng.app.gastosai.dto.CategoryReportItem;
 import com.teng.app.gastosai.dto.DailyReportItem;
 import com.teng.app.gastosai.dto.ExpenseRequest;
@@ -24,8 +25,6 @@ import com.teng.app.gastosai.repository.ProjectRepository;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.csv.CSVFormat;
-import org.springframework.cache.Cache;
-import org.springframework.cache.CacheManager;
 import org.apache.commons.csv.CSVPrinter;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -35,8 +34,6 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
@@ -57,19 +54,10 @@ public class ExpenseService {
 
 	private static final String DEFAULT_CATEGORY = "Uncategorized";
 
-	/**
-	 * The insight caches an expense write can stale. Spelled out here rather than read from
-	 * {@code CacheConfig}, whose array is package-private to the config package; the two lists are
-	 * the same three names {@link com.teng.app.gastosai.service.AiInsightService} caches under.
-	 */
-	private static final String[] INSIGHT_CACHES = {
-			"insightTopCategory", "insightMonthSummary", "insightRecommendations"
-	};
-
 	private final ExpenseRepository expenseRepository;
 	private final CategoryService categoryService;
 	private final ProjectRepository projectRepository;
-	private final CacheManager cacheManager;
+	private final InsightCacheEvictor insightCaches;
 
 	/**
 	 * Create an expense a client asked for directly, recording the source the client declared.
@@ -430,60 +418,12 @@ public class ExpenseService {
 	}
 
 	/**
-	 * Evicts the writing user's cached insights once the write has committed.
-	 *
-	 * <p>Evicting inside the transaction would throw entries away for a write that then rolled
-	 * back, and — worse on this path — would reopen the window where a concurrent insight read
-	 * repopulates the cache from pre-commit data and leaves it stale until the TTL.
+	 * Drops the writing user's cached insights — every insight of theirs, and nobody else's — once
+	 * the write commits. The walk itself belongs to {@link InsightCacheEvictor}, which the
+	 * insight-language path shares; the reasoning for its shape is documented there.
 	 */
 	private void evictInsightsAfterCommit(Long userId) {
-		if (userId == null) {
-			return;
-		}
-		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-			evictInsightsOf(userId);
-			return;
-		}
-		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-			@Override
-			public void afterCommit() {
-				evictInsightsOf(userId);
-			}
-		});
-	}
-
-	/**
-	 * Drops every cached insight belonging to one user, and nobody else's.
-	 *
-	 * <p>{@code allEntries = true} used to do this, and an expense write is the most common
-	 * authenticated write in the product: one user adding a lunch discarded every other tenant's
-	 * cached insights and sent their next insight request back through the paid LLM path, onto
-	 * their own {@code ai_usage} meter. The keys are {@code userId + "-" + month} and
-	 * {@code userId + "-" + month + "-" + languageCode}, so the prefix match cannot cross tenants.
-	 *
-	 * <p>Every month of the user's is dropped, not just the month written to: an insight for month
-	 * M carries the previous month's total (see {@code AiInsightService.buildContext}), so a write
-	 * to M stales M and M+1, and an edit that moves a date stales the months on both sides of the
-	 * move. Enumerating those is more ways to be wrong than a user-wide prefix sweep is worth.
-	 *
-	 * <p>The sweep is a scan of each cache rather than a keyed removal, so its cost follows every
-	 * tenant's entries. That is bounded: {@code CacheProperties.maxSize} caps each cache at 10,000
-	 * entries, so a full write path walks at most 30,000 keys — tens of microseconds, against a
-	 * transaction that has already committed.
-	 */
-	private void evictInsightsOf(Long userId) {
-		String prefix = userId + "-";
-		for (String cacheName : INSIGHT_CACHES) {
-			Cache cache = cacheManager.getCache(cacheName);
-			if (cache == null) {
-				continue;
-			}
-			// Caffeine when caching is enabled; a NoOpCache has nothing to walk.
-			if (cache.getNativeCache() instanceof com.github.benmanes.caffeine.cache.Cache<?, ?> caffeine) {
-				caffeine.asMap().keySet()
-						.removeIf(key -> key instanceof String entry && entry.startsWith(prefix));
-			}
-		}
+		insightCaches.evictAllAfterCommit(userId);
 	}
 
 	@Transactional(readOnly = true)
