@@ -23,7 +23,18 @@ public class AiLanguageRegistry {
 
 	public AiLanguageRegistry(AiLanguageProperties properties) {
 		for (AiLanguageProperties.Entry entry : properties.getSupported()) {
-			byCode.put(entry.code().toLowerCase(), new AiLanguage(entry.code(), entry.displayName()));
+			String normalized = entry.code().toLowerCase();
+			AiLanguage existing = byCode.putIfAbsent(normalized,
+					new AiLanguage(entry.code(), entry.displayName()));
+			if (existing != null) {
+				// A second entry under the same normalized code would otherwise be dropped silently:
+				// the picker would be one language short, and the surviving entry would keep the
+				// first occurrence's position while showing the last occurrence's display name.
+				throw new IllegalStateException(
+						"gastos.ai.language.supported has two entries for code '" + normalized
+								+ "' ('" + existing.displayName() + "' and '" + entry.displayName()
+								+ "') — codes are matched case-insensitively and must be unique.");
+			}
 		}
 		if (!byCode.containsKey(AiLanguage.DEFAULT_CODE)) {
 			throw new IllegalStateException(
