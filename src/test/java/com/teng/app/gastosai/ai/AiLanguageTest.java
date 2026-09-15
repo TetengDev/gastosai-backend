@@ -32,4 +32,14 @@ class AiLanguageTest {
 		// reaches the prompt by name.
 		assertThat(new AiLanguage("ja", "日本語").promptInstruction()).contains("日本語");
 	}
+
+	@Test
+	void equalityIsByValue() {
+		// The insight cache key and the tests that verify it compare languages by value, so the
+		// hand-written equals/hashCode that replaced the record's has to behave the same.
+		assertThat(new AiLanguage("fil", "Filipino")).isEqualTo(new AiLanguage("fil", "Filipino"));
+		assertThat(new AiLanguage("fil", "Filipino")).hasSameHashCodeAs(new AiLanguage("fil", "Filipino"));
+		assertThat(new AiLanguage("fil", "Filipino")).isNotEqualTo(new AiLanguage("fil", "Tagalog"));
+		assertThat(new AiLanguage("en", "English")).isEqualTo(AiLanguage.DEFAULT);
+	}
 }

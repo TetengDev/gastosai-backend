@@ -86,6 +86,34 @@ class AiLanguageRegistryTest {
 	}
 
 	@Test
+	void aDuplicateCodeFailsStartupRatherThanDroppingALanguage() {
+		AiLanguageProperties properties = new AiLanguageProperties();
+		properties.setSupported(List.of(
+				new AiLanguageProperties.Entry("en", "English"),
+				new AiLanguageProperties.Entry("fil", "Filipino"),
+				new AiLanguageProperties.Entry("fil", "Tagalog")));
+		assertThatThrownBy(() -> new AiLanguageRegistry(properties))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("fil")
+				.hasMessageContaining("Filipino")
+				.hasMessageContaining("Tagalog");
+	}
+
+	@Test
+	void codesThatCollideOnlyAfterCaseNormalizationAlsoFailStartup() {
+		// The typo this exists for: 'EN' and 'en' are one key, so one entry would vanish from the
+		// picker with no failure and no log line — and the survivor would carry the first entry's
+		// position with the last entry's display name.
+		AiLanguageProperties properties = new AiLanguageProperties();
+		properties.setSupported(List.of(
+				new AiLanguageProperties.Entry("en", "English"),
+				new AiLanguageProperties.Entry("EN", "Ingles")));
+		assertThatThrownBy(() -> new AiLanguageRegistry(properties))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("en");
+	}
+
+	@Test
 	void thePromptInstructionNamesTheLanguageAndProtectsAmountsAndJson() {
 		String instruction = registry().fromCode("fil").promptInstruction();
 		assertThat(instruction).contains("Filipino");
