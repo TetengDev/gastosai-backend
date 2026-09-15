@@ -7,6 +7,7 @@ import com.teng.app.gastosai.ai.LlmUsage;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.dto.AiSettingsRequest;
 import com.teng.app.gastosai.dto.ExpenseRequest;
+import com.teng.app.gastosai.entity.Role;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.service.AiInsightService;
@@ -64,6 +65,9 @@ class AiInsightCacheTest extends PostgresBackedTest {
 
 	@BeforeEach
 	void setUp() {
+		// Users are recreated with fresh ids each test, so entries left by the previous one would
+		// otherwise linger under ids nothing matches — and a size assertion would count them.
+		cacheManager.getCacheNames().forEach(name -> cacheManager.getCache(name).clear());
 		userRepository.deleteAll();
 		user = userRepository.save(User.builder()
 				.name("Cache User").email("cache@test.com")
@@ -158,6 +162,93 @@ class AiInsightCacheTest extends PostgresBackedTest {
 		// The switcher's own entry is gone; the bystander's is untouched.
 		aiInsightService.getMonthSummary(user, "2026-06");
 		verify(sqlGenerator, times(2)).generateInsightSummary(any(), eq("month-summary"), eq("plain"), any());
+
+		assertThat(cachedKeysOf("insightMonthSummary"))
+				.noneMatch(key -> key.startsWith(other.getId() + "-"))
+				.anyMatch(key -> key.startsWith(user.getId() + "-"));
+	}
+
+	/**
+	 * An expense write is the most common authenticated write there is, and the insight caches are
+	 * shared across tenants: one user adding a lunch must not discard every other tenant's cached
+	 * insights and push their next insight request onto their own {@code ai_usage} meter (TEN-385).
+	 */
+	@Test
+	void oneUsersExpenseWrite_leavesEveryOtherUsersCacheWarm() throws Exception {
+		aiInsightService.getMonthSummary(user, "2026-06");
+		verify(sqlGenerator, times(1)).generateInsightSummary(any(), eq("month-summary"), eq("plain"), any());
+
+		User other = userRepository.save(User.builder()
+				.name("Other User").email("cache-other@test.com")
+				.password(passwordEncoder.encode("password")).build());
+		aiInsightService.getMonthSummary(other, "2026-06");
+		verify(sqlGenerator, times(2)).generateInsightSummary(any(), eq("month-summary"), eq("plain"), any());
+
+		expenseService.create(new ExpenseRequest(
+				new BigDecimal("100.00"), "Food", LocalDateTime.now(), "Lunch", null, null, null, null), other);
+
+		// The bystander's entry is still served from cache; the writer's is gone.
+		aiInsightService.getMonthSummary(user, "2026-06");
+		verify(sqlGenerator, times(2)).generateInsightSummary(any(), eq("month-summary"), eq("plain"), any());
+
+		assertThat(cachedKeysOf("insightMonthSummary"))
+				.noneMatch(key -> key.startsWith(other.getId() + "-"))
+				.anyMatch(key -> key.startsWith(user.getId() + "-"));
+	}
+
+	/**
+	 * Every month of the writer's is dropped, not only the month the row sits in: an insight for
+	 * one month carries the previous month's total, and an edit can move a date across months.
+	 */
+	@Test
+	void anExpenseWrite_invalidatesEveryMonthOfTheWritingUser() throws Exception {
+		aiInsightService.getMonthSummary(user, "2026-05");
+		aiInsightService.getMonthSummary(user, "2026-07");
+		assertThat(cachedKeysOf("insightMonthSummary")).hasSize(2);
+
+		expenseService.create(new ExpenseRequest(
+				new BigDecimal("100.00"), "Food", LocalDateTime.of(2026, 6, 10, 12, 0), "Lunch",
+				null, null, null, null), user);
+
+		assertThat(cachedKeysOf("insightMonthSummary")).isEmpty();
+	}
+
+	/** Update and delete evict too, and on the ADMIN path the owner's entries go, not the admin's. */
+	@Test
+	void anAdminEditingSomeoneElsesExpense_evictsTheOwnerNotTheAdmin() throws Exception {
+		User admin = userRepository.save(User.builder()
+				.name("Admin").email("cache-admin@test.com").role(Role.ADMIN)
+				.password(passwordEncoder.encode("password")).build());
+		var owned = expenseService.create(new ExpenseRequest(
+				new BigDecimal("100.00"), "Food", LocalDateTime.now(), "Lunch", null, null, null, null), user);
+
+		aiInsightService.getMonthSummary(user, "2026-06");
+		aiInsightService.getMonthSummary(admin, "2026-06");
+		assertThat(cachedKeysOf("insightMonthSummary")).hasSize(2);
+
+		expenseService.update(owned.id(), new ExpenseRequest(
+				new BigDecimal("120.00"), "Food", LocalDateTime.now(), "Lunch", null, null, null, null), admin);
+
+		assertThat(cachedKeysOf("insightMonthSummary"))
+				.noneMatch(key -> key.startsWith(user.getId() + "-"))
+				.anyMatch(key -> key.startsWith(admin.getId() + "-"));
+
+		aiInsightService.getMonthSummary(user, "2026-06");
+		expenseService.delete(owned.id(), admin);
+		assertThat(cachedKeysOf("insightMonthSummary"))
+				.noneMatch(key -> key.startsWith(user.getId() + "-"))
+				.anyMatch(key -> key.startsWith(admin.getId() + "-"));
+	}
+
+	@Test
+	void deleteAll_evictsOnlyTheCallersInsights() throws Exception {
+		User other = userRepository.save(User.builder()
+				.name("Other User").email("cache-other@test.com")
+				.password(passwordEncoder.encode("password")).build());
+		aiInsightService.getMonthSummary(user, "2026-06");
+		aiInsightService.getMonthSummary(other, "2026-06");
+
+		expenseService.deleteAll(other);
 
 		assertThat(cachedKeysOf("insightMonthSummary"))
 				.noneMatch(key -> key.startsWith(other.getId() + "-"))

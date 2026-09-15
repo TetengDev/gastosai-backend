@@ -24,7 +24,8 @@ import com.teng.app.gastosai.repository.ProjectRepository;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.csv.CSVFormat;
-import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.apache.commons.csv.CSVPrinter;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -34,6 +35,8 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
@@ -54,9 +57,19 @@ public class ExpenseService {
 
 	private static final String DEFAULT_CATEGORY = "Uncategorized";
 
+	/**
+	 * The insight caches an expense write can stale. Spelled out here rather than read from
+	 * {@code CacheConfig}, whose array is package-private to the config package; the two lists are
+	 * the same three names {@link com.teng.app.gastosai.service.AiInsightService} caches under.
+	 */
+	private static final String[] INSIGHT_CACHES = {
+			"insightTopCategory", "insightMonthSummary", "insightRecommendations"
+	};
+
 	private final ExpenseRepository expenseRepository;
 	private final CategoryService categoryService;
 	private final ProjectRepository projectRepository;
+	private final CacheManager cacheManager;
 
 	/**
 	 * Create an expense a client asked for directly, recording the source the client declared.
@@ -66,8 +79,6 @@ public class ExpenseService {
 	 * {@code MANUAL}: a client that names {@code IMPORT} has misunderstood the field, and a quiet
 	 * correction would leave it believing the value it sent is the one stored.
 	 */
-	// Insights are advisory + writes are infrequent, so evict all insight entries on any change (TTL backstops it).
-	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
 	@Transactional
 	public ExpenseResponse create(ExpenseRequest request, User user) {
 		return create(request, user, clientDeclaredSource(request));
@@ -98,7 +109,6 @@ public class ExpenseService {
 	 * Create an expense on behalf of a route that knows how it got here — quick-add, the assistant,
 	 * an import. The {@code source} argument wins over anything on the request.
 	 */
-	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
 	@Transactional
 	public ExpenseResponse create(ExpenseRequest request, User user, ExpenseSource source) {
 		Categorisation categorisation = categorise(request, user);
@@ -125,7 +135,9 @@ public class ExpenseService {
 				.source(source)
 				.project(resolveProject(request, user))
 				.build();
-		return toResponse(expenseRepository.save(expense));
+		ExpenseResponse response = toResponse(expenseRepository.save(expense));
+		evictInsightsAfterCommit(user.getId());
+		return response;
 	}
 
 	/**
@@ -146,7 +158,6 @@ public class ExpenseService {
 	 * <p>Category and date are deliberately left to {@link #create}: a null category means the
 	 * merchant rules get their say, and a null date means "now", exactly as on the two-step path.
 	 */
-	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
 	@Transactional
 	public ExpenseResponse createFromParsed(ParsedExpenseResult draft, User user) {
 		if (draft == null) {
@@ -361,7 +372,6 @@ public class ExpenseService {
 	 * {@code user} — an ADMIN may reach another person's expense here, and everything an edit
 	 * attaches to it has to belong to whoever owns it. See {@link #resolveProject}.
 	 */
-	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
 	@Transactional
 	public ExpenseResponse update(Long id, ExpenseRequest request, User user) {
 		Expense expense = (user.isAdmin()
@@ -389,27 +399,90 @@ public class ExpenseService {
 		expense.setExchangeRate(rate);
 		expense.setAmountInBaseCurrency(base);
 		expense.setProject(resolveProject(request, owner));
-		return toResponse(expenseRepository.save(expense));
+		ExpenseResponse response = toResponse(expenseRepository.save(expense));
+		// The owner's insights went stale, not the caller's — the two differ when an ADMIN edits
+		// someone else's row, and evicting the admin would leave the owner reading the old numbers.
+		evictInsightsAfterCommit(owner.getId());
+		return response;
 	}
 
-	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
+	/**
+	 * The row is loaded rather than probed with {@code existsById} because the insights that go
+	 * stale belong to whoever owns the expense, which on the ADMIN path is not the caller.
+	 */
 	@Transactional
 	public void delete(Long id, User user) {
-		if (user.isAdmin()) {
-			if (!expenseRepository.existsById(id)) {
-				throw new ResourceNotFoundException("Expense not found: " + id);
-			}
-		} else if (!expenseRepository.existsByIdAndUser(id, user)) {
-			throw new ResourceNotFoundException("Expense not found: " + id);
-		}
-		expenseRepository.deleteById(id);
+		Expense expense = (user.isAdmin()
+				? expenseRepository.findById(id)
+				: expenseRepository.findByIdAndUser(id, user))
+				.orElseThrow(() -> new ResourceNotFoundException("Expense not found: " + id));
+		Long ownerId = expense.getUser().getId();
+		expenseRepository.delete(expense);
+		evictInsightsAfterCommit(ownerId);
 	}
 
-	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
 	@Transactional
 	public void deleteAll(User user) {
 		if (!user.isAdmin()) {
 			expenseRepository.deleteAllByUser(user);
+			evictInsightsAfterCommit(user.getId());
+		}
+	}
+
+	/**
+	 * Evicts the writing user's cached insights once the write has committed.
+	 *
+	 * <p>Evicting inside the transaction would throw entries away for a write that then rolled
+	 * back, and — worse on this path — would reopen the window where a concurrent insight read
+	 * repopulates the cache from pre-commit data and leaves it stale until the TTL.
+	 */
+	private void evictInsightsAfterCommit(Long userId) {
+		if (userId == null) {
+			return;
+		}
+		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+			evictInsightsOf(userId);
+			return;
+		}
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void afterCommit() {
+				evictInsightsOf(userId);
+			}
+		});
+	}
+
+	/**
+	 * Drops every cached insight belonging to one user, and nobody else's.
+	 *
+	 * <p>{@code allEntries = true} used to do this, and an expense write is the most common
+	 * authenticated write in the product: one user adding a lunch discarded every other tenant's
+	 * cached insights and sent their next insight request back through the paid LLM path, onto
+	 * their own {@code ai_usage} meter. The keys are {@code userId + "-" + month} and
+	 * {@code userId + "-" + month + "-" + languageCode}, so the prefix match cannot cross tenants.
+	 *
+	 * <p>Every month of the user's is dropped, not just the month written to: an insight for month
+	 * M carries the previous month's total (see {@code AiInsightService.buildContext}), so a write
+	 * to M stales M and M+1, and an edit that moves a date stales the months on both sides of the
+	 * move. Enumerating those is more ways to be wrong than a user-wide prefix sweep is worth.
+	 *
+	 * <p>The sweep is a scan of each cache rather than a keyed removal, so its cost follows every
+	 * tenant's entries. That is bounded: {@code CacheProperties.maxSize} caps each cache at 10,000
+	 * entries, so a full write path walks at most 30,000 keys — tens of microseconds, against a
+	 * transaction that has already committed.
+	 */
+	private void evictInsightsOf(Long userId) {
+		String prefix = userId + "-";
+		for (String cacheName : INSIGHT_CACHES) {
+			Cache cache = cacheManager.getCache(cacheName);
+			if (cache == null) {
+				continue;
+			}
+			// Caffeine when caching is enabled; a NoOpCache has nothing to walk.
+			if (cache.getNativeCache() instanceof com.github.benmanes.caffeine.cache.Cache<?, ?> caffeine) {
+				caffeine.asMap().keySet()
+						.removeIf(key -> key instanceof String entry && entry.startsWith(prefix));
+			}
 		}
 	}
 
