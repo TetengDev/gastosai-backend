@@ -3,6 +3,8 @@ package com.teng.app.gastosai.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teng.app.gastosai.ai.AiFeature;
+import com.teng.app.gastosai.ai.AiLanguage;
+import com.teng.app.gastosai.ai.AiLanguageRegistry;
 import com.teng.app.gastosai.ai.LlmUsage;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.ai.SqlGuard;
@@ -49,6 +51,7 @@ public class AiQueryService {
 	private final AiQuotaService aiQuotaService;
 	private final AiUsageService aiUsageService;
 	private final AiRedactionService aiRedactionService;
+	private final AiLanguageRegistry languages;
 	private final AiManagedProperties aiManagedProperties;
 	private final AiProviderProperties aiProviderProperties;
 	private final OpenAiProperties openAiProperties;
@@ -60,6 +63,8 @@ public class AiQueryService {
 
 		String safeQuestion = truncate(aiRedactionService.redact(question));
 		String resolvedMode = (mode != null && !mode.isBlank()) ? mode : DEFAULT_MODE;
+		// The assistant speaks the user's chat language; the insight language is a separate setting.
+		AiLanguage language = languages.fromCodeOrDefault(user.getChatLanguage());
 
 		LlmUsage[] usageHolder = { LlmUsage.absent() };
 		try {
@@ -69,7 +74,7 @@ public class AiQueryService {
 			}
 			AiQueryResponse response = rows == null
 					? new AiQueryResponse(EXECUTION_FAILURE_MESSAGE)
-					: summarize(safeQuestion, rows, resolvedMode, usageHolder);
+					: summarize(safeQuestion, rows, resolvedMode, language, usageHolder);
 			LlmUsage u = usageHolder[0];
 			aiUsageService.record(user.getId(), aiProviderProperties.getProvider(),
 					resolveModel(), AiFeature.CHAT_CONTEXT_RESOLUTION,
@@ -138,11 +143,12 @@ public class AiQueryService {
 		}
 	}
 
-	private AiQueryResponse summarize(String question, List<Map<String, Object>> rows, String mode, LlmUsage[] usageHolder) {
+	private AiQueryResponse summarize(String question, List<Map<String, Object>> rows, String mode,
+			AiLanguage language, LlmUsage[] usageHolder) {
 		Object normalizedData = normalizeAnswer(rows);
 		try {
 			String dataJson = objectMapper.writeValueAsString(normalizedData);
-			var summaryResult = sqlGenerator.generateSummary(question, dataJson, mode);
+			var summaryResult = sqlGenerator.generateSummary(question, dataJson, mode, language);
 			accumulate(usageHolder, summaryResult.usage());
 			return new AiQueryResponse(summaryResult.value());
 		}
