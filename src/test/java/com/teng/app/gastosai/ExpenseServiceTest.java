@@ -9,6 +9,7 @@ import com.teng.app.gastosai.entity.Expense;
 import com.teng.app.gastosai.entity.Project;
 import com.teng.app.gastosai.entity.Role;
 import com.teng.app.gastosai.entity.User;
+import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.ExpenseRepository;
 import com.teng.app.gastosai.repository.ProjectRepository;
 import com.teng.app.gastosai.service.CategoryService;
@@ -32,6 +33,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -50,6 +52,10 @@ class ExpenseServiceTest {
 
     @Mock
     ProjectRepository projectRepository;
+
+    /** A write evicts the writer's insights; the eviction itself is covered by AiInsightCacheTest. */
+    @Mock
+    org.springframework.cache.CacheManager cacheManager;
 
     @InjectMocks
     ExpenseService expenseService;
@@ -214,18 +220,23 @@ class ExpenseServiceTest {
         verify(expenseRepository).save(existing);
     }
 
+    /**
+     * The row is loaded before it is deleted rather than probed with an {@code exists} query: the
+     * insights that go stale belong to the expense's owner, who on the admin path is not the caller.
+     */
     @Test
-    void delete_callsRepositoryDeleteById_forNonAdmin() {
+    void delete_deletesTheOwnScopedRow_forNonAdmin() {
         User user = regularUser();
-        when(expenseRepository.existsByIdAndUser(5L, user)).thenReturn(true);
+        Expense existing = Expense.builder().id(5L).user(user).amount(new BigDecimal("10")).build();
+        when(expenseRepository.findByIdAndUser(5L, user)).thenReturn(Optional.of(existing));
 
         expenseService.delete(5L, user);
 
-        verify(expenseRepository).deleteById(5L);
+        verify(expenseRepository).delete(existing);
     }
 
     @Test
-    void delete_callsRepositoryDeleteById_forAdmin() {
+    void delete_reachesAnyRow_forAdmin() {
         User admin = User.builder()
                 .id(2L)
                 .name("Admin")
@@ -233,11 +244,23 @@ class ExpenseServiceTest {
                 .password("hash")
                 .role(Role.ADMIN)
                 .build();
-        when(expenseRepository.existsById(5L)).thenReturn(true);
+        Expense someoneElses = Expense.builder()
+                .id(5L).user(regularUser()).amount(new BigDecimal("10")).build();
+        when(expenseRepository.findById(5L)).thenReturn(Optional.of(someoneElses));
 
         expenseService.delete(5L, admin);
 
-        verify(expenseRepository).deleteById(5L);
+        verify(expenseRepository).delete(someoneElses);
+    }
+
+    @Test
+    void delete_isNotFound_whenTheRowIsNotTheCallers() {
+        User user = regularUser();
+        when(expenseRepository.findByIdAndUser(5L, user)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> expenseService.delete(5L, user))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Expense not found: 5");
     }
 
     @Test

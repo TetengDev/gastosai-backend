@@ -63,6 +63,10 @@ class BaseCurrencyConversionParityTest {
 	@Mock
 	ProjectRepository projectRepository;
 
+	/** A write evicts the writer's insights; the eviction itself is covered by AiInsightCacheTest. */
+	@Mock
+	org.springframework.cache.CacheManager cacheManager;
+
 	@InjectMocks
 	ExpenseService expenseService;
 
