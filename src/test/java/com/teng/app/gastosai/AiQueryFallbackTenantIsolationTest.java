@@ -58,7 +58,7 @@ class AiQueryFallbackTenantIsolationTest extends PostgresBackedTest {
         // Skip the structured path → exercise the guarded fallback.
         lenient().when(sqlGenerator.classifyQueryIntentJson(anyString())).thenReturn(LlmResult.ofValue(null));
         // Summary echoes the serialized rows so the response carries the data we assert on.
-        lenient().when(sqlGenerator.generateSummary(anyString(), anyString(), anyString()))
+        lenient().when(sqlGenerator.generateSummary(anyString(), anyString(), anyString(), any()))
                 .thenAnswer(i -> LlmResult.ofValue(i.getArgument(1)));
     }
 

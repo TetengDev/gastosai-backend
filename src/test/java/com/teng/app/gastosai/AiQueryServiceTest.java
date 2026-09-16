@@ -1,5 +1,6 @@
 package com.teng.app.gastosai;
 
+import com.teng.app.gastosai.ai.AiLanguageRegistry;
 import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.ai.query.AnalyticsQueryPlan;
@@ -11,6 +12,7 @@ import com.teng.app.gastosai.ai.query.QueryIntent;
 import com.teng.app.gastosai.ai.query.QueryIntentValidator;
 import com.teng.app.gastosai.ai.query.SafeAnalyticsExecutor;
 import com.teng.app.gastosai.ai.query.SortDirection;
+import com.teng.app.gastosai.config.AiLanguageProperties;
 import com.teng.app.gastosai.config.AiManagedProperties;
 import com.teng.app.gastosai.config.AiProviderProperties;
 import com.teng.app.gastosai.config.ClaudeProperties;
@@ -27,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
@@ -57,7 +60,16 @@ class AiQueryServiceTest {
     @Mock AiProviderProperties aiProviderProperties;
     @Mock OpenAiProperties openAiProperties;
     @Mock ClaudeProperties claudeProperties;
+    @Spy AiLanguageRegistry languages = registry();
     @InjectMocks AiQueryService aiQueryService;
+
+    private static AiLanguageRegistry registry() {
+        AiLanguageProperties properties = new AiLanguageProperties();
+        properties.setSupported(List.of(
+                new AiLanguageProperties.Entry("en", "English"),
+                new AiLanguageProperties.Entry("fil", "Filipino")));
+        return new AiLanguageRegistry(properties);
+    }
 
     @BeforeEach
     void setUp() {
@@ -80,7 +92,7 @@ class AiQueryServiceTest {
         when(sqlGenerator.classifyQueryIntentJson(anyString())).thenReturn(LlmResult.ofValue(null));
         when(sqlGenerator.generateSql(anyString())).thenReturn(LlmResult.ofValue("SELECT * FROM expenses"));
         when(guardedFallbackExecutor.run(anyString())).thenReturn(List.of());
-        when(sqlGenerator.generateSummary(anyString(), anyString(), anyString())).thenReturn(LlmResult.ofValue("none"));
+        when(sqlGenerator.generateSummary(anyString(), anyString(), anyString(), any())).thenReturn(LlmResult.ofValue("none"));
 
         AiQueryResponse r = aiQueryService.runNaturalLanguageQuery("test", "plain", user(false));
         assertThat(r.answer().toString()).contains("none");
@@ -92,7 +104,7 @@ class AiQueryServiceTest {
         when(sqlGenerator.generateSql(anyString())).thenReturn(LlmResult.ofValue("SELECT * FROM expenses"));
         org.mockito.ArgumentCaptor<String> sqlCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
         when(guardedFallbackExecutor.run(sqlCaptor.capture())).thenReturn(List.of(Map.of("total", BigDecimal.TEN)));
-        when(sqlGenerator.generateSummary(anyString(), anyString(), anyString())).thenReturn(LlmResult.ofValue("ok"));
+        when(sqlGenerator.generateSummary(anyString(), anyString(), anyString(), any())).thenReturn(LlmResult.ofValue("ok"));
 
         aiQueryService.runNaturalLanguageQuery("test", "plain", user(true));
 
@@ -104,7 +116,7 @@ class AiQueryServiceTest {
         when(sqlGenerator.classifyQueryIntentJson(anyString())).thenReturn(LlmResult.ofValue(null));
         when(sqlGenerator.generateSql(anyString())).thenReturn(LlmResult.ofValue("SELECT * FROM expenses"));
         when(guardedFallbackExecutor.run(anyString())).thenReturn(List.of(Map.of("total", BigDecimal.TEN)));
-        when(sqlGenerator.generateSummary(anyString(), anyString(), anyString())).thenReturn(LlmResult.ofValue("ok"));
+        when(sqlGenerator.generateSummary(anyString(), anyString(), anyString(), any())).thenReturn(LlmResult.ofValue("ok"));
 
         AiQueryResponse r = aiQueryService.runNaturalLanguageQuery("test", "plain", user(true));
         assertThat(r.answer()).isNotNull();
@@ -116,7 +128,7 @@ class AiQueryServiceTest {
         when(sqlGenerator.generateSql(anyString()))
                 .thenReturn(LlmResult.ofValue("SELECT * FROM expenses WHERE amount > 0"));
         when(guardedFallbackExecutor.run(anyString())).thenReturn(List.of());
-        when(sqlGenerator.generateSummary(any(), any(), any())).thenReturn(LlmResult.ofValue("ok"));
+        when(sqlGenerator.generateSummary(any(), any(), any(), any())).thenReturn(LlmResult.ofValue("ok"));
 
         aiQueryService.runNaturalLanguageQuery("test", "plain", user(false));
     }
@@ -127,7 +139,7 @@ class AiQueryServiceTest {
         when(sqlGenerator.generateSql(anyString()))
                 .thenReturn(LlmResult.ofValue("SELECT category, SUM(amount) FROM expenses GROUP BY category"));
         when(guardedFallbackExecutor.run(anyString())).thenReturn(List.of());
-        when(sqlGenerator.generateSummary(any(), any(), any())).thenReturn(LlmResult.ofValue("ok"));
+        when(sqlGenerator.generateSummary(any(), any(), any(), any())).thenReturn(LlmResult.ofValue("ok"));
 
         aiQueryService.runNaturalLanguageQuery("test", null, user(false));
     }
@@ -142,7 +154,7 @@ class AiQueryServiceTest {
                 .thenReturn(new AnalyticsQueryPlan("SELECT 1", Map.of("userId", 42L)));
         when(safeAnalyticsExecutor.run(any()))
                 .thenReturn(List.of(Map.of("total", new BigDecimal("123.45"))));
-        when(sqlGenerator.generateSummary(any(), any(), any())).thenReturn(LlmResult.ofValue("ok"));
+        when(sqlGenerator.generateSummary(any(), any(), any(), any())).thenReturn(LlmResult.ofValue("ok"));
 
         AiQueryResponse r = aiQueryService.runNaturalLanguageQuery("total this month", "plain", user(false));
 
@@ -156,7 +168,7 @@ class AiQueryServiceTest {
         when(queryIntentValidator.parse(anyString())).thenReturn(Optional.empty());
         when(sqlGenerator.generateSql(anyString())).thenReturn(LlmResult.ofValue("SELECT SUM(amount) FROM expenses"));
         when(guardedFallbackExecutor.run(anyString())).thenReturn(List.of());
-        when(sqlGenerator.generateSummary(any(), any(), any())).thenReturn(LlmResult.ofValue("fallback"));
+        when(sqlGenerator.generateSummary(any(), any(), any(), any())).thenReturn(LlmResult.ofValue("fallback"));
 
         AiQueryResponse r = aiQueryService.runNaturalLanguageQuery("weird question", "plain", user(false));
 
@@ -170,9 +182,10 @@ class AiQueryServiceTest {
         when(sqlGenerator.generateSql(anyString())).thenReturn(LlmResult.ofValue("SELECT SUM(amount) FROM expenses"));
         when(guardedFallbackExecutor.run(anyString()))
                 .thenReturn(List.of(Map.of("sum", new BigDecimal("123.456"))));
-        when(sqlGenerator.generateSummary(any(), any(), any())).thenReturn(LlmResult.ofValue("123.46"));
+        when(sqlGenerator.generateSummary(any(), any(), any(), any())).thenReturn(LlmResult.ofValue("123.46"));
 
         AiQueryResponse r = aiQueryService.runNaturalLanguageQuery("total", "plain", user(true));
         assertThat(r.answer()).isNotNull();
     }
+
 }

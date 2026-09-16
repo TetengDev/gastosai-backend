@@ -1,5 +1,6 @@
 package com.teng.app.gastosai.service;
 
+import com.teng.app.gastosai.config.CacheConfig.InsightCacheEvictor;
 import com.teng.app.gastosai.dto.CategoryReportItem;
 import com.teng.app.gastosai.dto.DailyReportItem;
 import com.teng.app.gastosai.dto.ExpenseRequest;
@@ -24,7 +25,6 @@ import com.teng.app.gastosai.repository.ProjectRepository;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.csv.CSVFormat;
-import org.springframework.cache.annotation.CacheEvict;
 import org.apache.commons.csv.CSVPrinter;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -57,6 +57,7 @@ public class ExpenseService {
 	private final ExpenseRepository expenseRepository;
 	private final CategoryService categoryService;
 	private final ProjectRepository projectRepository;
+	private final InsightCacheEvictor insightCaches;
 
 	/**
 	 * Create an expense a client asked for directly, recording the source the client declared.
@@ -66,8 +67,6 @@ public class ExpenseService {
 	 * {@code MANUAL}: a client that names {@code IMPORT} has misunderstood the field, and a quiet
 	 * correction would leave it believing the value it sent is the one stored.
 	 */
-	// Insights are advisory + writes are infrequent, so evict all insight entries on any change (TTL backstops it).
-	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
 	@Transactional
 	public ExpenseResponse create(ExpenseRequest request, User user) {
 		return create(request, user, clientDeclaredSource(request));
@@ -98,7 +97,6 @@ public class ExpenseService {
 	 * Create an expense on behalf of a route that knows how it got here — quick-add, the assistant,
 	 * an import. The {@code source} argument wins over anything on the request.
 	 */
-	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
 	@Transactional
 	public ExpenseResponse create(ExpenseRequest request, User user, ExpenseSource source) {
 		Categorisation categorisation = categorise(request, user);
@@ -125,7 +123,9 @@ public class ExpenseService {
 				.source(source)
 				.project(resolveProject(request, user))
 				.build();
-		return toResponse(expenseRepository.save(expense));
+		ExpenseResponse response = toResponse(expenseRepository.save(expense));
+		evictInsightsAfterCommit(user.getId());
+		return response;
 	}
 
 	/**
@@ -146,7 +146,6 @@ public class ExpenseService {
 	 * <p>Category and date are deliberately left to {@link #create}: a null category means the
 	 * merchant rules get their say, and a null date means "now", exactly as on the two-step path.
 	 */
-	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
 	@Transactional
 	public ExpenseResponse createFromParsed(ParsedExpenseResult draft, User user) {
 		if (draft == null) {
@@ -361,7 +360,6 @@ public class ExpenseService {
 	 * {@code user} — an ADMIN may reach another person's expense here, and everything an edit
 	 * attaches to it has to belong to whoever owns it. See {@link #resolveProject}.
 	 */
-	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
 	@Transactional
 	public ExpenseResponse update(Long id, ExpenseRequest request, User user) {
 		Expense expense = (user.isAdmin()
@@ -389,28 +387,43 @@ public class ExpenseService {
 		expense.setExchangeRate(rate);
 		expense.setAmountInBaseCurrency(base);
 		expense.setProject(resolveProject(request, owner));
-		return toResponse(expenseRepository.save(expense));
+		ExpenseResponse response = toResponse(expenseRepository.save(expense));
+		// The owner's insights went stale, not the caller's — the two differ when an ADMIN edits
+		// someone else's row, and evicting the admin would leave the owner reading the old numbers.
+		evictInsightsAfterCommit(owner.getId());
+		return response;
 	}
 
-	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
+	/**
+	 * The row is loaded rather than probed with {@code existsById} because the insights that go
+	 * stale belong to whoever owns the expense, which on the ADMIN path is not the caller.
+	 */
 	@Transactional
 	public void delete(Long id, User user) {
-		if (user.isAdmin()) {
-			if (!expenseRepository.existsById(id)) {
-				throw new ResourceNotFoundException("Expense not found: " + id);
-			}
-		} else if (!expenseRepository.existsByIdAndUser(id, user)) {
-			throw new ResourceNotFoundException("Expense not found: " + id);
-		}
-		expenseRepository.deleteById(id);
+		Expense expense = (user.isAdmin()
+				? expenseRepository.findById(id)
+				: expenseRepository.findByIdAndUser(id, user))
+				.orElseThrow(() -> new ResourceNotFoundException("Expense not found: " + id));
+		Long ownerId = expense.getUser().getId();
+		expenseRepository.delete(expense);
+		evictInsightsAfterCommit(ownerId);
 	}
 
-	@CacheEvict(cacheNames = {"insightTopCategory", "insightMonthSummary", "insightRecommendations"}, allEntries = true)
 	@Transactional
 	public void deleteAll(User user) {
 		if (!user.isAdmin()) {
 			expenseRepository.deleteAllByUser(user);
+			evictInsightsAfterCommit(user.getId());
 		}
+	}
+
+	/**
+	 * Drops the writing user's cached insights — every insight of theirs, and nobody else's — once
+	 * the write commits. The walk itself belongs to {@link InsightCacheEvictor}, which the
+	 * insight-language path shares; the reasoning for its shape is documented there.
+	 */
+	private void evictInsightsAfterCommit(Long userId) {
+		insightCaches.evictAllAfterCommit(userId);
 	}
 
 	@Transactional(readOnly = true)
