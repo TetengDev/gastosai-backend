@@ -23,7 +23,7 @@ public class AiLanguageProperties {
 	private List<Entry> supported = new ArrayList<>();
 
 	/**
-	 * <p>Both values are required and neither may be blank; {@code AiLanguageRegistry} fails startup
+	 * Both values are required and neither may be blank; {@code AiLanguageRegistry} fails startup
 	 * with the offending entry's position rather than letting a missing one reach a prompt.
 	 *
 	 * @param code        BCP-47 code, stored on the user row and published in the contract
