@@ -3,6 +3,7 @@ package com.teng.app.gastosai.ai;
 import com.teng.app.gastosai.config.AiLanguageProperties;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -111,6 +112,61 @@ class AiLanguageRegistryTest {
 		assertThatThrownBy(() -> new AiLanguageRegistry(properties))
 				.isInstanceOf(IllegalStateException.class)
 				.hasMessageContaining("en");
+	}
+
+	@Test
+	void aBlankCodeFailsStartupNamingThePropertyAndThePosition() {
+		// Previously a bare NullPointerException — or, for a blank, a language nobody can select.
+		assertThatThrownBy(() -> registryOf(
+				new AiLanguageProperties.Entry("en", "English"),
+				new AiLanguageProperties.Entry("  ", "Filipino")))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("gastos.ai.language.supported[1].code")
+				.hasMessageContaining("blank");
+	}
+
+	@Test
+	void aMissingCodeFailsStartupRatherThanThrowingANullPointerException() {
+		assertThatThrownBy(() -> registryOf(
+				new AiLanguageProperties.Entry("en", "English"),
+				new AiLanguageProperties.Entry(null, "Filipino")))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("gastos.ai.language.supported[1].code")
+				.hasMessageContaining("missing");
+	}
+
+	@Test
+	void aMissingOrBlankDisplayNameFailsStartupTheSameWay() {
+		assertThatThrownBy(() -> registryOf(
+				new AiLanguageProperties.Entry("en", "English"),
+				new AiLanguageProperties.Entry("fil", null)))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("gastos.ai.language.supported[1].displayName")
+				.hasMessageContaining("missing");
+
+		assertThatThrownBy(() -> registryOf(
+				new AiLanguageProperties.Entry("en", "English"),
+				new AiLanguageProperties.Entry("fil", "")))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("gastos.ai.language.supported[1].displayName")
+				.hasMessageContaining("blank");
+	}
+
+	@Test
+	void aSparseIndexBindsAsANullEntryAndAlsoFailsStartup() {
+		// supported[1] left unset while supported[2] is configured binds a null element rather than
+		// a shorter list, which reached the loop as a NullPointerException too.
+		assertThatThrownBy(() -> registryOf(
+				new AiLanguageProperties.Entry("en", "English"),
+				null))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("gastos.ai.language.supported[1]");
+	}
+
+	private AiLanguageRegistry registryOf(AiLanguageProperties.Entry... entries) {
+		AiLanguageProperties properties = new AiLanguageProperties();
+		properties.setSupported(Arrays.asList(entries));
+		return new AiLanguageRegistry(properties);
 	}
 
 	@Test

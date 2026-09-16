@@ -22,7 +22,16 @@ public class AiLanguageRegistry {
 	private final Map<String, AiLanguage> byCode = new LinkedHashMap<>();
 
 	public AiLanguageRegistry(AiLanguageProperties properties) {
-		for (AiLanguageProperties.Entry entry : properties.getSupported()) {
+		List<AiLanguageProperties.Entry> configured = properties.getSupported();
+		for (int index = 0; index < configured.size(); index++) {
+			AiLanguageProperties.Entry entry = configured.get(index);
+			if (entry == null) {
+				// A sparse index in the configuration — supported[2] set while supported[1] is not —
+				// binds as a null element rather than shortening the list.
+				throw new IllegalStateException(misconfigured(index) + " is missing.");
+			}
+			requireConfigured(entry.code(), "code", index);
+			requireConfigured(entry.displayName(), "displayName", index);
 			String normalized = entry.code().toLowerCase();
 			AiLanguage existing = byCode.putIfAbsent(normalized,
 					new AiLanguage(entry.code(), entry.displayName()));
@@ -41,6 +50,23 @@ public class AiLanguageRegistry {
 					"gastos.ai.language.supported must include '" + AiLanguage.DEFAULT_CODE
 							+ "' — it is the default and the fallback for every unset value.");
 		}
+	}
+
+	/**
+	 * A missing value used to reach the constructor as a bare {@link NullPointerException}, which
+	 * named neither the property nor the entry that was wrong. Startup still fails — it just says
+	 * which line of configuration to go and fix.
+	 */
+	private static void requireConfigured(String value, String field, int index) {
+		if (value == null || value.isBlank()) {
+			throw new IllegalStateException(
+					misconfigured(index) + "." + field + " is " + (value == null ? "missing" : "blank")
+							+ " — every configured language needs a code and a display name.");
+		}
+	}
+
+	private static String misconfigured(int index) {
+		return "gastos.ai.language.supported[" + index + "]";
 	}
 
 	/** In configuration order, which is picker order. */
