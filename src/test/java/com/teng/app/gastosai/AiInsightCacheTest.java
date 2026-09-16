@@ -1,6 +1,7 @@
 package com.teng.app.gastosai;
 
 import com.teng.app.gastosai.ai.AiLanguage;
+import com.teng.app.gastosai.ai.AiLanguageRegistry;
 import com.teng.app.gastosai.ai.AiLanguageSettingsService;
 import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.ai.LlmUsage;
@@ -52,19 +53,29 @@ class AiInsightCacheTest extends PostgresBackedTest {
 	AiLanguageSettingsService aiLanguageSettingsService;
 
 	@Autowired
+	AiLanguageRegistry languages;
+
+	@Autowired
 	CacheManager cacheManager;
 
 	@MockitoBean
 	SqlGenerator sqlGenerator;
 
-	/** Configured in application.properties; built here rather than resolved, to pin the wording. */
-	static final AiLanguage FILIPINO = new AiLanguage("fil", "Filipino");
-	static final AiLanguage JAPANESE = new AiLanguage("ja", "日本語");
+	/**
+	 * Configured in application.properties and resolved through the registry — from outside the
+	 * {@code ai} package the registry is the only way to obtain an {@link AiLanguage} at all, which
+	 * is the allow-list guarantee the type now enforces rather than documents.
+	 */
+	AiLanguage filipino;
+
+	AiLanguage japanese;
 
 	User user;
 
 	@BeforeEach
 	void setUp() {
+		filipino = languages.fromCode("fil");
+		japanese = languages.fromCode("ja");
 		// Users are recreated with fresh ids each test, so entries left by the previous one would
 		// otherwise linger under ids nothing matches — and a size assertion would count them.
 		cacheManager.getCacheNames().forEach(name -> cacheManager.getCache(name).clear());
@@ -101,14 +112,14 @@ class AiInsightCacheTest extends PostgresBackedTest {
 
 		// Same user, same month — but the language is part of the key, so this is a miss.
 		aiInsightService.getMonthSummary(user, "2026-06");
-		verify(sqlGenerator, times(1)).generateInsightSummary(any(), any(), any(), eq(FILIPINO));
+		verify(sqlGenerator, times(1)).generateInsightSummary(any(), any(), any(), eq(filipino));
 
 		// And a third language, which was never an enum constant: the key carries whatever is
 		// configured, so no new cache dimension is needed to add one.
 		user.setInsightLanguage("ja");
 		user = userRepository.save(user);
 		aiInsightService.getMonthSummary(user, "2026-06");
-		verify(sqlGenerator, times(1)).generateInsightSummary(any(), any(), any(), eq(JAPANESE));
+		verify(sqlGenerator, times(1)).generateInsightSummary(any(), any(), any(), eq(japanese));
 	}
 
 	/**
@@ -123,7 +134,7 @@ class AiInsightCacheTest extends PostgresBackedTest {
 		aiLanguageSettingsService.update(user.getEmail(), new AiSettingsRequest(null, null, "ja", null));
 		user = userRepository.findById(user.getId()).orElseThrow();
 		aiInsightService.getMonthSummary(user, "2026-06");
-		verify(sqlGenerator, times(1)).generateInsightSummary(any(), any(), any(), eq(JAPANESE));
+		verify(sqlGenerator, times(1)).generateInsightSummary(any(), any(), any(), eq(japanese));
 
 		aiLanguageSettingsService.update(user.getEmail(), new AiSettingsRequest(null, null, "en", null));
 		user = userRepository.findById(user.getId()).orElseThrow();
