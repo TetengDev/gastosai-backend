@@ -82,8 +82,12 @@ jobs:
           cache: maven
 
       # OpenApiContractTest runs here and rewrites contract/openapi.json as a side effect.
-      - name: Run tests
-        run: ./mvnw --batch-mode test
+      #
+      # `verify`, not `test`: the coverage floor (TEN-396) is jacoco:check bound to verify, so a
+      # PR that drops coverage below pom.xml's <coverage.line.min>/<coverage.branch.min> fails
+      # here. Running `test` would produce the report and read nothing from it.
+      - name: Run tests and the coverage floor
+        run: ./mvnw --batch-mode verify
 
       # The committed contract must always match what the code produces — it is the artifact
       # published to clients (CONTRACT.md). A controller or DTO change that was not accompanied
