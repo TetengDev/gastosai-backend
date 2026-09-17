@@ -58,7 +58,7 @@ class CoverageFloorTest {
 		assertThat(line).isBetween(0.0, 1.0);
 		assertThat(branch).isBetween(0.0, 1.0);
 
-		// Measured on a clean `./mvnw clean verify` on 2026-09-17: 81.4% lines, 69.3% branches,
+		// Measured on a clean `./mvnw clean verify` on 2026-09-17: 81.6% lines, 69.4% branches,
 		// over the denominator pinned below. The floor only ever rises, so anything under the
 		// value this issue installed is a regression of the gate rather than of the code.
 		assertThat(line).isGreaterThanOrEqualTo(0.81);
@@ -89,6 +89,19 @@ class CoverageFloorTest {
 					.exists();
 		}
 		assertThat(found).as("the entry point and the bean-wiring config classes are excluded").isPositive();
+	}
+
+	@Test
+	void securityConfigIsMeasuredDespiteBeingAConfiguration() throws IOException {
+		String pom = read(POM);
+
+		// SecurityConfig carries the authorization boundary itself — versionedAdminRules(), the
+		// matcher factories, and the loop that orders public-permit before admin-deny. Excluding
+		// it as "wiring" would let a PR that deletes the tests over that boundary still meet the
+		// floor with none of those lines counted.
+		assertThat(pom)
+				.as("SecurityConfig is business logic wearing @Configuration; it stays in the denominator")
+				.doesNotContain("<exclude>com/teng/app/gastosai/config/SecurityConfig.class</exclude>");
 	}
 
 	@Test
