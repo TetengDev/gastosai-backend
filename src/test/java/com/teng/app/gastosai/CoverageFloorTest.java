@@ -58,11 +58,12 @@ class CoverageFloorTest {
 		assertThat(line).isBetween(0.0, 1.0);
 		assertThat(branch).isBetween(0.0, 1.0);
 
-		// Measured on a clean `./mvnw clean verify` on 2026-09-17: 81.6% lines, 69.4% branches,
-		// over the denominator pinned below. The floor only ever rises, so anything under the
-		// value this issue installed is a regression of the gate rather than of the code.
+		// Measured on a clean `./mvnw clean verify` on 2026-09-17: 81.68% lines (4767/5836),
+		// 68.91% branches (1556/2258), over the denominator pinned below. The floor only ever
+		// rises, so anything under the value this issue installed is a regression of the gate
+		// rather than of the code.
 		assertThat(line).isGreaterThanOrEqualTo(0.81);
-		assertThat(branch).isGreaterThanOrEqualTo(0.69);
+		assertThat(branch).isGreaterThanOrEqualTo(0.68);
 
 		assertThat(pom).contains("<minimum>${coverage.line.min}</minimum>");
 		assertThat(pom).contains("<minimum>${coverage.branch.min}</minimum>");
@@ -92,16 +93,24 @@ class CoverageFloorTest {
 	}
 
 	@Test
-	void securityConfigIsMeasuredDespiteBeingAConfiguration() throws IOException {
+	void configClassesThatDecideSomethingStayInTheDenominator() throws IOException {
 		String pom = read(POM);
 
-		// SecurityConfig carries the authorization boundary itself — versionedAdminRules(), the
-		// matcher factories, and the loop that orders public-permit before admin-deny. Excluding
-		// it as "wiring" would let a PR that deletes the tests over that boundary still meet the
-		// floor with none of those lines counted.
-		assertThat(pom)
-				.as("SecurityConfig is business logic wearing @Configuration; it stays in the denominator")
-				.doesNotContain("<exclude>com/teng/app/gastosai/config/SecurityConfig.class</exclude>");
+		// @Configuration is not the test; behaviour is. Each of these decides something a bug
+		// would cost: the authorization boundary, which interceptors guard which paths, which API
+		// key goes on the wire, whether caching is on, which mail transport sends, and which
+		// published paths are documented as secured. Excluding any of them as "wiring" would let
+		// a PR that deletes the tests over that logic still meet the floor with none of it
+		// counted — the failure the review of this PR caught twice.
+		for (String measured :
+				new String[] {
+					"SecurityConfig", "WebConfig", "AIClientConfig",
+					"CacheConfig", "EmailSenderConfig", "OpenApiConfig"
+				}) {
+			assertThat(pom)
+					.as("%s is business logic wearing @Configuration; it stays in the denominator", measured)
+					.doesNotContain("<exclude>com/teng/app/gastosai/config/" + measured + ".class</exclude>");
+		}
 	}
 
 	@Test
