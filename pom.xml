@@ -226,7 +226,13 @@
 				     are deliberately NOT excluded (CacheConfig$InsightCacheEvictor,
 				     JacksonTimeConfig$LenientLocalDateTimeDeserializer and friends hold real
 				     branching logic, and `X.class` does not match `X$Inner.class`). Applied at
-				     plugin level so `report` and `check` share one denominator. -->
+				     plugin level so `report` and `check` share one denominator.
+
+				     SecurityConfig is deliberately NOT here, despite being a @Configuration: it
+				     builds the authorization boundary itself — versionedAdminRules(), the
+				     matcher factories, and the loop that orders public-permit before admin-deny.
+				     Excluding it would let a PR that deletes the tests over that boundary pass
+				     the floor with none of it counted. -->
 				<configuration>
 					<excludes>
 						<exclude>com/teng/app/gastosai/GastosaiApplication.class</exclude>
@@ -236,7 +242,6 @@
 						<exclude>com/teng/app/gastosai/config/JacksonTimeConfig.class</exclude>
 						<exclude>com/teng/app/gastosai/config/OpenApiConfig.class</exclude>
 						<exclude>com/teng/app/gastosai/config/PayMongoRestClientConfig.class</exclude>
-						<exclude>com/teng/app/gastosai/config/SecurityConfig.class</exclude>
 						<exclude>com/teng/app/gastosai/config/WebConfig.class</exclude>
 					</excludes>
 				</configuration>
