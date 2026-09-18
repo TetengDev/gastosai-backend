@@ -39,11 +39,16 @@
 		     DOWN to a whole percent — never estimated, never rounded up, never lowered. A PR that
 		     raises coverage raises these; a PR that deletes tests fails here.
 
-		     Measured 2026-09-17 over the denominator pinned on the JaCoCo plugin below:
-		     81.68% lines (4767/5836), 68.91% branches (1556/2258). Lowering either number is
+		     Measured 2026-09-18 over the denominator pinned on the JaCoCo plugin below:
+		     82.75% lines (4829/5836), 71.79% branches (1621/2258). Lowering either number is
 		     only ever legitimate together with a *wider* denominator, and then it is not a
-		     lowering at all — it is a different measurement. -->
-		<coverage.line.min>0.81</coverage.line.min>
+		     lowering at all — it is a different measurement.
+
+		     TEN-401 raised the line floor from 0.81 to 0.82 by covering ChatActionService's write
+		     paths. The branch floor stays at 0.68 for now: that issue's scope was the line floor,
+		     and raising the branch one is the next coverage issue's to claim with its own
+		     measurement. -->
+		<coverage.line.min>0.82</coverage.line.min>
 		<coverage.branch.min>0.68</coverage.branch.min>
 	</properties>
 	<dependencies>
