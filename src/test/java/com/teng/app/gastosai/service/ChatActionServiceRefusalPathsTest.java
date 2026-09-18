@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -113,6 +114,7 @@ class ChatActionServiceRefusalPathsTest extends ChatActionServiceUnitTestSupport
 	@Test
 	void dispatch_anAdmin_passesTheQuotaGateAndRunsTheTurn() {
 		User admin = admin();
+		doNothing().when(aiQuotaService).assertWithinQuota(admin, AiFeature.CHAT_CRUD_ASSISTANT);
 		when(sqlGenerator.classifyIntent(any()))
 				.thenReturn(LlmResult.ofValue(new ChatToolCall("text", "How can I help?")));
 
@@ -127,9 +129,11 @@ class ChatActionServiceRefusalPathsTest extends ChatActionServiceUnitTestSupport
 	// --- the plan category cap ---
 
 	/**
-	 * A category the plan has no room for is a 402, not a 200. The exception leaves
-	 * {@code dispatchCore} untouched, and the failed turn is still metered and audited under the
-	 * tool that was resolved.
+	 * A category the plan has no room for is a 402, not a 200: the exception leaves
+	 * {@code dispatchCore} untouched rather than being turned into the generic handler's
+	 * "Something went wrong … please rephrase" text response — advice that cannot work, because
+	 * rephrasing does not buy plan headroom. Deleting the rethrow fails this assertion. The failed
+	 * turn is still metered and audited under the tool that was resolved.
 	 */
 	@Test
 	void dispatch_aPlanCategoryCapRefusal_propagatesAndIsMeteredAndAudited() {
@@ -148,27 +152,6 @@ class ChatActionServiceRefusalPathsTest extends ChatActionServiceUnitTestSupport
 				eq(AiUsageStatus.FAILED), eq("FeatureLockedException"));
 		verify(chatAuditService).record(eq(1L), isNull(), eq("create_category"),
 				eq(AiUsageStatus.FAILED), eq("FeatureLockedException"));
-	}
-
-	/**
-	 * The guard that matters most: the generic handler below it would answer 200 "Something went
-	 * wrong ... please rephrase", advice that cannot work because rephrasing does not buy plan
-	 * headroom. Asserted as its own case so a refactor that drops the rethrow fails here loudly.
-	 */
-	@Test
-	void dispatch_aPlanCategoryCapRefusal_isNotTurnedIntoATextResponse() {
-		when(sqlGenerator.classifyIntent(any())).thenReturn(LlmResult.ofValue(
-				new ChatToolCall("create_category", "{\"name\":\"Crypto\"}")));
-		when(categoryService.create(any(), any())).thenThrow(categoryCap());
-
-		assertThatThrownBy(() -> chatActionService.dispatch("add a Crypto category", "execute", user()))
-				.isInstanceOf(FeatureLockedException.class);
-
-		verify(chatAuditService, never()).record(any(), any(), any(),
-				eq(AiUsageStatus.SUCCESS), any());
-		// Not the generic arm: nothing was recorded under the catch-all's error code.
-		verify(chatAuditService, never()).record(any(), any(), any(), any(),
-				eq("RuntimeException"));
 	}
 
 	/** The audit row carries the conversation the refused turn belongs to. */
