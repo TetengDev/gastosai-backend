@@ -33,6 +33,18 @@
 	</scm>
 	<properties>
 		<java.version>25</java.version>
+		<!-- Coverage floor (TEN-396, ../docs/coverage.md). The goal is 90% line coverage of
+		     business logic; the gate is this floor, which may only ever rise. Both values are
+		     JaCoCo ratios (0.81 = 81%), set from a measured `./mvnw clean verify` run and rounded
+		     DOWN to a whole percent — never estimated, never rounded up, never lowered. A PR that
+		     raises coverage raises these; a PR that deletes tests fails here.
+
+		     Measured 2026-09-17 over the denominator pinned on the JaCoCo plugin below:
+		     81.68% lines (4767/5836), 68.91% branches (1556/2258). Lowering either number is
+		     only ever legitimate together with a *wider* denominator, and then it is not a
+		     lowering at all — it is a different measurement. -->
+		<coverage.line.min>0.81</coverage.line.min>
+		<coverage.branch.min>0.68</coverage.branch.min>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -212,6 +224,39 @@
 				<groupId>org.jacoco</groupId>
 				<artifactId>jacoco-maven-plugin</artifactId>
 				<version>0.8.15</version>
+				<!-- The denominator, pinned. A coverage number means nothing without it, so every
+				     exclusion is named here one by one — no wildcard that quietly grows and
+				     flatters the next reading. Applied at plugin level so `report` and `check`
+				     share one denominator.
+
+				     The test is behaviour, not the @Configuration annotation: only the Spring
+				     entry point and the two config classes whose bodies really are nothing but
+				     bean declarations are excluded. JacksonTimeConfig's outer class registers a
+				     module and nothing else — its inner serializer/deserializer hold the actual
+				     logic and stay measured, since `X.class` does not match `X$Inner.class`.
+
+				     Deliberately NOT excluded, though all are @Configuration:
+				       SecurityConfig   builds the authorization boundary — versionedAdminRules(),
+				                        the matcher factories, and the ordering that puts
+				                        public-permit ahead of admin-deny.
+				       WebConfig        wires the AI-key, AI rate-limit, public rate-limit and
+				                        authenticated-write interceptors to their path patterns,
+				                        and normalises the CORS origin list.
+				       AIClientConfig   carries the BYO-key-over-platform-key fallback inside the
+				                        OpenAI and Claude request interceptors.
+				       CacheConfig      decides whether caching is on, and its evictor is
+				                        tenant-scoped.
+				       EmailSenderConfig picks Resend over SMTP.
+				       OpenApiConfig    marks each published path public or secured.
+				     Excluding any of them would let a PR that deletes the tests over that logic
+				     still meet the floor with none of it counted. -->
+				<configuration>
+					<excludes>
+						<exclude>com/teng/app/gastosai/GastosaiApplication.class</exclude>
+						<exclude>com/teng/app/gastosai/config/JacksonTimeConfig.class</exclude>
+						<exclude>com/teng/app/gastosai/config/PayMongoRestClientConfig.class</exclude>
+					</excludes>
+				</configuration>
 				<executions>
 					<execution>
 						<id>prepare-agent</id>
@@ -221,6 +266,32 @@
 						<id>report</id>
 						<phase>verify</phase>
 						<goals><goal>report</goal></goals>
+					</execution>
+					<!-- The gate itself: `./mvnw verify` fails below the floor. Bound after the
+					     report so a failure can be read off target/site/jacoco/index.html. -->
+					<execution>
+						<id>check-coverage-floor</id>
+						<phase>verify</phase>
+						<goals><goal>check</goal></goals>
+						<configuration>
+							<rules>
+								<rule>
+									<element>BUNDLE</element>
+									<limits>
+										<limit>
+											<counter>LINE</counter>
+											<value>COVEREDRATIO</value>
+											<minimum>${coverage.line.min}</minimum>
+										</limit>
+										<limit>
+											<counter>BRANCH</counter>
+											<value>COVEREDRATIO</value>
+											<minimum>${coverage.branch.min}</minimum>
+										</limit>
+									</limits>
+								</rule>
+							</rules>
+						</configuration>
 					</execution>
 				</executions>
 			</plugin>
