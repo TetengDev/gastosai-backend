@@ -226,6 +226,10 @@ public class VisionService {
 
 	/** Width and height straight from the image header, without decoding a pixel. */
 	private static int[] readDimensions(byte[] bytes) {
+		// ImageIO picks the reader by magic bytes, not by the declared content type ALLOWED_MEDIA_TYPES
+		// gates, so bytes labelled image/jpeg that are really a TIFF reach the TIFF reader. Accepted
+		// deliberately: image/tiff and image/bmp are already allowed types, so a mislabelled upload
+		// reaches no codec an honestly labelled one could not, and every reader here is the JDK's.
 		try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
 			if (input == null) {
 				return null;
@@ -255,6 +259,12 @@ public class VisionService {
 	 * the last factor of two to the bilinear pass below. Because the step is a power of two, an edge
 	 * can be left anywhere in [2x, 4x) of its target — so the decoded raster is at most sixteen times
 	 * the target area, ~18 MP, and {@link #MAX_DECODE_PX} caps it regardless.
+	 *
+	 * <p>The two axes get their own step. A single shared step has to satisfy the smaller axis, and
+	 * an axis already at its target stops the loop at 1 — so a 100,000,000x1 canvas, which clears
+	 * the {@link #MAX_DECODE_PX} ceiling, would have been decoded whole. Per-axis steps keep the
+	 * bound above true for any aspect ratio; the non-uniform ratio it decodes at costs nothing,
+	 * because the final draw scales to the exact target dimensions anyway.
 	 */
 	private static BufferedImage decode(byte[] bytes, int targetWidth, int targetHeight) {
 		try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
@@ -268,10 +278,11 @@ public class VisionService {
 			ImageReader reader = readers.next();
 			try {
 				reader.setInput(input, true, true);
-				int step = subsamplingFor(reader.getWidth(0), reader.getHeight(0), targetWidth, targetHeight);
+				int stepX = subsamplingFor(reader.getWidth(0), targetWidth);
+				int stepY = subsamplingFor(reader.getHeight(0), targetHeight);
 				ImageReadParam param = reader.getDefaultReadParam();
-				if (step > 1) {
-					param.setSourceSubsampling(step, step, 0, 0);
+				if (stepX > 1 || stepY > 1) {
+					param.setSourceSubsampling(stepX, stepY, 0, 0);
 				}
 				return reader.read(0, param);
 			} finally {
@@ -282,9 +293,16 @@ public class VisionService {
 		}
 	}
 
-	private static int subsamplingFor(int width, int height, int targetWidth, int targetHeight) {
+	/**
+	 * The largest power-of-two step for one axis that still leaves it at least twice its target.
+	 *
+	 * <p>Visible for the test that pins the bound: the step an axis gets is the whole memory
+	 * argument above, and it is not observable from the encoded output, which is the target size
+	 * either way.
+	 */
+	public static int subsamplingFor(int length, int target) {
 		int step = 1;
-		while (width / (step * 2) >= targetWidth * 2 && height / (step * 2) >= targetHeight * 2) {
+		while (length / (step * 2) >= target * 2) {
 			step *= 2;
 		}
 		return step;

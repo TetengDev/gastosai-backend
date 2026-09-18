@@ -340,6 +340,36 @@ class VisionServiceTest {
     }
 
     @Test
+    void extremeAspectRatio_stillSubsamplesTheLongAxis() throws Exception {
+        // The regression: the step used to be one shared number that both axes had to agree on, so a
+        // canvas one or two pixels tall — already at its target height — pinned it at 1 and the long
+        // axis was decoded whole. A 100,000,000x1 PNG clears the MAX_DECODE_PX ceiling, so nothing
+        // else stood between that shape and a several-hundred-megabyte raster.
+        assertThat(VisionService.subsamplingFor(100_000_000, VisionService.MAX_EDGE_PX)).isGreaterThan(1);
+        assertThat(VisionService.subsamplingFor(2, 1)).isEqualTo(1);
+        // The bound the class documents: an axis is left in [2x, 4x) of its target.
+        int step = VisionService.subsamplingFor(100_000_000, VisionService.MAX_EDGE_PX);
+        assertThat(100_000_000 / step).isBetween(2 * VisionService.MAX_EDGE_PX, 4 * VisionService.MAX_EDGE_PX);
+
+        // And the shape survives end to end: 40000x2 is real bytes, decodable, and its height is
+        // already below target, which is exactly what used to disable subsampling for the width.
+        BufferedImage thin = new BufferedImage(40000, 2, BufferedImage.TYPE_BYTE_GRAY);
+        Graphics2D g = thin.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, 40000, 2);
+        g.dispose();
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
+        ImageIO.write(thin, "png", png);
+
+        VisionService.EncodedImage encoded = VisionService.encodeForVision(png.toByteArray(), "image/png");
+
+        BufferedImage sent = decodeBase64(encoded.base64());
+        assertThat(Math.max(sent.getWidth(), sent.getHeight())).isLessThanOrEqualTo(VisionService.MAX_EDGE_PX);
+        assertThat((long) sent.getWidth() * sent.getHeight()).isLessThanOrEqualTo(VisionService.MAX_AREA_PX);
+        assertThat(encoded.mediaType()).isEqualTo("image/jpeg");
+    }
+
+    @Test
     void undecodableUpload_isSentAsUploaded() {
         byte[] heic = "not an image ImageIO can read".getBytes();
 
