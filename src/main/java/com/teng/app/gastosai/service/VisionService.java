@@ -226,10 +226,20 @@ public class VisionService {
 
 	/** Width and height straight from the image header, without decoding a pixel. */
 	private static int[] readDimensions(byte[] bytes) {
-		// ImageIO picks the reader by magic bytes, not by the declared content type ALLOWED_MEDIA_TYPES
-		// gates, so bytes labelled image/jpeg that are really a TIFF reach the TIFF reader. Accepted
-		// deliberately: image/tiff and image/bmp are already allowed types, so a mislabelled upload
-		// reaches no codec an honestly labelled one could not, and every reader here is the JDK's.
+		// ImageIO picks the reader by magic bytes, not by the declared content type
+		// ALLOWED_MEDIA_TYPES gates, so bytes labelled image/jpeg that are really a TIFF reach the
+		// TIFF reader. Accepted deliberately, but not because the sets match — they do not. This
+		// JVM registers jpeg, png, gif, bmp, tiff and **wbmp**, and image/wbmp is not an allowed
+		// type, so a mislabelled upload does reach one codec an honest label could not. It is
+		// accepted because every reader here is the JDK's own and MAX_DECODE_PX below is
+		// format-agnostic: a WBMP raster is bounded exactly like every other.
+		//
+		// The reverse gap is the one that costs something. image/webp, image/heic and image/heif
+		// are allowed types with no reader in this JVM, so readDimensions returns null for them and
+		// `encodeForVision` sends the upload through untouched — no downscale, and no MAX_DECODE_PX
+		// ceiling either, since both sit downstream of this method. HEIC is what an iPhone camera
+		// produces by default, so the saving this class exists for does not yet reach those uploads.
+		// Closing that needs a decoder this project does not depend on: see TEN-410.
 		try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
 			if (input == null) {
 				return null;
