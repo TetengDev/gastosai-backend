@@ -26,8 +26,10 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.util.Base64;
+import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -184,7 +186,7 @@ class VisionServiceTest {
         // Sensor noise over the text bars: a flat synthetic image compresses unrealistically well,
         // so only a noisy one says anything about the bytes a real phone photo would upload.
         BufferedImage image = ImageIO.read(new ByteArrayInputStream(receiptPng(4032, 3024)));
-        java.util.Random random = new java.util.Random(7);
+        Random random = new Random(7);
         for (int y = 0; y < image.getHeight(); y++) {
             for (int x = 0; x < image.getWidth(); x++) {
                 int noise = random.nextInt(24) - 12;
@@ -203,6 +205,96 @@ class VisionServiceTest {
         System.out.printf("[TEN-163] 4032x3024 jpeg %d bytes -> %d bytes (%.1f%% of original)%n",
                 original.length, sentBytes, 100.0 * sentBytes / original.length);
         assertThat(sentBytes).isLessThan(original.length / 2);
+    }
+
+    /** The 34-byte APP1 segment a phone writes when it holds the camera sideways. */
+    private static byte[] withExifOrientation(byte[] jpeg, int orientation) {
+        byte[] app1 = new byte[]{
+            (byte) 0xFF, (byte) 0xE1, 0x00, 0x22,
+            'E', 'x', 'i', 'f', 0x00, 0x00,
+            'M', 'M', 0x00, 0x2A, 0x00, 0x00, 0x00, 0x08,   // big-endian TIFF header, IFD0 at 8
+            0x00, 0x01,                                      // one entry
+            0x01, 0x12, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01,  // tag 0x0112, SHORT, count 1
+            0x00, (byte) orientation, 0x00, 0x00,            // value, left-aligned in 4 bytes
+            0x00, 0x00, 0x00, 0x00                           // no next IFD
+        };
+        byte[] out = new byte[jpeg.length + app1.length];
+        System.arraycopy(jpeg, 0, out, 0, 2);                // SOI
+        System.arraycopy(app1, 0, out, 2, app1.length);
+        System.arraycopy(jpeg, 2, out, 2 + app1.length, jpeg.length - 2);
+        return out;
+    }
+
+    /** Mean brightness of a small patch, used to find where a corner mark ended up. */
+    private static double brightness(BufferedImage image, int left, int top) {
+        long sum = 0;
+        int size = 16;
+        for (int y = top; y < top + size; y++) {
+            for (int x = left; x < left + size; x++) {
+                sum += image.getRGB(x, y) & 0xFF;
+            }
+        }
+        return (double) sum / (size * size);
+    }
+
+    @Test
+    void exifOrientationIsBakedIntoThePixels() throws Exception {
+        BufferedImage landscape = ImageIO.read(new ByteArrayInputStream(receiptPng(4032, 3024)));
+        // A black mark in the top-left corner: orientation 6 is a 90° clockwise turn, so it must
+        // come back in the top-right. A mirrored transform would put it in the top-left instead.
+        Graphics2D mark = landscape.createGraphics();
+        mark.setColor(Color.BLACK);
+        mark.fillRect(0, 0, 800, 600);
+        mark.dispose();
+        ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
+        ImageIO.write(landscape, "jpeg", jpeg);
+        // Orientation 6: the sensor read landscape, the receipt is meant to be seen rotated 90° CW.
+        byte[] original = withExifOrientation(jpeg.toByteArray(), 6);
+        assertThat(VisionService.exifOrientation(original)).isEqualTo(6);
+
+        VisionService.EncodedImage encoded = VisionService.encodeForVision(original, "image/jpeg");
+
+        BufferedImage sent = decodeBase64(encoded.base64());
+        assertThat(sent.getHeight()).isGreaterThan(sent.getWidth());
+        assertThat(brightness(sent, sent.getWidth() - 20, 4)).isLessThan(64);
+        assertThat(brightness(sent, 4, 4)).isGreaterThan(192);
+        assertThat(Math.max(sent.getWidth(), sent.getHeight())).isLessThanOrEqualTo(VisionService.MAX_EDGE_PX);
+        assertThat((long) sent.getWidth() * sent.getHeight()).isLessThanOrEqualTo(VisionService.MAX_AREA_PX);
+    }
+
+    @Test
+    void imageWithoutExif_keepsItsOrientation() throws Exception {
+        byte[] original = receiptPng(4032, 3024);
+
+        assertThat(VisionService.exifOrientation(original)).isEqualTo(1);
+        BufferedImage sent = decodeBase64(VisionService.encodeForVision(original, "image/png").base64());
+        assertThat(sent.getWidth()).isGreaterThan(sent.getHeight());
+    }
+
+    /** A PNG whose header declares a canvas far larger than its compressed bytes could ever hold. */
+    private static byte[] declaredSize(byte[] png, int width, int height) {
+        byte[] out = png.clone();
+        for (int i = 0; i < 4; i++) {
+            out[16 + i] = (byte) (width >>> (24 - 8 * i));
+            out[20 + i] = (byte) (height >>> (24 - 8 * i));
+        }
+        java.util.zip.CRC32 crc = new java.util.zip.CRC32();
+        crc.update(out, 12, 17); // chunk type + IHDR payload
+        long value = crc.getValue();
+        for (int i = 0; i < 4; i++) {
+            out[29 + i] = (byte) (value >>> (24 - 8 * i));
+        }
+        return out;
+    }
+
+    @Test
+    void decompressionBomb_isRefusedBeforeAnyPixelIsDecoded() throws Exception {
+        // 30000x30000 = 900 MP, which would be a 3.6 GB raster, from a few hundred bytes on the wire.
+        byte[] bomb = declaredSize(receiptPng(64, 64), 30000, 30000);
+
+        assertThatThrownBy(() -> VisionService.encodeForVision(bomb, "image/png"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("too large");
     }
 
     @Test
