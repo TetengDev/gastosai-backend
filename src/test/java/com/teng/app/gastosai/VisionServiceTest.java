@@ -19,7 +19,16 @@ import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 import org.springframework.mock.web.MockMultipartFile;
 
+import javax.imageio.ImageIO;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.util.Base64;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
@@ -121,5 +130,88 @@ class VisionServiceTest {
 
         assertThat(result.saveable()).isFalse();
         assertThat(result.hint()).contains("not valid json");
+    }
+
+    /** A receipt-shaped image generated in memory: white card, dark text bars, no binary fixture. */
+    private static byte[] receiptPng(int width, int height) throws Exception {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, width, height);
+        g.setColor(Color.DARK_GRAY);
+        for (int y = height / 10; y < height; y += height / 10) {
+            g.fillRect(width / 8, y, width * 3 / 4, Math.max(1, height / 100));
+        }
+        g.dispose();
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", out);
+        return out.toByteArray();
+    }
+
+    private static BufferedImage decodeBase64(String base64) throws Exception {
+        return ImageIO.read(new ByteArrayInputStream(Base64.getDecoder().decode(base64)));
+    }
+
+    @Test
+    void oversizedImage_isDownscaledWithinTheBudget() throws Exception {
+        byte[] original = receiptPng(4032, 3024);
+
+        VisionService.EncodedImage encoded = VisionService.encodeForVision(original, "image/png");
+
+        BufferedImage sent = decodeBase64(encoded.base64());
+        assertThat(Math.max(sent.getWidth(), sent.getHeight())).isLessThanOrEqualTo(VisionService.MAX_EDGE_PX);
+        assertThat((long) sent.getWidth() * sent.getHeight()).isLessThanOrEqualTo(VisionService.MAX_AREA_PX);
+        // Aspect ratio is preserved, so the receipt is not stretched.
+        assertThat((double) sent.getWidth() / sent.getHeight()).isCloseTo(4032d / 3024d, within(0.01));
+        assertThat(encoded.mediaType()).isEqualTo("image/jpeg");
+        // The synthetic receipt is flat colour, so its PNG is far smaller than a photograph's and
+        // byte size proves nothing here; pixels sent is what the budget and the provider count.
+        assertThat((long) sent.getWidth() * sent.getHeight()).isLessThan(4032L * 3024L);
+    }
+
+    @Test
+    void withinBudgetImage_isPassedThroughUnchanged() throws Exception {
+        byte[] original = receiptPng(1000, 1100);
+
+        VisionService.EncodedImage encoded = VisionService.encodeForVision(original, "image/png");
+
+        assertThat(encoded.mediaType()).isEqualTo("image/png");
+        assertThat(Base64.getDecoder().decode(encoded.base64())).isEqualTo(original);
+    }
+
+    @Test
+    void photographicUpload_shrinksThePayloadSent() throws Exception {
+        // Sensor noise over the text bars: a flat synthetic image compresses unrealistically well,
+        // so only a noisy one says anything about the bytes a real phone photo would upload.
+        BufferedImage image = ImageIO.read(new ByteArrayInputStream(receiptPng(4032, 3024)));
+        java.util.Random random = new java.util.Random(7);
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                int noise = random.nextInt(24) - 12;
+                int rgb = image.getRGB(x, y);
+                int value = Math.clamp((rgb & 0xFF) + noise, 0, 255);
+                image.setRGB(x, y, (value << 16) | (value << 8) | value);
+            }
+        }
+        ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
+        ImageIO.write(image, "jpeg", jpeg);
+        byte[] original = jpeg.toByteArray();
+
+        VisionService.EncodedImage encoded = VisionService.encodeForVision(original, "image/jpeg");
+
+        int sentBytes = Base64.getDecoder().decode(encoded.base64()).length;
+        System.out.printf("[TEN-163] 4032x3024 jpeg %d bytes -> %d bytes (%.1f%% of original)%n",
+                original.length, sentBytes, 100.0 * sentBytes / original.length);
+        assertThat(sentBytes).isLessThan(original.length / 2);
+    }
+
+    @Test
+    void undecodableUpload_isSentAsUploaded() {
+        byte[] heic = "not an image ImageIO can read".getBytes();
+
+        VisionService.EncodedImage encoded = VisionService.encodeForVision(heic, "image/heic");
+
+        assertThat(encoded.mediaType()).isEqualTo("image/heic");
+        assertThat(Base64.getDecoder().decode(encoded.base64())).isEqualTo(heic);
     }
 }

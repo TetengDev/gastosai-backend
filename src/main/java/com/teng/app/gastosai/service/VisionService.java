@@ -21,6 +21,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.imageio.ImageIO;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Base64;
 import java.util.Set;
@@ -33,6 +40,32 @@ public class VisionService {
 			"image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp",
 			"image/heic", "image/heif", "image/bmp", "image/tiff"
 	);
+
+	/**
+	 * Pixel budget an uploaded receipt is reduced to before it is base64-encoded.
+	 *
+	 * <p>1568 px on the long edge and ~1.15 megapixels of area are the numbers Anthropic publishes
+	 * as the point past which its vision API resizes the image itself. Anything above them is
+	 * uploaded, held in memory, and then thrown away by the provider before the model ever sees
+	 * it. A current phone camera posts 4032x3024 — 12.2 MP, about ten times this budget — so the
+	 * whole of that excess is waste. OpenAI's high-detail path has the same shape (fit to
+	 * 2048x2048, then the short edge to 768, then tile), so one budget serves both adapters.
+	 *
+	 * <p>The budget is deliberately set <em>at</em> the providers' own ceiling rather than below
+	 * it: at this size the model receives exactly the pixels it would have received anyway, so the
+	 * change cannot alter parse accuracy. Trading resolution for tokens below this line is a
+	 * separate, measurable decision and is not made here.
+	 */
+	public static final int MAX_EDGE_PX = 1568;
+
+	public static final long MAX_AREA_PX = 1_150_000L;
+
+	/**
+	 * Result of preparing an upload: the base64 payload and the media type that actually describes
+	 * it, which differs from the uploaded one when the image was re-encoded as JPEG.
+	 */
+	public record EncodedImage(String base64, String mediaType) {
+	}
 
 	private static final String SYSTEM_PROMPT_TEMPLATE = """
 			You are GastosAI, an AI receipt parser for a Filipino expense tracker.
@@ -83,8 +116,9 @@ public class VisionService {
 			prompt = prompt.substring(0, max);
 		}
 
-		String base64 = Base64.getEncoder().encodeToString(file.getBytes());
-		String mediaType = file.getContentType() != null ? file.getContentType() : "image/jpeg";
+		EncodedImage encoded = encodeForVision(file.getBytes(), contentType);
+		String base64 = encoded.base64();
+		String mediaType = encoded.mediaType();
 		String systemPrompt = String.format(SYSTEM_PROMPT_TEMPLATE, mode != null ? mode : "plain");
 
 		try {
@@ -106,6 +140,95 @@ public class VisionService {
 			}
 			throw e;
 		}
+	}
+
+	/**
+	 * Base64-encodes an upload, downscaling it to {@link #MAX_EDGE_PX} / {@link #MAX_AREA_PX}
+	 * first if it is over budget.
+	 *
+	 * <p>Fails open: an image ImageIO cannot decode (HEIC/HEIF have no bundled reader) or cannot
+	 * re-encode is sent exactly as uploaded, because a receipt that reaches the model at full size
+	 * is only expensive, while one that fails to reach it at all is a broken scan.
+	 */
+	public static EncodedImage encodeForVision(byte[] original, String mediaType) {
+		BufferedImage source = decode(original);
+		if (source == null) {
+			return asUploaded(original, mediaType);
+		}
+
+		double scale = scaleFor(source.getWidth(), source.getHeight());
+		if (scale >= 1.0) {
+			return asUploaded(original, mediaType);
+		}
+
+		// Floor, not round: rounding up can push the area back over the budget it was solved for.
+		int targetWidth = Math.max(1, (int) Math.floor(source.getWidth() * scale));
+		int targetHeight = Math.max(1, (int) Math.floor(source.getHeight() * scale));
+		BufferedImage scaled = resample(source, targetWidth, targetHeight);
+
+		try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+			// JPEG regardless of what was uploaded: a photographed receipt is continuous-tone, so
+			// PNG at this size costs several times the bytes for no visible difference.
+			if (!ImageIO.write(scaled, "jpeg", out)) {
+				return asUploaded(original, mediaType);
+			}
+			return new EncodedImage(Base64.getEncoder().encodeToString(out.toByteArray()), "image/jpeg");
+		} catch (IOException e) {
+			return asUploaded(original, mediaType);
+		}
+	}
+
+	private static EncodedImage asUploaded(byte[] original, String mediaType) {
+		return new EncodedImage(Base64.getEncoder().encodeToString(original),
+				mediaType != null ? mediaType : "image/jpeg");
+	}
+
+	private static BufferedImage decode(byte[] bytes) {
+		try {
+			return ImageIO.read(new ByteArrayInputStream(bytes));
+		} catch (IOException | RuntimeException e) {
+			return null;
+		}
+	}
+
+	private static double scaleFor(int width, int height) {
+		double byEdge = (double) MAX_EDGE_PX / Math.max(width, height);
+		double byArea = Math.sqrt((double) MAX_AREA_PX / ((long) width * height));
+		return Math.min(1.0, Math.min(byEdge, byArea));
+	}
+
+	/**
+	 * Halves the image repeatedly before the final step. A single bilinear pass over a 10x
+	 * reduction reads four source pixels per output pixel and ignores the other ninety-odd, which
+	 * on receipt text aliases digits into noise; halving keeps every pixel contributing.
+	 */
+	private static BufferedImage resample(BufferedImage source, int targetWidth, int targetHeight) {
+		BufferedImage current = source;
+		int width = source.getWidth();
+		int height = source.getHeight();
+		while (width / 2 > targetWidth && height / 2 > targetHeight) {
+			width /= 2;
+			height /= 2;
+			current = draw(current, width, height);
+		}
+		return draw(current, targetWidth, targetHeight);
+	}
+
+	private static BufferedImage draw(BufferedImage source, int width, int height) {
+		BufferedImage out = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+		Graphics2D g = out.createGraphics();
+		try {
+			g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+			g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+			// TYPE_INT_RGB carries no alpha, so flatten onto white first: a transparent PNG
+			// receipt would otherwise arrive with black where its background was.
+			g.setColor(Color.WHITE);
+			g.fillRect(0, 0, width, height);
+			g.drawImage(source, 0, 0, width, height, null);
+		} finally {
+			g.dispose();
+		}
+		return out;
 	}
 
 	private String resolveModel() {
