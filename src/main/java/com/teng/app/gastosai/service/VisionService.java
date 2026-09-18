@@ -249,10 +249,12 @@ public class VisionService {
 	/**
 	 * Decodes at a subsampled resolution rather than in full.
 	 *
-	 * <p>This is the memory bound as well as a speed one: the reader only ever materialises about
-	 * four times the target area, so the heap a single upload can claim is a function of the budget
-	 * and not of what the uploader declared. Subsampling is nearest-neighbour, which is why it stops
-	 * at twice the target and leaves the last factor of two to the bilinear pass below.
+	 * <p>This is the memory bound as well as a speed one: the heap a single upload can claim becomes
+	 * a function of the budget rather than of what the uploader declared. Subsampling is
+	 * nearest-neighbour, so it stops while each edge is still at least twice the target and leaves
+	 * the last factor of two to the bilinear pass below. Because the step is a power of two, an edge
+	 * can be left anywhere in [2x, 4x) of its target — so the decoded raster is at most sixteen times
+	 * the target area, ~18 MP, and {@link #MAX_DECODE_PX} caps it regardless.
 	 */
 	private static BufferedImage decode(byte[] bytes, int targetWidth, int targetHeight) {
 		try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {

@@ -298,6 +298,48 @@ class VisionServiceTest {
     }
 
     @Test
+    void transposedExifOrientationIsAppliedAlongTheRightDiagonal() throws Exception {
+        BufferedImage landscape = ImageIO.read(new ByteArrayInputStream(receiptPng(4032, 3024)));
+        // Mark the top-right. Orientation 5 transposes along the main diagonal, so (x,y) -> (y,x)
+        // and the mark belongs in the bottom-left; a wrong sign would put it in the top-left.
+        Graphics2D mark = landscape.createGraphics();
+        mark.setColor(Color.BLACK);
+        mark.fillRect(4032 - 800, 0, 800, 600);
+        mark.dispose();
+        ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
+        ImageIO.write(landscape, "jpeg", jpeg);
+        byte[] original = withExifOrientation(jpeg.toByteArray(), 5);
+
+        BufferedImage sent = decodeBase64(VisionService.encodeForVision(original, "image/jpeg").base64());
+
+        assertThat(sent.getHeight()).isGreaterThan(sent.getWidth());
+        assertThat(brightness(sent, 4, sent.getHeight() - 20)).isLessThan(64);
+        assertThat(brightness(sent, 4, 4)).isGreaterThan(192);
+    }
+
+    @Test
+    void largeLowEntropyImage_goesThroughTheSubsampledDecode() throws Exception {
+        // 27 MP of near-flat grey: a few hundred KB on the wire, well under the refusal ceiling, so
+        // it is the case the subsampled decode — not the header check — has to survive.
+        BufferedImage huge = new BufferedImage(6000, 4500, BufferedImage.TYPE_BYTE_GRAY);
+        Graphics2D g = huge.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, 6000, 4500);
+        g.setColor(Color.DARK_GRAY);
+        g.fillRect(500, 500, 5000, 200);
+        g.dispose();
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
+        ImageIO.write(huge, "png", png);
+
+        VisionService.EncodedImage encoded = VisionService.encodeForVision(png.toByteArray(), "image/png");
+
+        BufferedImage sent = decodeBase64(encoded.base64());
+        assertThat(Math.max(sent.getWidth(), sent.getHeight())).isLessThanOrEqualTo(VisionService.MAX_EDGE_PX);
+        assertThat((long) sent.getWidth() * sent.getHeight()).isLessThanOrEqualTo(VisionService.MAX_AREA_PX);
+        assertThat(encoded.mediaType()).isEqualTo("image/jpeg");
+    }
+
+    @Test
     void undecodableUpload_isSentAsUploaded() {
         byte[] heic = "not an image ImageIO can read".getBytes();
 
