@@ -48,11 +48,22 @@ public class AiQuotaService {
         // bring-your-own-key mode too — which is what
         // AiQuotaServiceTest.absoluteCap_blocks_whenAtCap_byoMode asserts.
         //
-        // The two backend-guard caps — this one and the global daily cap above — count *attempts*:
-        // SUCCESS and FAILED rows alike (TEN-409). A refused upload still costs a header parse, and
-        // an accepted-but-hostile one costs a bounded decode up to VisionService.MAX_DECODE_PX, so
-        // a failure consumes the very resource these caps exist to protect. Counting successes only
-        // let a client repeat a refused or expensive request without limit.
+        // The absolute monthly cap counts *attempts*: SUCCESS and FAILED rows alike (TEN-409). A
+        // refused upload still costs a header parse, and an accepted-but-hostile one costs a
+        // bounded decode up to VisionService.MAX_DECODE_PX, so a failure consumes the very
+        // resource this cap exists to protect. Counting successes only let a client repeat a
+        // refused or expensive request without limit — nothing throttled it at all.
+        //
+        // The global daily cap above deliberately does NOT count failures, and the asymmetry is
+        // the point. It is the one counter here that is *shared*: every user draws on one pool, so
+        // whatever spends it spends it for everybody. Failures are free to manufacture — a 45-byte
+        // PNG declaring an absurd canvas is refused before any provider call — so a cap that
+        // counted them would let one authenticated account burn half the platform's day (1000
+        // attempts, its own ceiling, against a 2000 default) and lock every other tenant out, at no
+        // cost to itself. That trades a bounded per-user abuse for an unbounded cross-tenant one.
+        // The per-user cap below is the failed-attempt throttle: it stops the abusive caller
+        // without touching anyone else, which is what the shared pool cannot do. The shared pool
+        // stays what its name says — a budget counter for the provider spend only a success incurs.
         //
         // The per-plan entitlement quotas further down deliberately keep counting successes only:
         // those meter what the user paid for, and a scan that failed for our reasons — a provider
@@ -148,12 +159,12 @@ public class AiQuotaService {
     }
 
     /**
-     * Platform-wide AI attempts today — SUCCESS and FAILED alike. Like the absolute monthly cap
-     * this is a backend guard, so a failed request spends the shared pool just as a successful one
-     * does. The name is kept for the callers that read it; it counts attempts (TEN-409).
+     * Platform-wide successful AI requests today. Successes only, unlike the absolute monthly cap:
+     * this pool is shared across every user, so anything that spends it spends it for all of them.
+     * See {@link #assertWithinQuota} for why failures are throttled per-user instead.
      */
     public long globalDailyUsed() {
-        return aiUsageRepository.countByCreatedAtAfter(startOfToday());
+        return aiUsageRepository.countByStatusAndCreatedAtAfter(AiUsageStatus.SUCCESS, startOfToday());
     }
 
     private LocalDateTime startOfCurrentMonth() {

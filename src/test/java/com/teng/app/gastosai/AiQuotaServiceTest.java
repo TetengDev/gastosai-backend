@@ -31,7 +31,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -269,25 +268,42 @@ class AiQuotaServiceTest {
                 .isInstanceOf(AiQuotaExceededException.class);
     }
 
-    /** The global daily pool is a backend guard too — failures spend it. */
+    /**
+     * The shared daily pool stays SUCCESS-only, and this is the test that says so deliberately
+     * rather than by omission. Counting failures here would let one account manufacture refusals —
+     * free, since they never reach the provider — until every other tenant is locked out for the
+     * day. Failures are throttled per-user by the absolute monthly cap instead, which stops the
+     * abusive caller without spending anybody else's budget.
+     */
     @Test
-    void globalDailyCap_countsFailedAttempts() {
+    void globalDailyCap_ignoresFailedAttempts() {
+        managedProps.setAllowSharedKey(true);
+        managedProps.setGlobalDailyMax(2000);
+        managedProps.setQuotaFree(30);
+        User user = user(false);
+        when(entitlementService.describe(user)).thenReturn(entitlementsFor(PlanKey.FREE, false));
+        stubUsed(0L);
+        // 1999 successes platform-wide; a further 50000 failed attempts must not close the pool.
+        when(aiUsageRepository.countByStatusAndCreatedAtAfter(
+                eq(AiUsageStatus.SUCCESS), any(LocalDateTime.class))).thenReturn(1999L);
+
+        assertThatCode(() -> aiQuotaService.assertWithinQuota(user, AiFeature.CHAT_CRUD_ASSISTANT))
+                .doesNotThrowAnyException();
+        verifyNoInteractions(appEventService);
+    }
+
+    /** The shared pool still closes on successes, and still records the abuse trip. */
+    @Test
+    void globalDailyCap_stillEnforcedOnSuccesses() {
         managedProps.setAllowSharedKey(true);
         managedProps.setGlobalDailyMax(2000);
         User user = user(false);
-        when(aiUsageRepository.countByCreatedAtAfter(any(LocalDateTime.class))).thenReturn(2000L);
+        when(aiUsageRepository.countByStatusAndCreatedAtAfter(
+                eq(AiUsageStatus.SUCCESS), any(LocalDateTime.class))).thenReturn(2000L);
 
         assertThatThrownBy(() -> aiQuotaService.assertWithinQuota(user, AiFeature.CHAT_CRUD_ASSISTANT))
                 .isInstanceOf(AiQuotaExceededException.class);
         verify(appEventService).recordAbuseTrip(eq("AI_GLOBAL_CAP"), eq(1L), eq("/ai"), any());
-    }
-
-    /** globalDailyUsed() reads every row, not the SUCCESS-filtered count it used to read. */
-    @Test
-    void globalDailyUsed_readsAllStatuses() {
-        when(aiUsageRepository.countByCreatedAtAfter(any(LocalDateTime.class))).thenReturn(7L);
-        assertThat(aiQuotaService.globalDailyUsed()).isEqualTo(7L);
-        verify(aiUsageRepository, never()).countByStatusAndCreatedAtAfter(any(), any(LocalDateTime.class));
     }
 
     /** usedThisMonth() stays SUCCESS-only — /ai/usage reports it to the user. */
