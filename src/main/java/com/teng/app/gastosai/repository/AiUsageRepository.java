@@ -23,6 +23,15 @@ public interface AiUsageRepository extends JpaRepository<AiUsage, Long> {
 
     long countByStatusAndCreatedAtAfter(AiUsageStatus status, LocalDateTime after);
 
+    /**
+     * Attempts, not successes: every row regardless of {@link AiUsageStatus}. The backend-guard
+     * caps in {@code AiQuotaService} use these two; the per-plan entitlement quotas keep using the
+     * SUCCESS-filtered counts above. See {@code AiQuotaService#assertWithinQuota} for why.
+     */
+    long countByUserIdAndFeatureInAndCreatedAtAfter(Long userId, Collection<AiFeature> features, LocalDateTime after);
+
+    long countByCreatedAtAfter(LocalDateTime after);
+
     @Query("""
             SELECT a.feature, a.model,
                    COUNT(a) AS requests,
