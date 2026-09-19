@@ -21,8 +21,20 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReadParam;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.geom.AffineTransform;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Base64;
+import java.util.Iterator;
 import java.util.Set;
 
 @Service
@@ -33,6 +45,40 @@ public class VisionService {
 			"image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp",
 			"image/heic", "image/heif", "image/bmp", "image/tiff"
 	);
+
+	/**
+	 * Pixel budget an uploaded receipt is reduced to before it is base64-encoded.
+	 *
+	 * <p>1568 px on the long edge and ~1.15 megapixels of area are the numbers Anthropic publishes
+	 * as the point past which its vision API resizes the image itself. Anything above them is
+	 * uploaded, held in memory, and then thrown away by the provider before the model ever sees
+	 * it. A current phone camera posts 4032x3024 — 12.2 MP, about ten times this budget — so the
+	 * whole of that excess is waste. OpenAI's high-detail path has the same shape (fit to
+	 * 2048x2048, then the short edge to 768, then tile), so one budget serves both adapters.
+	 *
+	 * <p>The budget is deliberately set <em>at</em> the providers' own ceiling rather than below
+	 * it: at this size the model receives exactly the pixels it would have received anyway, so the
+	 * change cannot alter parse accuracy. Trading resolution for tokens below this line is a
+	 * separate, measurable decision and is not made here.
+	 */
+	public static final int MAX_EDGE_PX = 1568;
+
+	public static final long MAX_AREA_PX = 1_150_000L;
+
+	/**
+	 * Hard ceiling on the pixels a header may declare before the upload is refused outright.
+	 *
+	 * <p>100 MP is roughly eight times the largest phone sensor sold today, so no real receipt photo
+	 * comes near it, while a decompression bomb clears it by orders of magnitude.
+	 */
+	public static final long MAX_DECODE_PX = 100_000_000L;
+
+	/**
+	 * Result of preparing an upload: the base64 payload and the media type that actually describes
+	 * it, which differs from the uploaded one when the image was re-encoded as JPEG.
+	 */
+	public record EncodedImage(String base64, String mediaType) {
+	}
 
 	private static final String SYSTEM_PROMPT_TEMPLATE = """
 			You are GastosAI, an AI receipt parser for a Filipino expense tracker.
@@ -83,11 +129,14 @@ public class VisionService {
 			prompt = prompt.substring(0, max);
 		}
 
-		String base64 = Base64.getEncoder().encodeToString(file.getBytes());
-		String mediaType = file.getContentType() != null ? file.getContentType() : "image/jpeg";
 		String systemPrompt = String.format(SYSTEM_PROMPT_TEMPLATE, mode != null ? mode : "plain");
 
+		// Inside the try: decoding an untrusted image is work this backend pays for whether or not
+		// a provider call follows, so a failure there has to count against the user's cap too.
 		try {
+			EncodedImage encoded = encodeForVision(file.getBytes(), contentType);
+			String base64 = encoded.base64();
+			String mediaType = encoded.mediaType();
 			LlmResult<ParsedExpenseResult> result = "claude".equalsIgnoreCase(providerProps.getProvider())
 					? callClaude(prompt, base64, mediaType, systemPrompt)
 					: callOpenAi(prompt, base64, mediaType, systemPrompt);
@@ -98,14 +147,340 @@ public class VisionService {
 						usage.inputTokens(), usage.outputTokens(), AiUsageStatus.SUCCESS, null);
 			}
 			return result.value();
-		} catch (Exception e) {
+		} catch (Throwable t) {
+			// Throwable, not Exception: an OutOfMemoryError raised while decoding a hostile image
+			// is an Error, and letting it escape unrecorded would leave the absolute monthly cap —
+			// the valve that throttles exactly that kind of repeated abuse — none the wiser.
 			if (user != null) {
-				aiUsageService.record(user.getId(), providerProps.getProvider(),
-						resolveModel(), AiFeature.RECEIPT_ANALYSIS,
-						null, null, AiUsageStatus.FAILED, e.getClass().getSimpleName());
+				try {
+					aiUsageService.record(user.getId(), providerProps.getProvider(),
+							resolveModel(), AiFeature.RECEIPT_ANALYSIS,
+							null, null, AiUsageStatus.FAILED, t.getClass().getSimpleName());
+				} catch (Exception recordFailure) {
+					t.addSuppressed(recordFailure);
+				}
 			}
-			throw e;
+			throw t;
 		}
+	}
+
+	/**
+	 * Base64-encodes an upload, downscaling it to {@link #MAX_EDGE_PX} / {@link #MAX_AREA_PX}
+	 * first if it is over budget.
+	 *
+	 * <p>Fails open: an image ImageIO cannot decode (HEIC/HEIF have no bundled reader) or cannot
+	 * re-encode is sent exactly as uploaded, because a receipt that reaches the model at full size
+	 * is only expensive, while one that fails to reach it at all is a broken scan.
+	 */
+	public static EncodedImage encodeForVision(byte[] original, String mediaType) {
+		int[] dimensions = readDimensions(original);
+		if (dimensions == null) {
+			return asUploaded(original, mediaType);
+		}
+		int width = dimensions[0];
+		int height = dimensions[1];
+
+		// Fails closed, unlike everything else here. The header is attacker-controlled and a
+		// low-entropy PNG well under the 10 MB upload cap can declare a multi-gigapixel canvas;
+		// honouring it would allocate the raster before any budget applies. Refusing one absurd
+		// upload is better than an OutOfMemoryError that takes the API down for every tenant.
+		if ((long) width * height > MAX_DECODE_PX) {
+			throw new IllegalArgumentException("Image is too large to process: " + width + "x" + height
+					+ " pixels. Upload a photo of the receipt rather than a full-resolution scan.");
+		}
+
+		double scale = scaleFor(width, height);
+		if (scale >= 1.0) {
+			return asUploaded(original, mediaType);
+		}
+
+		// Floor, not round: rounding up can push the area back over the budget it was solved for.
+		int targetWidth = Math.max(1, (int) Math.floor(width * scale));
+		int targetHeight = Math.max(1, (int) Math.floor(height * scale));
+
+		BufferedImage source = decode(original, targetWidth, targetHeight);
+		if (source == null) {
+			return asUploaded(original, mediaType);
+		}
+		// Re-encoding drops the EXIF orientation tag the original carried, so bake the rotation
+		// into the pixels instead; a sideways receipt is a parse failure, not a cosmetic issue.
+		BufferedImage scaled = applyOrientation(resample(source, targetWidth, targetHeight),
+				exifOrientation(original));
+
+		try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+			// JPEG regardless of what was uploaded: a photographed receipt is continuous-tone, so
+			// PNG at this size costs several times the bytes for no visible difference.
+			if (!ImageIO.write(scaled, "jpeg", out)) {
+				return asUploaded(original, mediaType);
+			}
+			return new EncodedImage(Base64.getEncoder().encodeToString(out.toByteArray()), "image/jpeg");
+		} catch (IOException e) {
+			return asUploaded(original, mediaType);
+		}
+	}
+
+	private static EncodedImage asUploaded(byte[] original, String mediaType) {
+		return new EncodedImage(Base64.getEncoder().encodeToString(original),
+				mediaType != null ? mediaType : "image/jpeg");
+	}
+
+	/** Width and height straight from the image header, without decoding a pixel. */
+	private static int[] readDimensions(byte[] bytes) {
+		// ImageIO picks the reader by magic bytes, not by the declared content type
+		// ALLOWED_MEDIA_TYPES gates, so bytes labelled image/jpeg that are really a TIFF reach the
+		// TIFF reader. Accepted deliberately, but not because the sets match — they do not. This
+		// JVM registers jpeg, png, gif, bmp, tiff and **wbmp**, and image/wbmp is not an allowed
+		// type, so a mislabelled upload does reach one codec an honest label could not. It is
+		// accepted because every reader here is the JDK's own and MAX_DECODE_PX below is
+		// format-agnostic: a WBMP raster is bounded exactly like every other.
+		//
+		// The reverse gap is the one that costs something. image/webp, image/heic and image/heif
+		// are allowed types with no reader in this JVM, so readDimensions returns null for them and
+		// `encodeForVision` sends the upload through untouched — no downscale, and no MAX_DECODE_PX
+		// ceiling either, since both sit downstream of this method. HEIC is what an iPhone camera
+		// produces by default, so the saving this class exists for does not yet reach those uploads.
+		// Closing that needs a decoder this project does not depend on: see TEN-410.
+		try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+			if (input == null) {
+				return null;
+			}
+			Iterator<ImageReader> readers = ImageIO.getImageReaders(input);
+			if (!readers.hasNext()) {
+				return null;
+			}
+			ImageReader reader = readers.next();
+			try {
+				reader.setInput(input, true, true);
+				return new int[]{reader.getWidth(0), reader.getHeight(0)};
+			} finally {
+				reader.dispose();
+			}
+		} catch (IOException | RuntimeException e) {
+			return null;
+		}
+	}
+
+	/**
+	 * Decodes at a subsampled resolution rather than in full.
+	 *
+	 * <p>This is the memory bound as well as a speed one: the heap a single upload can claim becomes
+	 * a function of the budget rather than of what the uploader declared. Subsampling is
+	 * nearest-neighbour, so it stops while each edge is still at least twice the target and leaves
+	 * the last factor of two to the bilinear pass below. Because the step is a power of two, an edge
+	 * can be left anywhere in [2x, 4x) of its target — so the decoded raster is at most sixteen times
+	 * the target area, ~18 MP, and {@link #MAX_DECODE_PX} caps it regardless.
+	 *
+	 * <p>The two axes get their own step. A single shared step has to satisfy the smaller axis, and
+	 * an axis already at its target stops the loop at 1 — so a 100,000,000x1 canvas, which clears
+	 * the {@link #MAX_DECODE_PX} ceiling, would have been decoded whole. Per-axis steps keep the
+	 * bound above true for any aspect ratio; the non-uniform ratio it decodes at costs nothing,
+	 * because the final draw scales to the exact target dimensions anyway.
+	 */
+	private static BufferedImage decode(byte[] bytes, int targetWidth, int targetHeight) {
+		try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+			if (input == null) {
+				return null;
+			}
+			Iterator<ImageReader> readers = ImageIO.getImageReaders(input);
+			if (!readers.hasNext()) {
+				return null;
+			}
+			ImageReader reader = readers.next();
+			try {
+				reader.setInput(input, true, true);
+				int stepX = subsamplingFor(reader.getWidth(0), targetWidth);
+				int stepY = subsamplingFor(reader.getHeight(0), targetHeight);
+				ImageReadParam param = reader.getDefaultReadParam();
+				if (stepX > 1 || stepY > 1) {
+					param.setSourceSubsampling(stepX, stepY, 0, 0);
+				}
+				return reader.read(0, param);
+			} finally {
+				reader.dispose();
+			}
+		} catch (IOException | RuntimeException e) {
+			return null;
+		}
+	}
+
+	/**
+	 * The largest power-of-two step for one axis that still leaves it at least twice its target.
+	 *
+	 * <p>Visible for the test that pins the bound: the step an axis gets is the whole memory
+	 * argument above, and it is not observable from the encoded output, which is the target size
+	 * either way.
+	 */
+	public static int subsamplingFor(int length, int target) {
+		int step = 1;
+		while (length / (step * 2) >= target * 2) {
+			step *= 2;
+		}
+		return step;
+	}
+
+	private static double scaleFor(int width, int height) {
+		double byEdge = (double) MAX_EDGE_PX / Math.max(width, height);
+		double byArea = Math.sqrt((double) MAX_AREA_PX / ((long) width * height));
+		return Math.min(1.0, Math.min(byEdge, byArea));
+	}
+
+	/**
+	 * Halves the image repeatedly before the final step. A single bilinear pass over a 10x
+	 * reduction reads four source pixels per output pixel and ignores the other ninety-odd, which
+	 * on receipt text aliases digits into noise; halving keeps every pixel contributing.
+	 */
+	private static BufferedImage resample(BufferedImage source, int targetWidth, int targetHeight) {
+		BufferedImage current = source;
+		int width = source.getWidth();
+		int height = source.getHeight();
+		while (width / 2 > targetWidth && height / 2 > targetHeight) {
+			width /= 2;
+			height /= 2;
+			current = draw(current, width, height);
+		}
+		return draw(current, targetWidth, targetHeight);
+	}
+
+	private static BufferedImage draw(BufferedImage source, int width, int height) {
+		BufferedImage out = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+		Graphics2D g = out.createGraphics();
+		try {
+			g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+			g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+			// TYPE_INT_RGB carries no alpha, so flatten onto white first: a transparent PNG
+			// receipt would otherwise arrive with black where its background was.
+			g.setColor(Color.WHITE);
+			g.fillRect(0, 0, width, height);
+			g.drawImage(source, 0, 0, width, height, null);
+		} finally {
+			g.dispose();
+		}
+		return out;
+	}
+
+	/**
+	 * Reads the EXIF Orientation tag (1-8) out of a JPEG, or 1 if there is none.
+	 *
+	 * <p>Parsed by hand rather than by adding a metadata dependency: it is one tag in the first IFD,
+	 * and every offset below is bounds-checked because the bytes are an untrusted upload.
+	 */
+	public static int exifOrientation(byte[] bytes) {
+		if (bytes.length < 4 || (bytes[0] & 0xFF) != 0xFF || (bytes[1] & 0xFF) != 0xD8) {
+			return 1;
+		}
+		int at = 2;
+		while (at + 4 <= bytes.length) {
+			if ((bytes[at] & 0xFF) != 0xFF) {
+				return 1;
+			}
+			int marker = bytes[at + 1] & 0xFF;
+			if (marker == 0xD8 || marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) {
+				at += 2;
+				continue;
+			}
+			// Start of scan or end of image: EXIF, if it existed, would have come first.
+			if (marker == 0xDA || marker == 0xD9) {
+				return 1;
+			}
+			int length = ((bytes[at + 2] & 0xFF) << 8) | (bytes[at + 3] & 0xFF);
+			if (length < 2 || at + 2 + length > bytes.length) {
+				return 1;
+			}
+			if (marker == 0xE1 && length >= 16
+					&& bytes[at + 4] == 'E' && bytes[at + 5] == 'x'
+					&& bytes[at + 6] == 'i' && bytes[at + 7] == 'f') {
+				return orientationFromTiff(bytes, at + 10, at + 2 + length);
+			}
+			at += 2 + length;
+		}
+		return 1;
+	}
+
+	private static int orientationFromTiff(byte[] bytes, int start, int end) {
+		if (start + 8 > end) {
+			return 1;
+		}
+		boolean bigEndian = (bytes[start] & 0xFF) == 0x4D;
+		long ifdOffset = readUnsigned(bytes, start + 4, 4, bigEndian);
+		long ifd = start + ifdOffset;
+		if (ifd < start || ifd + 2 > end) {
+			return 1;
+		}
+		int entries = (int) readUnsigned(bytes, (int) ifd, 2, bigEndian);
+		for (int i = 0; i < entries; i++) {
+			long entry = ifd + 2 + (long) i * 12;
+			if (entry + 12 > end) {
+				return 1;
+			}
+			if (readUnsigned(bytes, (int) entry, 2, bigEndian) == 0x0112) {
+				long value = readUnsigned(bytes, (int) entry + 8, 2, bigEndian);
+				return (value >= 1 && value <= 8) ? (int) value : 1;
+			}
+		}
+		return 1;
+	}
+
+	private static long readUnsigned(byte[] bytes, int offset, int length, boolean bigEndian) {
+		long value = 0;
+		for (int i = 0; i < length; i++) {
+			int index = bigEndian ? offset + i : offset + length - 1 - i;
+			value = (value << 8) | (bytes[index] & 0xFF);
+		}
+		return value;
+	}
+
+	/** Applies an EXIF orientation to the pixels; 5-8 swap the two edges. */
+	private static BufferedImage applyOrientation(BufferedImage image, int orientation) {
+		if (orientation <= 1 || orientation > 8) {
+			return image;
+		}
+		int width = image.getWidth();
+		int height = image.getHeight();
+		boolean transposed = orientation >= 5;
+		BufferedImage out = new BufferedImage(transposed ? height : width,
+				transposed ? width : height, BufferedImage.TYPE_INT_RGB);
+		Graphics2D g = out.createGraphics();
+		try {
+			// Calls apply to the source point in reverse order, innermost last.
+			AffineTransform transform = new AffineTransform();
+			switch (orientation) {
+				case 2 -> {
+					transform.translate(width, 0);
+					transform.scale(-1, 1);
+				}
+				case 3 -> {
+					transform.translate(width, height);
+					transform.rotate(Math.PI);
+				}
+				case 4 -> {
+					transform.translate(0, height);
+					transform.scale(1, -1);
+				}
+				case 5 -> {
+					transform.rotate(Math.PI / 2);
+					transform.scale(1, -1);
+				}
+				case 6 -> {
+					transform.translate(height, 0);
+					transform.rotate(Math.PI / 2);
+				}
+				case 7 -> {
+					transform.translate(height, width);
+					transform.rotate(Math.PI);
+					transform.rotate(Math.PI / 2);
+					transform.scale(1, -1);
+				}
+				default -> {
+					transform.translate(0, width);
+					transform.rotate(-Math.PI / 2);
+				}
+			}
+			g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+			g.drawImage(image, transform, null);
+		} finally {
+			g.dispose();
+		}
+		return out;
 	}
 
 	private String resolveModel() {

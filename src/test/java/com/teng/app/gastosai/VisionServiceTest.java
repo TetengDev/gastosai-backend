@@ -19,7 +19,18 @@ import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 import org.springframework.mock.web.MockMultipartFile;
 
+import javax.imageio.ImageIO;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.util.Base64;
+import java.util.Random;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
@@ -121,5 +132,250 @@ class VisionServiceTest {
 
         assertThat(result.saveable()).isFalse();
         assertThat(result.hint()).contains("not valid json");
+    }
+
+    /** A receipt-shaped image generated in memory: white card, dark text bars, no binary fixture. */
+    private static byte[] receiptPng(int width, int height) throws Exception {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, width, height);
+        g.setColor(Color.DARK_GRAY);
+        for (int y = height / 10; y < height; y += height / 10) {
+            g.fillRect(width / 8, y, width * 3 / 4, Math.max(1, height / 100));
+        }
+        g.dispose();
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", out);
+        return out.toByteArray();
+    }
+
+    private static BufferedImage decodeBase64(String base64) throws Exception {
+        return ImageIO.read(new ByteArrayInputStream(Base64.getDecoder().decode(base64)));
+    }
+
+    @Test
+    void oversizedImage_isDownscaledWithinTheBudget() throws Exception {
+        byte[] original = receiptPng(4032, 3024);
+
+        VisionService.EncodedImage encoded = VisionService.encodeForVision(original, "image/png");
+
+        BufferedImage sent = decodeBase64(encoded.base64());
+        assertThat(Math.max(sent.getWidth(), sent.getHeight())).isLessThanOrEqualTo(VisionService.MAX_EDGE_PX);
+        assertThat((long) sent.getWidth() * sent.getHeight()).isLessThanOrEqualTo(VisionService.MAX_AREA_PX);
+        // Aspect ratio is preserved, so the receipt is not stretched.
+        assertThat((double) sent.getWidth() / sent.getHeight()).isCloseTo(4032d / 3024d, within(0.01));
+        assertThat(encoded.mediaType()).isEqualTo("image/jpeg");
+        // The synthetic receipt is flat colour, so its PNG is far smaller than a photograph's and
+        // byte size proves nothing here; pixels sent is what the budget and the provider count.
+        assertThat((long) sent.getWidth() * sent.getHeight()).isLessThan(4032L * 3024L);
+    }
+
+    @Test
+    void withinBudgetImage_isPassedThroughUnchanged() throws Exception {
+        byte[] original = receiptPng(1000, 1100);
+
+        VisionService.EncodedImage encoded = VisionService.encodeForVision(original, "image/png");
+
+        assertThat(encoded.mediaType()).isEqualTo("image/png");
+        assertThat(Base64.getDecoder().decode(encoded.base64())).isEqualTo(original);
+    }
+
+    @Test
+    void photographicUpload_shrinksThePayloadSent() throws Exception {
+        // Sensor noise over the text bars: a flat synthetic image compresses unrealistically well,
+        // so only a noisy one says anything about the bytes a real phone photo would upload.
+        BufferedImage image = ImageIO.read(new ByteArrayInputStream(receiptPng(4032, 3024)));
+        Random random = new Random(7);
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                int noise = random.nextInt(24) - 12;
+                int rgb = image.getRGB(x, y);
+                int value = Math.clamp((rgb & 0xFF) + noise, 0, 255);
+                image.setRGB(x, y, (value << 16) | (value << 8) | value);
+            }
+        }
+        ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
+        ImageIO.write(image, "jpeg", jpeg);
+        byte[] original = jpeg.toByteArray();
+
+        VisionService.EncodedImage encoded = VisionService.encodeForVision(original, "image/jpeg");
+
+        int sentBytes = Base64.getDecoder().decode(encoded.base64()).length;
+        System.out.printf("[TEN-163] 4032x3024 jpeg %d bytes -> %d bytes (%.1f%% of original)%n",
+                original.length, sentBytes, 100.0 * sentBytes / original.length);
+        assertThat(sentBytes).isLessThan(original.length / 2);
+    }
+
+    /** The 34-byte APP1 segment a phone writes when it holds the camera sideways. */
+    private static byte[] withExifOrientation(byte[] jpeg, int orientation) {
+        byte[] app1 = new byte[]{
+            (byte) 0xFF, (byte) 0xE1, 0x00, 0x22,
+            'E', 'x', 'i', 'f', 0x00, 0x00,
+            'M', 'M', 0x00, 0x2A, 0x00, 0x00, 0x00, 0x08,   // big-endian TIFF header, IFD0 at 8
+            0x00, 0x01,                                      // one entry
+            0x01, 0x12, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01,  // tag 0x0112, SHORT, count 1
+            0x00, (byte) orientation, 0x00, 0x00,            // value, left-aligned in 4 bytes
+            0x00, 0x00, 0x00, 0x00                           // no next IFD
+        };
+        byte[] out = new byte[jpeg.length + app1.length];
+        System.arraycopy(jpeg, 0, out, 0, 2);                // SOI
+        System.arraycopy(app1, 0, out, 2, app1.length);
+        System.arraycopy(jpeg, 2, out, 2 + app1.length, jpeg.length - 2);
+        return out;
+    }
+
+    /** Mean brightness of a small patch, used to find where a corner mark ended up. */
+    private static double brightness(BufferedImage image, int left, int top) {
+        long sum = 0;
+        int size = 16;
+        for (int y = top; y < top + size; y++) {
+            for (int x = left; x < left + size; x++) {
+                sum += image.getRGB(x, y) & 0xFF;
+            }
+        }
+        return (double) sum / (size * size);
+    }
+
+    @Test
+    void exifOrientationIsBakedIntoThePixels() throws Exception {
+        BufferedImage landscape = ImageIO.read(new ByteArrayInputStream(receiptPng(4032, 3024)));
+        // A black mark in the top-left corner: orientation 6 is a 90° clockwise turn, so it must
+        // come back in the top-right. A mirrored transform would put it in the top-left instead.
+        Graphics2D mark = landscape.createGraphics();
+        mark.setColor(Color.BLACK);
+        mark.fillRect(0, 0, 800, 600);
+        mark.dispose();
+        ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
+        ImageIO.write(landscape, "jpeg", jpeg);
+        // Orientation 6: the sensor read landscape, the receipt is meant to be seen rotated 90° CW.
+        byte[] original = withExifOrientation(jpeg.toByteArray(), 6);
+        assertThat(VisionService.exifOrientation(original)).isEqualTo(6);
+
+        VisionService.EncodedImage encoded = VisionService.encodeForVision(original, "image/jpeg");
+
+        BufferedImage sent = decodeBase64(encoded.base64());
+        assertThat(sent.getHeight()).isGreaterThan(sent.getWidth());
+        assertThat(brightness(sent, sent.getWidth() - 20, 4)).isLessThan(64);
+        assertThat(brightness(sent, 4, 4)).isGreaterThan(192);
+        assertThat(Math.max(sent.getWidth(), sent.getHeight())).isLessThanOrEqualTo(VisionService.MAX_EDGE_PX);
+        assertThat((long) sent.getWidth() * sent.getHeight()).isLessThanOrEqualTo(VisionService.MAX_AREA_PX);
+    }
+
+    @Test
+    void imageWithoutExif_keepsItsOrientation() throws Exception {
+        byte[] original = receiptPng(4032, 3024);
+
+        assertThat(VisionService.exifOrientation(original)).isEqualTo(1);
+        BufferedImage sent = decodeBase64(VisionService.encodeForVision(original, "image/png").base64());
+        assertThat(sent.getWidth()).isGreaterThan(sent.getHeight());
+    }
+
+    /** A PNG whose header declares a canvas far larger than its compressed bytes could ever hold. */
+    private static byte[] declaredSize(byte[] png, int width, int height) {
+        byte[] out = png.clone();
+        for (int i = 0; i < 4; i++) {
+            out[16 + i] = (byte) (width >>> (24 - 8 * i));
+            out[20 + i] = (byte) (height >>> (24 - 8 * i));
+        }
+        java.util.zip.CRC32 crc = new java.util.zip.CRC32();
+        crc.update(out, 12, 17); // chunk type + IHDR payload
+        long value = crc.getValue();
+        for (int i = 0; i < 4; i++) {
+            out[29 + i] = (byte) (value >>> (24 - 8 * i));
+        }
+        return out;
+    }
+
+    @Test
+    void decompressionBomb_isRefusedBeforeAnyPixelIsDecoded() throws Exception {
+        // 30000x30000 = 900 MP, which would be a 3.6 GB raster, from a few hundred bytes on the wire.
+        byte[] bomb = declaredSize(receiptPng(64, 64), 30000, 30000);
+
+        assertThatThrownBy(() -> VisionService.encodeForVision(bomb, "image/png"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("too large");
+    }
+
+    @Test
+    void transposedExifOrientationIsAppliedAlongTheRightDiagonal() throws Exception {
+        BufferedImage landscape = ImageIO.read(new ByteArrayInputStream(receiptPng(4032, 3024)));
+        // Mark the top-right. Orientation 5 transposes along the main diagonal, so (x,y) -> (y,x)
+        // and the mark belongs in the bottom-left; a wrong sign would put it in the top-left.
+        Graphics2D mark = landscape.createGraphics();
+        mark.setColor(Color.BLACK);
+        mark.fillRect(4032 - 800, 0, 800, 600);
+        mark.dispose();
+        ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
+        ImageIO.write(landscape, "jpeg", jpeg);
+        byte[] original = withExifOrientation(jpeg.toByteArray(), 5);
+
+        BufferedImage sent = decodeBase64(VisionService.encodeForVision(original, "image/jpeg").base64());
+
+        assertThat(sent.getHeight()).isGreaterThan(sent.getWidth());
+        assertThat(brightness(sent, 4, sent.getHeight() - 20)).isLessThan(64);
+        assertThat(brightness(sent, 4, 4)).isGreaterThan(192);
+    }
+
+    @Test
+    void largeLowEntropyImage_goesThroughTheSubsampledDecode() throws Exception {
+        // 27 MP of near-flat grey: a few hundred KB on the wire, well under the refusal ceiling, so
+        // it is the case the subsampled decode — not the header check — has to survive.
+        BufferedImage huge = new BufferedImage(6000, 4500, BufferedImage.TYPE_BYTE_GRAY);
+        Graphics2D g = huge.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, 6000, 4500);
+        g.setColor(Color.DARK_GRAY);
+        g.fillRect(500, 500, 5000, 200);
+        g.dispose();
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
+        ImageIO.write(huge, "png", png);
+
+        VisionService.EncodedImage encoded = VisionService.encodeForVision(png.toByteArray(), "image/png");
+
+        BufferedImage sent = decodeBase64(encoded.base64());
+        assertThat(Math.max(sent.getWidth(), sent.getHeight())).isLessThanOrEqualTo(VisionService.MAX_EDGE_PX);
+        assertThat((long) sent.getWidth() * sent.getHeight()).isLessThanOrEqualTo(VisionService.MAX_AREA_PX);
+        assertThat(encoded.mediaType()).isEqualTo("image/jpeg");
+    }
+
+    @Test
+    void extremeAspectRatio_stillSubsamplesTheLongAxis() throws Exception {
+        // The regression: the step used to be one shared number that both axes had to agree on, so a
+        // canvas one or two pixels tall — already at its target height — pinned it at 1 and the long
+        // axis was decoded whole. A 100,000,000x1 PNG clears the MAX_DECODE_PX ceiling, so nothing
+        // else stood between that shape and a several-hundred-megabyte raster.
+        assertThat(VisionService.subsamplingFor(100_000_000, VisionService.MAX_EDGE_PX)).isGreaterThan(1);
+        assertThat(VisionService.subsamplingFor(2, 1)).isEqualTo(1);
+        // The bound the class documents: an axis is left in [2x, 4x) of its target.
+        int step = VisionService.subsamplingFor(100_000_000, VisionService.MAX_EDGE_PX);
+        assertThat(100_000_000 / step).isBetween(2 * VisionService.MAX_EDGE_PX, 4 * VisionService.MAX_EDGE_PX);
+
+        // And the shape survives end to end: 40000x2 is real bytes, decodable, and its height is
+        // already below target, which is exactly what used to disable subsampling for the width.
+        BufferedImage thin = new BufferedImage(40000, 2, BufferedImage.TYPE_BYTE_GRAY);
+        Graphics2D g = thin.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, 40000, 2);
+        g.dispose();
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
+        ImageIO.write(thin, "png", png);
+
+        VisionService.EncodedImage encoded = VisionService.encodeForVision(png.toByteArray(), "image/png");
+
+        BufferedImage sent = decodeBase64(encoded.base64());
+        assertThat(Math.max(sent.getWidth(), sent.getHeight())).isLessThanOrEqualTo(VisionService.MAX_EDGE_PX);
+        assertThat((long) sent.getWidth() * sent.getHeight()).isLessThanOrEqualTo(VisionService.MAX_AREA_PX);
+        assertThat(encoded.mediaType()).isEqualTo("image/jpeg");
+    }
+
+    @Test
+    void undecodableUpload_isSentAsUploaded() {
+        byte[] heic = "not an image ImageIO can read".getBytes();
+
+        VisionService.EncodedImage encoded = VisionService.encodeForVision(heic, "image/heic");
+
+        assertThat(encoded.mediaType()).isEqualTo("image/heic");
+        assertThat(Base64.getDecoder().decode(encoded.base64())).isEqualTo(heic);
     }
 }
