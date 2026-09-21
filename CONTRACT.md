@@ -183,6 +183,39 @@ two client releases. The schema says `string`, and the endpoint says which strin
 
 ---
 
+## Recorded exception — 3.4.0, the `exclusiveMinimum` correction is a minor, not a tightening
+
+*Recorded 2026-09-22 (TEN-416).*
+
+**What changed.** Five request fields now publish `exclusiveMinimum: 0.0` where they published
+`minimum: 0.0`: `BudgetRequest.amountLimit`, `BudgetRequest.exchangeRate`,
+`BudgetRequestV2.exchangeRate`, `ExpenseRequest.amount` and `RecurringExpenseRequest.amount`. All
+five are annotated `@DecimalMin(value = "0.0", inclusive = false)`, and all five have rejected a
+zero amount for as long as they have existed. Nothing in the server changed — only the springdoc
+version that serialises those annotations, from `3.1.0` to `3.1.1`. 3.1.0 dropped the exclusive
+flag and emitted a plain `minimum`, which reads as "zero is accepted"; 3.1.1 emits the bound the
+validator actually enforces.
+
+**Why it is a minor, though the rule above lists "tightened validation" under breaking.** That
+clause is about the server starting to reject a request it used to accept. Here the server's
+behaviour is unchanged: a zero-amount request was rejected with a 400 before this version and is
+rejected with the same 400 after it. No request that worked stops working, so no client has
+anything to migrate. What is corrected is spec text that never described the server — a client
+generating from 3.3.0 could have believed `amount: 0` was valid, and would have found out
+otherwise at runtime. Publishing the correction as a major with a new `/api/v3` path would stand
+up a URL version whose entire content is "the spec now matches what v1 and v2 always did",
+and would leave every client pinned to a spec that is known to be wrong until they migrated.
+
+**The limit of this exception.** It applies only when the published bound was wrong and the server
+was not changed. If a future change makes the validator stricter — the annotation itself changing,
+or a new bound appearing where the server previously accepted the value — that is the breaking case
+the rule describes, and it takes the major and the new path. The test
+`ContractExclusiveMinimumTest` asserts the five fields keep publishing `exclusiveMinimum`, so a
+later springdoc bump that flips them back to an inclusive `minimum` fails the build instead of
+silently republishing the wrong bound.
+
+---
+
 ## Cross-repo change ordering
 
 A change that spans the contract is **not** one commit anymore — it's an ordered
