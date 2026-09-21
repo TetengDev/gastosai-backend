@@ -44,6 +44,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -504,6 +505,51 @@ class VisionServiceTest {
     }
 
     @Test
+    void callerThatArrivesWhileFull_isQueuedAndAdmittedWhenASlotFrees() throws Exception {
+        // The other half of "queued or refused", and the only behaviour the wait window adds over
+        // a gate that refuses the moment it is full: a caller that arrives while the single slot is
+        // taken waits, and runs as soon as the holder releases — no refusal, and never alongside it.
+        VisionService bounded = visionServiceWith(1, 1, 5000, 8000);
+        AtomicInteger inFlight = new AtomicInteger();
+        AtomicInteger peakInFlight = new AtomicInteger();
+        CountDownLatch holding = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> holder = pool.submit(() -> bounded.runBoundedDecode(1L, () -> {
+                peakInFlight.accumulateAndGet(inFlight.incrementAndGet(), Math::max);
+                holding.countDown();
+                try {
+                    release.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                inFlight.decrementAndGet();
+                return "first";
+            }));
+            assertThat(holding.await(10, TimeUnit.SECONDS)).isTrue();
+
+            // A different account, so the global bound — the one that queues — is what it meets.
+            Future<String> queued = pool.submit(() -> bounded.runBoundedDecode(2L, () -> {
+                peakInFlight.accumulateAndGet(inFlight.incrementAndGet(), Math::max);
+                inFlight.decrementAndGet();
+                return "second";
+            }));
+            awaitTrue(() -> bounded.decodesInFlight(2L) == 1, "the second caller to start queueing");
+            assertThat(queued.isDone()).isFalse();
+
+            release.countDown();
+            assertThat(queued.get(10, TimeUnit.SECONDS)).isEqualTo("second");
+            holder.get(10, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        // Admitted, not refused — and still never two at once.
+        assertThat(peakInFlight.get()).isEqualTo(1);
+    }
+
+    @Test
     void decodeThatOverrunsItsBudget_isAbandonedRatherThanFinished() throws Exception {
         byte[] original = receiptPng(4032, 3024);
 
@@ -567,8 +613,15 @@ class VisionServiceTest {
             // No RestClient stubbing at all: if the refusal did not happen before the provider
             // call, the mock chain would NPE instead of producing a 429.
             assertThatThrownBy(() -> bounded.analyze(null, whitePixel(), "plain", user))
+                    .isInstanceOf(VisionService.DecodeCapacityException.class)
                     .isInstanceOfSatisfying(ResponseStatusException.class,
                             e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS));
+
+            // And it spends none of the caller's monthly quota. A capacity refusal reads no bytes
+            // and decodes nothing — it reports how busy this instance is, not anything the caller
+            // did — so recording it as a FAILED attempt would charge two honest tabs, or a burst
+            // from other tenants, against this user's cap.
+            verifyNoInteractions(aiUsageService);
 
             release.countDown();
             holder.get(10, TimeUnit.SECONDS);

@@ -105,6 +105,21 @@ public class VisionService {
 	 * 413 rather than a timeout status because the cause is always the upload: the client can fix it
 	 * by sending a smaller image, which is what a payload-too-large response tells it to do.
 	 */
+	/**
+	 * Raised when a decode is refused because the instance, or the account, already has as many
+	 * running as it allows.
+	 *
+	 * <p>Its own type rather than a bare 429 so {@link #analyze} can tell a capacity refusal from a
+	 * failure the caller caused: this one costs nothing — no bytes read, no decode run — and says
+	 * something about the instance rather than about the upload, so it must not spend a slot of the
+	 * caller's monthly cap.
+	 */
+	public static class DecodeCapacityException extends ResponseStatusException {
+		public DecodeCapacityException(String detail) {
+			super(HttpStatus.TOO_MANY_REQUESTS, detail);
+		}
+	}
+
 	public static class DecodeTimedOutException extends ResponseStatusException {
 		public DecodeTimedOutException() {
 			super(HttpStatus.PAYLOAD_TOO_LARGE,
@@ -229,10 +244,16 @@ public class VisionService {
 		String systemPrompt = String.format(SYSTEM_PROMPT_TEMPLATE, mode != null ? mode : "plain");
 
 		// Inside the try: decoding an untrusted image is work this backend pays for whether or not
-		// a provider call follows, so a failure there has to count against the user's cap too. The
-		// concurrency refusal below is inside it for the same reason as TEN-409's other failures —
-		// a caller that keeps colliding with the bound is the abuse the monthly valve exists for,
-		// and a refusal it never saw would let that caller retry forever at no cost.
+		// a provider call follows, so a failure there has to count against the user's cap too.
+		//
+		// A capacity refusal is the exception, and deliberately so. TEN-409 made the per-user cap
+		// count attempts because a refused or hostile upload still costs a header parse and a
+		// bounded decode — work the caller caused. A DecodeCapacityException costs neither: the
+		// bytes are never read and nothing is decoded, and what it reports is how busy this
+		// instance is, not anything about the upload. Two honest tabs, or a burst from other
+		// tenants, would otherwise spend a caller's monthly quota on work that never happened.
+		// Free retries are not the risk they would be elsewhere: the per-minute limiter in front
+		// of this endpoint already caps the caller at 20 requests a minute.
 		try {
 			// The gate wraps the decode and nothing else. The provider call after it is slow but
 			// cheap in heap, and holding a slot across it would bound outbound requests instead of
@@ -254,6 +275,8 @@ public class VisionService {
 						usage.inputTokens(), usage.outputTokens(), AiUsageStatus.SUCCESS, null);
 			}
 			return result.value();
+		} catch (DecodeCapacityException e) {
+			throw e;
 		} catch (Throwable t) {
 			// Throwable, not Exception: an OutOfMemoryError raised while decoding a hostile image
 			// is an Error, and letting it escape unrecorded would leave the absolute monthly cap —
@@ -312,8 +335,8 @@ public class VisionService {
 		}
 	}
 
-	private static ResponseStatusException busy(String detail) {
-		return new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, detail);
+	private static DecodeCapacityException busy(String detail) {
+		return new DecodeCapacityException(detail);
 	}
 
 	/** Atomic test-and-increment: {@code compute} holds the bin lock, so two callers cannot both pass. */
