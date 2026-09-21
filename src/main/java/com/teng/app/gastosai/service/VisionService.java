@@ -15,15 +15,18 @@ import com.teng.app.gastosai.config.OpenAiProperties;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
 import com.teng.app.gastosai.entity.AiUsageStatus;
 import com.teng.app.gastosai.entity.User;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReadParam;
 import javax.imageio.ImageReader;
+import javax.imageio.event.IIOReadProgressListener;
 import javax.imageio.stream.ImageInputStream;
 import java.awt.Color;
 import java.awt.Graphics2D;
@@ -35,10 +38,14 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Base64;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 @Service
-@RequiredArgsConstructor
 public class VisionService {
 
 	private static final Set<String> ALLOWED_MEDIA_TYPES = Set.of(
@@ -74,10 +81,51 @@ public class VisionService {
 	public static final long MAX_DECODE_PX = 100_000_000L;
 
 	/**
+	 * Wall-clock budget one decode may spend before it is abandoned.
+	 *
+	 * <p>A downscale of a legitimate phone photo finishes in tens of milliseconds; a pathological
+	 * upload — a highly-compressed multi-gigapixel canvas that clears {@link #MAX_DECODE_PX}, or a
+	 * format whose reader degenerates — can run for minutes while holding a decode slot and its
+	 * raster. Eight seconds is two orders of magnitude above the honest case and still short enough
+	 * that a blocked slot frees itself long before the queue behind it times out.
+	 */
+	public static final long DEFAULT_DECODE_BUDGET_MILLIS = 8_000L;
+
+	/**
 	 * Result of preparing an upload: the base64 payload and the media type that actually describes
 	 * it, which differs from the uploaded one when the image was re-encoded as JPEG.
 	 */
 	public record EncodedImage(String base64, String mediaType) {
+	}
+
+	/**
+	 * Raised when a decode passes its budget and is aborted part-way.
+	 *
+	 * <p>A {@link ResponseStatusException} so the existing advice renders it without a new handler.
+	 * 413 rather than a timeout status because the cause is always the upload: the client can fix it
+	 * by sending a smaller image, which is what a payload-too-large response tells it to do.
+	 */
+	/**
+	 * Raised when a decode is refused because the instance, or the account, already has as many
+	 * running as it allows.
+	 *
+	 * <p>Its own type rather than a bare 429 so {@link #analyze} can tell a capacity refusal from a
+	 * failure the caller caused: this one costs nothing — no bytes read, no decode run — and says
+	 * something about the instance rather than about the upload, so it must not spend a slot of the
+	 * caller's monthly cap.
+	 */
+	public static class DecodeCapacityException extends ResponseStatusException {
+		public DecodeCapacityException(String detail) {
+			super(HttpStatus.TOO_MANY_REQUESTS, detail);
+		}
+	}
+
+	public static class DecodeTimedOutException extends ResponseStatusException {
+		public DecodeTimedOutException() {
+			super(HttpStatus.PAYLOAD_TOO_LARGE,
+					"Image took too long to process and was abandoned. Upload a photo of the receipt "
+							+ "rather than a full-resolution scan.");
+		}
 	}
 
 	private static final String SYSTEM_PROMPT_TEMPLATE = """
@@ -103,6 +151,70 @@ public class VisionService {
 	private final AiUsageService aiUsageService;
 	private final AiManagedProperties aiManagedProperties;
 	private final AiRedactionService aiRedactionService;
+
+	/**
+	 * How many decodes may run at once across the whole instance, and how many of those one account
+	 * may hold.
+	 *
+	 * <p>The rate limiter in front of this endpoint ({@code gastos.ratelimit.ai-per-minute}, 20)
+	 * bounds requests per minute, not requests in flight — so one account inside its own quota can
+	 * fire its whole minute's allowance simultaneously, each upload near the {@link #MAX_DECODE_PX}
+	 * ceiling, and hold twenty rasters at once. Rate is not concurrency, and heap is a function of
+	 * concurrency.
+	 *
+	 * <p>Four global is sized off the decode bound, not off the CPU: a subsampled raster is at most
+	 * ~18 MP (see {@link #decode}) at 4 bytes a pixel, so four of them is ~280 MB of worst case,
+	 * which a 512 MB heap survives alongside the rest of the API. Two per user leaves the other two
+	 * slots reachable by somebody else, so a single account cannot fill the instance on its own.
+	 */
+	private final int maxConcurrentDecodes;
+
+	private final int maxConcurrentDecodesPerUser;
+
+	/** How long an over-limit request waits for a global slot before it is refused rather than queued. */
+	private final long decodeQueueWaitMillis;
+
+	private final long decodeBudgetMillis;
+
+	/** Fair, so a queued request cannot be starved indefinitely by a steady stream of new ones. */
+	private final Semaphore decodeSlots;
+
+	/**
+	 * In-flight decodes per user id. An entry exists only while that user holds a slot — the release
+	 * path removes it at zero — so the map cannot grow with the user table.
+	 */
+	private final Map<Long, Integer> decodesInFlightByUser = new ConcurrentHashMap<>();
+
+	public VisionService(RestClient claudeRestClient,
+			RestClient openAiRestClient,
+			AiProviderProperties providerProps,
+			ClaudeProperties claudeProperties,
+			OpenAiProperties openAiProperties,
+			ObjectMapper objectMapper,
+			AiQuotaService aiQuotaService,
+			AiUsageService aiUsageService,
+			AiManagedProperties aiManagedProperties,
+			AiRedactionService aiRedactionService,
+			@Value("${gastos.vision.max-concurrent-decodes:4}") int maxConcurrentDecodes,
+			@Value("${gastos.vision.max-concurrent-decodes-per-user:2}") int maxConcurrentDecodesPerUser,
+			@Value("${gastos.vision.decode-queue-wait-millis:2000}") long decodeQueueWaitMillis,
+			@Value("${gastos.vision.decode-budget-millis:8000}") long decodeBudgetMillis) {
+		this.claudeRestClient = claudeRestClient;
+		this.openAiRestClient = openAiRestClient;
+		this.providerProps = providerProps;
+		this.claudeProperties = claudeProperties;
+		this.openAiProperties = openAiProperties;
+		this.objectMapper = objectMapper;
+		this.aiQuotaService = aiQuotaService;
+		this.aiUsageService = aiUsageService;
+		this.aiManagedProperties = aiManagedProperties;
+		this.aiRedactionService = aiRedactionService;
+		this.maxConcurrentDecodes = Math.max(1, maxConcurrentDecodes);
+		this.maxConcurrentDecodesPerUser = Math.max(1, maxConcurrentDecodesPerUser);
+		this.decodeQueueWaitMillis = Math.max(0, decodeQueueWaitMillis);
+		this.decodeBudgetMillis = decodeBudgetMillis > 0 ? decodeBudgetMillis : DEFAULT_DECODE_BUDGET_MILLIS;
+		this.decodeSlots = new Semaphore(this.maxConcurrentDecodes, true);
+	}
 
 	public ParsedExpenseResult analyze(String question, MultipartFile file, String mode) throws IOException {
 		return analyze(question, file, mode, null);
@@ -133,8 +245,24 @@ public class VisionService {
 
 		// Inside the try: decoding an untrusted image is work this backend pays for whether or not
 		// a provider call follows, so a failure there has to count against the user's cap too.
+		//
+		// A capacity refusal is the exception, and deliberately so. TEN-409 made the per-user cap
+		// count attempts because a refused or hostile upload still costs a header parse and a
+		// bounded decode — work the caller caused. A DecodeCapacityException costs neither: the
+		// bytes are never read and nothing is decoded, and what it reports is how busy this
+		// instance is, not anything about the upload. Two honest tabs, or a burst from other
+		// tenants, would otherwise spend a caller's monthly quota on work that never happened.
+		// Free retries are not the risk they would be elsewhere: the per-minute limiter in front
+		// of this endpoint already caps the caller at 20 requests a minute.
 		try {
-			EncodedImage encoded = encodeForVision(file.getBytes(), contentType);
+			// The gate wraps the decode and nothing else. The provider call after it is slow but
+			// cheap in heap, and holding a slot across it would bound outbound requests instead of
+			// rasters. The upload bytes themselves are read before the gate because the servlet
+			// already materialised them; they are bounded by the multipart size cap, while the
+			// raster they expand into is not.
+			byte[] uploaded = file.getBytes();
+			EncodedImage encoded = runBoundedDecode(user != null ? user.getId() : null,
+					() -> encodeForVision(uploaded, contentType, decodeBudgetMillis));
 			String base64 = encoded.base64();
 			String mediaType = encoded.mediaType();
 			LlmResult<ParsedExpenseResult> result = "claude".equalsIgnoreCase(providerProps.getProvider())
@@ -147,6 +275,8 @@ public class VisionService {
 						usage.inputTokens(), usage.outputTokens(), AiUsageStatus.SUCCESS, null);
 			}
 			return result.value();
+		} catch (DecodeCapacityException e) {
+			throw e;
 		} catch (Throwable t) {
 			// Throwable, not Exception: an OutOfMemoryError raised while decoding a hostile image
 			// is an Error, and letting it escape unrecorded would leave the absolute monthly cap —
@@ -165,6 +295,74 @@ public class VisionService {
 	}
 
 	/**
+	 * Runs {@code decode} with a global slot and, for an identified user, one of that user's own.
+	 *
+	 * <p>The two limits refuse differently on purpose. The per-user one refuses at once: a caller
+	 * already holding its share gains nothing by waiting, and letting it queue is how one account
+	 * occupies the waiting room. The global one queues for {@link #decodeQueueWaitMillis} first,
+	 * because a burst from several honest users is the ordinary case and a slot usually frees within
+	 * one decode; only past that wait is the request refused with 429.
+	 *
+	 * <p>Public so a test can drive the bound directly — the whole behaviour is what does *not*
+	 * happen concurrently, which is not observable from the encoded output.
+	 *
+	 * @throws ResponseStatusException 429 when the excess is neither admitted nor queued into a slot
+	 */
+	public <T> T runBoundedDecode(Long userId, Supplier<T> decode) {
+		if (userId != null && !acquireUserSlot(userId)) {
+			throw busy("Too many receipt scans running for this account. Wait for one to finish.");
+		}
+		try {
+			boolean acquired;
+			try {
+				acquired = decodeSlots.tryAcquire(decodeQueueWaitMillis, TimeUnit.MILLISECONDS);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				throw busy("Receipt scanning was interrupted while queued. Try again.");
+			}
+			if (!acquired) {
+				throw busy("The server is processing as many receipt images as it can at once. Try again shortly.");
+			}
+			try {
+				return decode.get();
+			} finally {
+				decodeSlots.release();
+			}
+		} finally {
+			if (userId != null) {
+				releaseUserSlot(userId);
+			}
+		}
+	}
+
+	private static DecodeCapacityException busy(String detail) {
+		return new DecodeCapacityException(detail);
+	}
+
+	/** Atomic test-and-increment: {@code compute} holds the bin lock, so two callers cannot both pass. */
+	private boolean acquireUserSlot(Long userId) {
+		boolean[] acquired = {false};
+		decodesInFlightByUser.compute(userId, (key, inFlight) -> {
+			int held = inFlight == null ? 0 : inFlight;
+			if (held >= maxConcurrentDecodesPerUser) {
+				return inFlight;
+			}
+			acquired[0] = true;
+			return held + 1;
+		});
+		return acquired[0];
+	}
+
+	private void releaseUserSlot(Long userId) {
+		decodesInFlightByUser.computeIfPresent(userId, (key, inFlight) -> inFlight <= 1 ? null : inFlight - 1);
+	}
+
+	/** Visible for the test that asserts the map does not retain an entry per user seen. */
+	public int decodesInFlight(Long userId) {
+		return decodesInFlightByUser.getOrDefault(userId, 0);
+	}
+
+	/**
 	 * Base64-encodes an upload, downscaling it to {@link #MAX_EDGE_PX} / {@link #MAX_AREA_PX}
 	 * first if it is over budget.
 	 *
@@ -173,6 +371,18 @@ public class VisionService {
 	 * is only expensive, while one that fails to reach it at all is a broken scan.
 	 */
 	public static EncodedImage encodeForVision(byte[] original, String mediaType) {
+		return encodeForVision(original, mediaType, DEFAULT_DECODE_BUDGET_MILLIS);
+	}
+
+	/**
+	 * As above, but abandons the work if it runs past {@code budgetMillis}.
+	 *
+	 * <p>Abandoning, not failing open: a decode that overran is exactly the upload that must not be
+	 * forwarded at full size, so the {@link DecodeTimedOutException} propagates where every other
+	 * failure here returns the original bytes.
+	 */
+	public static EncodedImage encodeForVision(byte[] original, String mediaType, long budgetMillis) {
+		long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(Math.max(0, budgetMillis));
 		int[] dimensions = readDimensions(original);
 		if (dimensions == null) {
 			return asUploaded(original, mediaType);
@@ -198,14 +408,15 @@ public class VisionService {
 		int targetWidth = Math.max(1, (int) Math.floor(width * scale));
 		int targetHeight = Math.max(1, (int) Math.floor(height * scale));
 
-		BufferedImage source = decode(original, targetWidth, targetHeight);
+		BufferedImage source = decode(original, targetWidth, targetHeight, deadline);
 		if (source == null) {
 			return asUploaded(original, mediaType);
 		}
 		// Re-encoding drops the EXIF orientation tag the original carried, so bake the rotation
 		// into the pixels instead; a sideways receipt is a parse failure, not a cosmetic issue.
-		BufferedImage scaled = applyOrientation(resample(source, targetWidth, targetHeight),
+		BufferedImage scaled = applyOrientation(resample(source, targetWidth, targetHeight, deadline),
 				exifOrientation(original));
+		requireBudget(deadline);
 
 		try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 			// JPEG regardless of what was uploaded: a photographed receipt is continuous-tone, so
@@ -276,7 +487,12 @@ public class VisionService {
 	 * bound above true for any aspect ratio; the non-uniform ratio it decodes at costs nothing,
 	 * because the final draw scales to the exact target dimensions anyway.
 	 */
-	private static BufferedImage decode(byte[] bytes, int targetWidth, int targetHeight) {
+	private static BufferedImage decode(byte[] bytes, int targetWidth, int targetHeight, long deadline) {
+		requireBudget(deadline);
+		// Set from the reader's own progress callbacks, so the flag survives the catch below: an
+		// aborted read must not be mistaken for an undecodable image and sent through at full size.
+		boolean[] abandoned = {false};
+		BufferedImage decoded;
 		try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
 			if (input == null) {
 				return null;
@@ -294,12 +510,81 @@ public class VisionService {
 				if (stepX > 1 || stepY > 1) {
 					param.setSourceSubsampling(stepX, stepY, 0, 0);
 				}
-				return reader.read(0, param);
+				// The reader calls back as it advances, which is the only point inside a read where
+				// the budget can be enforced: abort() takes effect at the next such checkpoint and
+				// unwinds the read, releasing the partial raster instead of filling it.
+				reader.addIIOReadProgressListener(new DeadlineAbort(reader, deadline, abandoned));
+				decoded = reader.read(0, param);
 			} finally {
 				reader.dispose();
 			}
 		} catch (IOException | RuntimeException e) {
-			return null;
+			decoded = null;
+		}
+		if (abandoned[0]) {
+			throw new DecodeTimedOutException();
+		}
+		return decoded;
+	}
+
+	/**
+	 * Aborts a read that passes its deadline.
+	 *
+	 * <p>Only {@code imageProgress} and {@code imageStarted} do anything; the rest of the interface
+	 * is checkpoints this decode never reaches (thumbnails, multi-image sequences).
+	 */
+	private record DeadlineAbort(ImageReader reader, long deadline, boolean[] abandoned)
+			implements IIOReadProgressListener {
+
+		private void check() {
+			if (System.nanoTime() > deadline) {
+				abandoned[0] = true;
+				reader.abort();
+			}
+		}
+
+		@Override
+		public void imageStarted(ImageReader source, int imageIndex) {
+			check();
+		}
+
+		@Override
+		public void imageProgress(ImageReader source, float percentageDone) {
+			check();
+		}
+
+		@Override
+		public void imageComplete(ImageReader source) {
+		}
+
+		@Override
+		public void sequenceStarted(ImageReader source, int minIndex) {
+		}
+
+		@Override
+		public void sequenceComplete(ImageReader source) {
+		}
+
+		@Override
+		public void thumbnailStarted(ImageReader source, int imageIndex, int thumbnailIndex) {
+		}
+
+		@Override
+		public void thumbnailProgress(ImageReader source, float percentageDone) {
+		}
+
+		@Override
+		public void thumbnailComplete(ImageReader source) {
+		}
+
+		@Override
+		public void readAborted(ImageReader source) {
+		}
+	}
+
+	private static void requireBudget(long deadline) {
+		if (System.nanoTime() > deadline) {
+			throw new DecodeTimedOutException();
 		}
 	}
 
@@ -329,11 +614,14 @@ public class VisionService {
 	 * reduction reads four source pixels per output pixel and ignores the other ninety-odd, which
 	 * on receipt text aliases digits into noise; halving keeps every pixel contributing.
 	 */
-	private static BufferedImage resample(BufferedImage source, int targetWidth, int targetHeight) {
+	private static BufferedImage resample(BufferedImage source, int targetWidth, int targetHeight, long deadline) {
 		BufferedImage current = source;
 		int width = source.getWidth();
 		int height = source.getHeight();
 		while (width / 2 > targetWidth && height / 2 > targetHeight) {
+			// Each halving allocates its own output, so the budget is checked per pass rather than
+			// once for the loop: the slot is held for as long as the passes take.
+			requireBudget(deadline);
 			width /= 2;
 			height /= 2;
 			current = draw(current, width, height);
