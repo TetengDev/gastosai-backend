@@ -535,7 +535,11 @@ class VisionServiceTest {
                 inFlight.decrementAndGet();
                 return "second";
             }));
-            awaitTrue(() -> bounded.decodesInFlight(2L) == 1, "the second caller to start queueing");
+            // The per-user slot is taken before the global wait, so this says the caller has reached
+            // the global gate — not that it is parked in the semaphore's queue, which is not
+            // observable. What proves it waited is the pair below: it is not done while the only
+            // slot is held, and it completes once the holder releases.
+            awaitTrue(() -> bounded.decodesInFlight(2L) == 1, "the second caller to reach the global gate");
             assertThat(queued.isDone()).isFalse();
 
             release.countDown();

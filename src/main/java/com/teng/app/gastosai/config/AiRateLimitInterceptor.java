@@ -24,6 +24,13 @@ import org.springframework.web.servlet.HandlerInterceptor;
  * {@code VisionService.runBoundedDecode} — a global and a per-user limit on decodes in flight — and
  * it is deliberately not here: this interceptor runs before the multipart body is read and has no
  * way to hold a slot across the handler.
+ *
+ * <p><strong>This limiter is load-bearing for that gate.</strong> A decode refused for capacity
+ * deliberately writes no {@code AiUsage} row — it read no bytes and decoded nothing, so charging it
+ * against the caller's monthly cap would bill honest contention — which leaves the window below as
+ * the only thing metering how often one caller may collide with the bound. Raising
+ * {@code gastos.ratelimit.ai-per-minute} far above its default, or exempting a class of caller from
+ * this interceptor, means revisiting that exemption: nothing else counts capacity refusals.
  */
 @Component
 public class AiRateLimitInterceptor implements HandlerInterceptor {
