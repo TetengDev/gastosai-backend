@@ -23,6 +23,15 @@ public interface AiUsageRepository extends JpaRepository<AiUsage, Long> {
 
     long countByStatusAndCreatedAtAfter(AiUsageStatus status, LocalDateTime after);
 
+    /**
+     * Attempts, not successes: every row regardless of {@link AiUsageStatus}. Backs the per-user
+     * absolute monthly cap, the one counter that throttles a caller whose requests keep failing.
+     * Everything else here stays SUCCESS-filtered — the per-plan quotas because they meter what the
+     * user paid for, the platform-wide daily pool because it is shared across tenants. See
+     * {@code AiQuotaService#assertWithinQuota} for why.
+     */
+    long countByUserIdAndFeatureInAndCreatedAtAfter(Long userId, Collection<AiFeature> features, LocalDateTime after);
+
     @Query("""
             SELECT a.feature, a.model,
                    COUNT(a) AS requests,
