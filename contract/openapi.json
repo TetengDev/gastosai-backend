@@ -594,7 +594,7 @@
       "BudgetRequest" : {
         "properties" : {
           "amountLimit" : {
-            "minimum" : 0.0,
+            "exclusiveMinimum" : 0.0,
             "type" : "number"
           },
           "categoryId" : {
@@ -605,7 +605,7 @@
             "type" : "string"
           },
           "exchangeRate" : {
-            "minimum" : 0.0,
+            "exclusiveMinimum" : 0.0,
             "type" : "number"
           },
           "month" : {
@@ -636,7 +636,7 @@
             "type" : "string"
           },
           "exchangeRate" : {
-            "minimum" : 0.0,
+            "exclusiveMinimum" : 0.0,
             "type" : "number"
           },
           "month" : {
@@ -1695,7 +1695,7 @@
       "ExpenseRequest" : {
         "properties" : {
           "amount" : {
-            "minimum" : 0.0,
+            "exclusiveMinimum" : 0.0,
             "type" : "number"
           },
           "category" : {
@@ -2767,7 +2767,7 @@
             "type" : "boolean"
           },
           "amount" : {
-            "minimum" : 0.0,
+            "exclusiveMinimum" : 0.0,
             "type" : "number"
           },
           "categoryName" : {
