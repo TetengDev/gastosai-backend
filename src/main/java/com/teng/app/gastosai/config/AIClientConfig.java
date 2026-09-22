@@ -2,6 +2,7 @@ package com.teng.app.gastosai.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -40,10 +41,16 @@ public class AIClientConfig
 		return factory;
 	}
 
+	/**
+	 * The base URL is configuration, not a literal, so a local run can be pointed at a dead
+	 * endpoint and fail to connect instead of reaching the provider. The default is the real
+	 * host, so production is unchanged; see {@code application.properties} for the local value.
+	 */
 	@Bean
-	public RestClient openAiRestClient(OpenAiProperties properties, AiManagedProperties managedProps) {
+	public RestClient openAiRestClient(OpenAiProperties properties, AiManagedProperties managedProps,
+			@Value("${gastos.openai.base-url:https://api.openai.com}") String baseUrl) {
 		return RestClient.builder()
-				.baseUrl("https://api.openai.com")
+				.baseUrl(baseUrl)
 				.requestFactory(llmRequestFactory(managedProps))
 				.defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
 				.requestInterceptor((request, body, execution) -> {
@@ -59,10 +66,16 @@ public class AIClientConfig
 				.build();
 	}
 
+	/**
+	 * Same rule as {@link #openAiRestClient}: the real host by default, overridable so a local
+	 * run cannot call out. The {@code /v1} suffix is part of the value because the callers'
+	 * paths ({@code /messages}) are relative to it.
+	 */
 	@Bean
-	public RestClient claudeRestClient(ClaudeProperties properties, AiManagedProperties managedProps) {
+	public RestClient claudeRestClient(ClaudeProperties properties, AiManagedProperties managedProps,
+			@Value("${gastos.claude.base-url:https://api.anthropic.com/v1}") String baseUrl) {
 		return RestClient.builder()
-				.baseUrl("https://api.anthropic.com/v1")
+				.baseUrl(baseUrl)
 				.requestFactory(llmRequestFactory(managedProps))
 				.defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
 				.defaultHeader("anthropic-version", "2023-06-01")

@@ -103,7 +103,11 @@ nothing outward and defines ports that adapters implement.
 
 - Domain/service unit tests, no Spring context.
 - `OpenApiContractTest` asserts the spec generates and covers every controller.
-- AI and outbound HTTP mocked. **Never call live OpenAI/Claude.**
+- AI and outbound HTTP mocked. **Never call live OpenAI/Claude.** A dummy key is not enough —
+  the request still leaves the machine. When you run the app for runtime evidence on an AI path,
+  boot it with the base URLs pointed at the dead loopback port so the call cannot reach a provider:
+  `--gastos.openai.base-url=http://127.0.0.1:9 --gastos.claude.base-url=http://127.0.0.1:9/v1`
+  (`OPENAI_API_BASE_URL` / `CLAUDE_API_BASE_URL` as env vars).
 - Golden-file parser tests over Filipino/Taglish inputs.
 - Repository/migration tests run on H2 today; the Testcontainers target is in `KNOWN-GAPS.md`.
 
