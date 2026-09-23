@@ -107,7 +107,9 @@ nothing outward and defines ports that adapters implement.
   the request still leaves the machine. When you run the app for runtime evidence on an AI path,
   boot it with the base URLs pointed at the dead loopback port so the call cannot reach a provider:
   `--gastos.openai.base-url=http://127.0.0.1:9 --gastos.claude.base-url=http://127.0.0.1:9/v1`
-  (`OPENAI_API_BASE_URL` / `CLAUDE_API_BASE_URL` as env vars).
+  (`OPENAI_API_BASE_URL` / `CLAUDE_API_BASE_URL` as env vars). `ProviderBaseUrlValidator` accepts
+  only `https://` on the provider's own host or a loopback address, and refuses loopback once the
+  `prod` profile is active — so that override is a local tool, not a production knob.
 - Golden-file parser tests over Filipino/Taglish inputs.
 - Repository/migration tests run on H2 today; the Testcontainers target is in `KNOWN-GAPS.md`.
 
