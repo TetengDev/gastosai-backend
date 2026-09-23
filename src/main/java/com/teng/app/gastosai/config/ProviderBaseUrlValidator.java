@@ -15,14 +15,20 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Startup gate on {@code gastos.openai.base-url} and {@code gastos.claude.base-url}.
+ * Startup gate on {@code gastos.openai.base-url}, {@code gastos.claude.base-url} and
+ * {@code gastos.paymongo.base-url}.
  *
- * <p>TEN-415 made both configurable so a local run can be pointed at a dead loopback port instead
- * of reaching a provider. Nothing constrained the value, and the request interceptors in
- * {@link AIClientConfig} attach the real provider key — the managed key or a decrypted BYOK key —
- * to whatever host the property names. This check removes that: a production boot accepts only
- * {@code https://} on the provider's own host, so a redirected base URL fails the boot instead of
- * shipping keys to an operator-chosen endpoint.
+ * <p>TEN-415 made the two AI base URLs configurable so a local run can be pointed at a dead
+ * loopback port instead of reaching a provider. Nothing constrained the value, and the request
+ * interceptors in {@link AIClientConfig} attach the real provider key — the managed key or a
+ * decrypted BYOK key — to whatever host the property names. This check removes that: a production
+ * boot accepts only {@code https://} on the provider's own host, so a redirected base URL fails the
+ * boot instead of shipping keys to an operator-chosen endpoint.
+ *
+ * <p>TEN-423 brought {@code gastos.paymongo.base-url} under the same rule. It has the same shape
+ * over a credential that moves money: {@link PayMongoRestClientConfig} attaches the live PayMongo
+ * secret key as Basic auth to whatever host that property names. One implementation covers all
+ * three properties so the host/scheme/port/userinfo rules cannot drift apart.
  *
  * <p>The two cases are distinguished by the <strong>active {@code prod} profile</strong>. Loopback
  * values are permitted when it is not active, which is every local run and the whole test suite;
@@ -33,8 +39,8 @@ import java.util.Set;
  *
  * <p>This is defence in depth, not a new privilege tier: the only route to setting those env vars
  * in production is editing {@code .env.prod} on the VM, and that file already holds the provider
- * keys in plaintext. It bounds the damage of a redirected value; it does not pretend to stop
- * someone who already has the file.
+ * keys and the PayMongo secret key in plaintext. It bounds the damage of a redirected value; it
+ * does not pretend to stop someone who already has the file.
  */
 @Component
 @RequiredArgsConstructor
@@ -44,6 +50,7 @@ public class ProviderBaseUrlValidator {
 
 	static final String OPENAI_HOST = "api.openai.com";
 	static final String CLAUDE_HOST = "api.anthropic.com";
+	static final String PAYMONGO_HOST = "api.paymongo.com";
 
 	/** Hosts that cannot leave the machine. {@code URI#getHost} keeps the brackets on IPv6. */
 	private static final Set<String> LOOPBACK_HOSTS = Set.of("127.0.0.1", "localhost", "[::1]");
@@ -56,11 +63,15 @@ public class ProviderBaseUrlValidator {
 	@Value("${gastos.claude.base-url:https://" + CLAUDE_HOST + "/v1}")
 	private String claudeBaseUrl;
 
+	@Value("${gastos.paymongo.base-url:https://" + PAYMONGO_HOST + "}")
+	private String payMongoBaseUrl;
+
 	@PostConstruct
 	public void validate() {
 		boolean loopbackAllowed = !isProdProfileActive();
 		check("gastos.openai.base-url", openAiBaseUrl, OPENAI_HOST, loopbackAllowed);
 		check("gastos.claude.base-url", claudeBaseUrl, CLAUDE_HOST, loopbackAllowed);
+		check("gastos.paymongo.base-url", payMongoBaseUrl, PAYMONGO_HOST, loopbackAllowed);
 	}
 
 	private boolean isProdProfileActive() {
