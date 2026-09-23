@@ -97,6 +97,9 @@ public class ProviderBaseUrlValidator {
 		if (!https && !http) {
 			throw reject(property, value, providerHost, loopbackAllowed, "the scheme is neither http nor https");
 		}
+		// Scheme, host and port are what decide where the key goes; the path is deliberately not
+		// checked, because the callers append their own paths to this prefix and a wrong path
+		// reaches the provider as a 404, not a third party.
 		boolean defaultPort = uri.getPort() == -1 || uri.getPort() == 443;
 		if (https && host.equalsIgnoreCase(providerHost) && defaultPort) {
 			return;
