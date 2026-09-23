@@ -26,9 +26,33 @@ Be terse: run each command once, report the table, do not re-explain checks that
    the code. If the surface changed, state whether the bump is minor or major per `CONTRACT.md`.
 4. **Secrets** — `git status --porcelain` and `git diff --staged`. Blocker on any `.env`, key,
    token or password.
-5. **Version** — if anything under `src/` changed, the `pom.xml` project version must be bumped.
-   Read it with `scripts/project-version.sh`. Map commit types: `feat:`→MINOR, `fix:`/`perf:`→PATCH,
-   `!`/`BREAKING CHANGE:`→MAJOR, `docs:`/`chore:`/`ci:`→none.
+5. **Version** — **a comparison, not a reading.** Reading `pom.xml` and finding a version there
+   proves nothing: the value on `main` is also a version. Run all three commands and report the
+   numbers you saw.
+
+   ```bash
+   git fetch origin main --tags --quiet
+   base_pom=$(mktemp); git show origin/main:pom.xml > "$base_pom"
+   base=$(scripts/project-version.sh "$base_pom"); head=$(scripts/project-version.sh)
+   echo "base=$base head=$head"
+   git tag -l "v$head"                    # any output => that version is already released here
+   git ls-remote --tags origin "v$head"   # any output => already released on the remote
+   ```
+
+   Blocker when any of these holds, and the note must name **the version found and the version
+   expected**, never a bare PASS:
+
+   - anything under `src/` changed and `head` equals `base` — the version was never bumped
+   - `v<head>` already exists as a tag, locally or on the remote — that version is released; the
+     auto-release would try to tag it a second time
+   - the bump does not match the commit types: `feat:`→MINOR, `fix:`/`perf:`→PATCH,
+     `!`/`BREAKING CHANGE:`→MAJOR, `docs:`/`chore:`/`ci:`→none
+
+   **Why this is spelled out.** Twice the gate reported this check passing while `pom.xml` still
+   read the value already on `main` and already tagged — on TEN-409, `0.93.0`, tagged minutes
+   earlier by TEN-163's merge. A session that trusts a passing gate stops looking, so a check that
+   reports a pass it did not perform is worse than no check at all.
+
 6. **Branch lane** — `git branch --show-current`. Must not be `main`. `meta/*` must not touch
    `src/` or change the version; application changes belong on `release/*`.
 7. **Runtime execution** — the check that is usually skipped, and the reason this agent exists.
@@ -87,7 +111,7 @@ Be terse: run each command once, report the table, do not re-explain checks that
 | Tests              | ✅ PASS  | 572 passed                     |
 | Contract fresh     | ✅ PASS  | 61 paths, unchanged            |
 | Secrets            | ✅ PASS  |                                |
-| Version bump       | ✅ PASS  | 0.64.0 → 0.65.0 (feat: MINOR)  |
+| Version bump       | ✅ PASS  | base 0.64.0 → head 0.65.0 (feat: MINOR); v0.65.0 untagged |
 | Branch lane        | ✅ PASS  | release/0.65.0                 |
 | Runtime execution  | ✅ PASS  | POST /expenses called, 201 + shape confirmed |
 | Schema safety      | ➖ SKIP  | no migration                   |
@@ -96,4 +120,9 @@ Be terse: run each command once, report the table, do not re-explain checks that
 Overall: PASS — ready to open the PR.
 ```
 
-Any blocker → `Overall: FAIL` plus exactly what must be fixed.
+Any blocker → `Overall: FAIL` plus exactly what must be fixed. A failed version check reads like
+this — the numbers, not an adjective:
+
+```
+| Version bump       | ❌ FAIL  | base 0.93.0 = head 0.93.0, and v0.93.0 is already tagged; expected 0.93.1 (fix: PATCH) |
+```
