@@ -1,6 +1,8 @@
 package com.teng.app.gastosai.config;
 
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
@@ -9,10 +11,25 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @Configuration
 @RequiredArgsConstructor
+@Slf4j
 public class WebConfig implements WebMvcConfigurer {
 
 	@Value("${cors.allowed-origins:http://localhost:5173}")
 	private String[] allowedOrigins;
+
+	/**
+	 * The proxy layer whose {@code X-Forwarded-For} is believed, as addresses or CIDR blocks.
+	 *
+	 * <p>Empty by default, which means no header is believed and every IP-keyed control keys on the
+	 * transport peer — see {@link ClientIps}. That default is deliberate: an unset value must fail
+	 * closed, because the failure the other way is silent (the limiter still answers, it just
+	 * answers per forged header value, which is how TEN-425 got past a limit of ten fourteen times).
+	 * Set it to the edge's own addresses when one is in front of the app —
+	 * {@code gastos.security.trusted-proxies=10.0.0.0/8} for a private-network ingress, or
+	 * {@code 127.0.0.0/8,::1} for a proxy on the same host.
+	 */
+	@Value("${gastos.security.trusted-proxies:}")
+	private String trustedProxies;
 
 	private final FeatureAccessInterceptor featureAccessInterceptor;
 	private final AiRateLimitInterceptor aiRateLimitInterceptor;
@@ -20,6 +37,26 @@ public class WebConfig implements WebMvcConfigurer {
 	private final ViewAsInterceptor viewAsInterceptor;
 	private final PublicRateLimitInterceptor publicRateLimitInterceptor;
 	private final AuthenticatedWriteRateLimitInterceptor authenticatedWriteRateLimitInterceptor;
+
+	/**
+	 * Hands the configured edge to {@link ClientIps} before the first request is served.
+	 *
+	 * <p>{@code ClientIps.extract} is static — it is called from a controller and from an
+	 * interceptor that both predate any notion of configuration — so the set is installed once here
+	 * rather than injected. The log line is the only way an operator can tell which of the two modes
+	 * is live, and getting that wrong is the whole finding, so it is logged either way.
+	 */
+	@PostConstruct
+	void configureTrustedProxies() {
+		ClientIps.configureTrustedProxies(trustedProxies);
+		java.util.List<String> accepted = ClientIps.trustedProxies();
+		if (accepted.isEmpty()) {
+			log.info("No trusted proxies configured: IP-based limits key on the transport peer "
+					+ "address and X-Forwarded-For is ignored");
+		} else {
+			log.info("Trusting X-Forwarded-For only from {}", accepted);
+		}
+	}
 
 	@Override
 	public void addCorsMappings(CorsRegistry registry) {
