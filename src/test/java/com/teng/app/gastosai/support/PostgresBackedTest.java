@@ -70,11 +70,13 @@ public abstract class PostgresBackedTest {
      * every context carrying {@code gastos.ai.allow-shared-key=true} fails to start.
      *
      * <p>The alternative is to configure a non-blank {@code gastos.openai.api-key} for the suite,
-     * and that is worse: the OpenAI client's base URL is hard-coded to {@code api.openai.com}, so a
-     * key that looks real turns any test that does not mock the provider into a live call. Mocking
-     * the validator keeps the guard from firing without arming the client, and loses no coverage —
-     * the validator's own rules are asserted directly in {@code AiStartupValidatorTest}, and under
-     * H2 this listener never ran in a test context either.
+     * and that is still worse: a key that looks real arms any test that does not mock the provider.
+     * The base URL is no longer part of that risk — the suite pins both provider base URLs to the
+     * dead loopback port (see {@code src/test/resources/application.properties}), so such a call is
+     * refused at connect rather than reaching a provider. Mocking the validator keeps the guard from
+     * firing without arming the client, and loses no coverage — the validator's own rules are
+     * asserted directly in {@code AiStartupValidatorTest}, and under H2 this listener never ran in a
+     * test context either.
      *
      * <p>The datasource heuristic itself is wrong now and belongs in {@code src/main}, which is
      * outside this issue.
