@@ -49,6 +49,11 @@ jobs:
     env:
       HEALTH_URL: ${{ vars.API_HEALTH_URL }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # `gh` infers the repository from a git remote, and this job deliberately has no
+      # `actions/checkout` — it only needs curl and the API. Without this, every `gh` call here
+      # died with `failed to run git: fatal: not a git repository`, which took the incident steps
+      # down with it. See the comment on the recovery step for why that went unnoticed.
+      GH_REPO: ${{ github.repository }}
       LABEL: uptime-incident
     steps:
       - name: Skip if no URL configured
@@ -105,7 +110,12 @@ jobs:
       - name: Close incident on recovery
         if: ${{ env.HEALTH_URL != '' && steps.ping.outputs.status == 'up' }}
         run: |
-          existing=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number' 2>/dev/null || true)
+          # No `2>/dev/null || true` here any more. That guard was swallowing the same
+          # `not a git repository` failure the open-incident step died on, so this step quietly
+          # closed nothing while the loud one got the blame. An empty label search exits 0 and
+          # prints nothing, so the only thing the guard could hide was a real failure — and a
+          # recovery that cannot close its incident should be red, not silent.
+          existing=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number')
           if [ -n "$existing" ]; then
             gh issue close "$existing" --comment "Recovered — health returned 200 at $(date -u '+%Y-%m-%d %H:%M UTC')."
           fi
