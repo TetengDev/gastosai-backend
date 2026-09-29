@@ -13,8 +13,6 @@
   },
   "enabledPlugins": {
     "context7@claude-plugins-official": true,
-    "developers-anthropic-skills@agentic-company-os": true,
-    "developers@agentic-company-os": true,
     "superpowers@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
