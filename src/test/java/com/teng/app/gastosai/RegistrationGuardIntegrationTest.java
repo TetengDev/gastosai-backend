@@ -19,7 +19,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @TestPropertySource(properties = {
         "gastos.security.register-ip-daily-max=2",
-        "gastos.security.register-daily-max=3"
+        "gastos.security.register-daily-max=3",
+        // These cases fake distinct clients with X-Forwarded-For on a MockMvc request whose peer is
+        // always loopback. TEN-425 makes the app ignore that header unless the peer is a trusted
+        // proxy, so loopback must be trusted here for the per-IP simulation to mean anything.
+        "gastos.security.trusted-proxies=127.0.0.1"
 })
 class RegistrationGuardIntegrationTest extends PostgresBackedTest {
 
