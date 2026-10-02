@@ -11,6 +11,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
@@ -20,13 +21,16 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
+import org.springframework.web.servlet.NoHandlerFoundException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -113,6 +117,44 @@ class GlobalExceptionHandlerTest extends PostgresBackedTest {
         String body = result.getResponse().getContentAsString();
         assertThat(body).contains("amount");
         assertThat(body).doesNotContain("a lot").doesNotContain("com.teng");
+    }
+
+    @Test
+    void unmatchedV2Route_returns404NotA500() throws Exception {
+        MvcResult result = mockMvc.perform(get("/api/v2/user")
+                        .header("Authorization", authHeader))
+                .andExpect(status().isNotFound())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        assertThat(body).contains("No endpoint matches this request.");
+        // The framework fills ProblemDetail's "instance" with the request path, which is the
+        // client's own input; what must not escape is anything about the server internals.
+        assertThat(body).doesNotContain("NoResourceFoundException").doesNotContain("com.teng")
+                .doesNotContain("static resource");
+    }
+
+    @Test
+    void unmatchedBareRoute_returns404NotA500() throws Exception {
+        mockMvc.perform(get("/user").header("Authorization", authHeader))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void noHandlerFound_returns404WithoutRecordingAnError() {
+        AppEventService appEventService = mock(AppEventService.class);
+        GlobalExceptionHandler handler = new GlobalExceptionHandler(appEventService);
+
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getRequestURI()).thenReturn("/nope");
+        when(request.getMethod()).thenReturn("GET");
+
+        ResponseEntity<ProblemDetail> response = handler.noRoute(
+                new NoHandlerFoundException("GET", "/nope", HttpHeaders.EMPTY), request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getBody().getDetail()).isEqualTo("No endpoint matches this request.");
+        verifyNoInteractions(appEventService);
     }
 
     @Test

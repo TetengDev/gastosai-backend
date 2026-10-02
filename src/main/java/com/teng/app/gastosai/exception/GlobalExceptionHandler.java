@@ -1,6 +1,7 @@
 package com.teng.app.gastosai.exception;
 
 import com.teng.app.gastosai.service.AppEventService;
+import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,6 +17,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import tools.jackson.databind.DatabindException;
 import tools.jackson.databind.exc.InvalidFormatException;
@@ -41,6 +44,24 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(ResourceNotFoundException.class)
 	public ResponseEntity<ProblemDetail> notFound(ResourceNotFoundException ex) {
 		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
+		pd.setTitle("Not Found");
+		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(pd);
+	}
+
+	/**
+	 * A request that matches no controller and no static resource. Spring raises these as
+	 * {@link ServletException}s that carry their own 404 status, but an {@code @ExceptionHandler} on
+	 * this advice wins over Spring's default resolver, so without this handler the catch-all below
+	 * answers 500 — misleading, and it masks real routing problems. Not recorded to app_event: a
+	 * request for a path that does not exist is not a server fault. The detail is fixed text;
+	 * Spring's own message ("No static resource api/v2/user") describes our internals and never
+	 * reaches the client.
+	 */
+	@ExceptionHandler({ NoResourceFoundException.class, NoHandlerFoundException.class })
+	public ResponseEntity<ProblemDetail> noRoute(ServletException ex, HttpServletRequest request) {
+		log.debug("No route for {} {}: {}", request.getMethod(), request.getRequestURI(), ex.getMessage());
+		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND,
+				"No endpoint matches this request.");
 		pd.setTitle("Not Found");
 		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(pd);
 	}
