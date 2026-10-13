@@ -10,6 +10,7 @@ import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.config.AiManagedProperties;
 import com.teng.app.gastosai.config.AiProviderProperties;
 import com.teng.app.gastosai.config.ClaudeProperties;
+import com.teng.app.gastosai.config.JacksonTimeConfig;
 import com.teng.app.gastosai.config.OpenAiProperties;
 import com.teng.app.gastosai.dto.AlertResponse;
 import com.teng.app.gastosai.dto.BudgetRequest;
@@ -52,6 +53,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -105,6 +107,22 @@ public class ChatActionService {
 	private final ClaudeProperties claudeProperties;
 	private final ConversationService conversationService;
 	private final ChatAuditService chatAuditService;
+
+	/**
+	 * Where "now" comes from when an expense is stamped. Not a constructor dependency: there is no
+	 * {@code Clock} bean, and the zone is applied in {@link #nowInManila()} rather than taken from
+	 * the clock, so the system clock is right in production whatever the server's zone is.
+	 */
+	private Clock clock = Clock.systemUTC();
+
+	/** Test seam: pin "now" for the date-stamping rules. */
+	void useClock(Clock clock) {
+		this.clock = clock;
+	}
+
+	private LocalDateTime nowInManila() {
+		return LocalDateTime.ofInstant(clock.instant(), JacksonTimeConfig.APP_ZONE);
+	}
 
 	/**
 	 * Conversation-aware entry point: runs the stateless {@link #dispatch(String, String, User)} and then
@@ -420,7 +438,7 @@ public class ChatActionService {
 	}
 
 	private java.util.Optional<Expense> findRecentDuplicate(User user, BigDecimal amount, String description) {
-		LocalDateTime since = LocalDateTime.now().minusDays(7);
+		LocalDateTime since = nowInManila().minusDays(7);
 		List<Expense> recent = expenseRepository.findByUserAndDateAfterOrderByDateDesc(user, since);
 		String needle = description.trim().toLowerCase();
 		return recent.stream()
@@ -433,10 +451,7 @@ public class ChatActionService {
 		BigDecimal amount = params.get("amount").decimalValue();
 		String category = params.path("category").asText("Uncategorized");
 		String description = params.get("description").asText();
-		String dateStr = params.path("date").asText(null);
-		LocalDateTime date = (dateStr != null && !dateStr.isBlank())
-				? LocalDate.parse(dateStr).atStartOfDay()
-				: null;
+		LocalDateTime date = createdAt(params.path("date").asText(null));
 
 		java.util.Optional<Expense> dupe = confirmed ? java.util.Optional.empty() : findRecentDuplicate(user, amount, description);
 		if (dupe.isPresent()) {
@@ -457,6 +472,46 @@ public class ChatActionService {
 		ExpenseRequest req = new ExpenseRequest(amount, category, date, description, null, null, null, null);
 		Object result = expenseService.create(req, user, ExpenseSource.QUICK_ADD);
 		return new ChatResponse("action", "Expense created: ₱" + amount.toPlainString() + " — " + description, result);
+	}
+
+	/**
+	 * The timestamp a chat-created expense is stored with (TEN-456).
+	 *
+	 * <p>The model states a date only, as {@code YYYY-MM-DD}, and turning that into midnight
+	 * stamped every "lunch just now" 12:00 AM. The rule instead: the stated day, at the Manila time
+	 * of day the create runs — which is the confirm, since that is when this handler writes. For
+	 * today that is the moment of confirming; for a stated past (or future) day it keeps the day and
+	 * borrows the same time of day, rather than inventing a midnight that reads as a real time. No
+	 * date at all means now.
+	 *
+	 * <p>"Now" is Manila wall-clock, not the server's zone, because that is what the expense columns
+	 * hold; on a UTC server the first eight hours of every Manila day would otherwise land on the
+	 * day before.
+	 */
+	private LocalDateTime createdAt(String dateStr) {
+		LocalDateTime now = nowInManila();
+		return (dateStr != null && !dateStr.isBlank())
+				? LocalDate.parse(dateStr).atTime(now.toLocalTime())
+				: now;
+	}
+
+	/**
+	 * The timestamp a chat edit re-states, given the date the model sent and the row's own.
+	 *
+	 * <p>The model restates the date on edits it was not asked to make ("rename that dinner"), so a
+	 * date-only value must not reset the time: an unchanged day keeps the row's timestamp exactly,
+	 * and a changed day keeps the row's time of day. No date stated means {@code null}, which
+	 * {@code ExpenseService.update} reads as "leave it". A row with no date falls back to
+	 * {@link #createdAt}.
+	 */
+	private LocalDateTime movedTo(String dateStr, LocalDateTime current) {
+		if (dateStr == null || dateStr.isBlank()) {
+			return null;
+		}
+		if (current == null) {
+			return createdAt(dateStr);
+		}
+		return LocalDate.parse(dateStr).atTime(current.toLocalTime());
 	}
 
 	/**
@@ -499,9 +554,6 @@ public class ChatActionService {
 		boolean categoryStated = statedCategory != null && !statedCategory.isBlank();
 		String description = params.get("description").asText();
 		String dateStr = params.path("date").asText(null);
-		LocalDateTime date = (dateStr != null && !dateStr.isBlank())
-				? LocalDate.parse(dateStr).atStartOfDay()
-				: null;
 		// Same lookup rule update() itself applies, so an ADMIN reaching another person's row
 		// reads the values it is about to re-state, and anyone else still gets the 404.
 		Expense existing = (user.isAdmin()
@@ -512,6 +564,7 @@ public class ChatActionService {
 				? statedCategory
 				: (existing.getCategory() != null ? existing.getCategory().getName() : null);
 		boolean overriddenBefore = existing.isCategoryOverridden();
+		LocalDateTime date = movedTo(dateStr, existing.getDate());
 		ExpenseRequest req = new ExpenseRequest(amount, category, date, description,
 				existing.getExpenseType() != null ? existing.getExpenseType().name() : null,
 				existing.isReimbursable(),
