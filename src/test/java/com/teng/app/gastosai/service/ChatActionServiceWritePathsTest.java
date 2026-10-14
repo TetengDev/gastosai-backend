@@ -14,7 +14,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -125,11 +129,11 @@ class ChatActionServiceWritePathsTest extends ChatActionServiceUnitTestSupport {
 		verify(expenseService).create(req.capture(), any(), eq(ExpenseSource.QUICK_ADD));
 		assertThat(req.getValue().amount()).isEqualByComparingTo("500");
 		assertThat(req.getValue().category()).isEqualTo("Food");
-		assertThat(req.getValue().date()).isEqualTo(LocalDateTime.of(2026, 9, 1, 0, 0));
+		assertThat(req.getValue().date().toLocalDate()).isEqualTo(LocalDate.of(2026, 9, 1));
 	}
 
 	@Test
-	void createExpense_anAbsentCategory_fallsBackToUncategorizedAndAnAbsentDateStaysNull() {
+	void createExpense_anAbsentCategory_fallsBackToUncategorized() {
 		when(expenseRepository.findByUserAndDateAfterOrderByDateDesc(any(), any())).thenReturn(List.of());
 
 		run("create_expense", """
@@ -139,7 +143,126 @@ class ChatActionServiceWritePathsTest extends ChatActionServiceUnitTestSupport {
 		ArgumentCaptor<ExpenseRequest> req = ArgumentCaptor.forClass(ExpenseRequest.class);
 		verify(expenseService).create(req.capture(), any(), eq(ExpenseSource.QUICK_ADD));
 		assertThat(req.getValue().category()).isEqualTo("Uncategorized");
-		assertThat(req.getValue().date()).isNull();
+	}
+
+	// --- create_expense / update_expense: the time an expense is stamped with (TEN-456) ---
+
+	/** 2026-10-13 12:42:17 in Manila, held by a clock in UTC so the zone has to come from the code. */
+	private static final Instant MIDDAY_IN_MANILA = Instant.parse("2026-10-13T04:42:17Z");
+
+	/** 00:30 on 2026-10-14 in Manila — still 2026-10-13 in UTC, where a server may well be running. */
+	private static final Instant HALF_PAST_MIDNIGHT_IN_MANILA = Instant.parse("2026-10-13T16:30:00Z");
+
+	private void clockAt(Instant instant) {
+		chatActionService.useClock(Clock.fixed(instant, ZoneOffset.UTC));
+	}
+
+	private LocalDateTime createdDate(String paramsJson) {
+		when(expenseRepository.findByUserAndDateAfterOrderByDateDesc(any(), any())).thenReturn(List.of());
+		run("create_expense", paramsJson);
+		ArgumentCaptor<ExpenseRequest> req = ArgumentCaptor.forClass(ExpenseRequest.class);
+		verify(expenseService).create(req.capture(), any(), eq(ExpenseSource.QUICK_ADD));
+		return req.getValue().date();
+	}
+
+	private LocalDateTime updatedDate(Expense existing, String paramsJson) {
+		when(expenseRepository.findByIdAndUser(eq(7L), any())).thenReturn(Optional.of(existing));
+		when(expenseRepository.findById(7L)).thenReturn(Optional.of(existing));
+		run("update_expense", paramsJson);
+		ArgumentCaptor<ExpenseRequest> req = ArgumentCaptor.forClass(ExpenseRequest.class);
+		verify(expenseService).update(eq(7L), req.capture(), any());
+		return req.getValue().date();
+	}
+
+	@Test
+	void createExpense_datedToday_isStampedWithTheConfirmTimeInManila() {
+		clockAt(MIDDAY_IN_MANILA);
+
+		assertThat(createdDate("""
+				{"amount":70,"description":"Lunch","category":"Food","date":"2026-10-13"}
+				""")).isEqualTo(LocalDateTime.of(2026, 10, 13, 12, 42, 17));
+	}
+
+	@Test
+	void createExpense_withNoDate_isStampedWithTheConfirmTimeInManila() {
+		clockAt(MIDDAY_IN_MANILA);
+
+		assertThat(createdDate("""
+				{"amount":70,"description":"Lunch"}
+				""")).isEqualTo(LocalDateTime.of(2026, 10, 13, 12, 42, 17));
+	}
+
+	/** A stated past date is kept, and takes the confirm's Manila time of day rather than midnight. */
+	@Test
+	void createExpense_datedYesterday_keepsThatDateAtTheConfirmTimeOfDay() {
+		clockAt(MIDDAY_IN_MANILA);
+
+		assertThat(createdDate("""
+				{"amount":70,"description":"Lunch","date":"2026-10-12"}
+				""")).isEqualTo(LocalDateTime.of(2026, 10, 12, 12, 42, 17));
+	}
+
+	@Test
+	void createExpense_justAfterMidnightInManila_isTodaysExpenseNotYesterdays() {
+		clockAt(HALF_PAST_MIDNIGHT_IN_MANILA);
+
+		assertThat(createdDate("""
+				{"amount":70,"description":"Lunch"}
+				""")).isEqualTo(LocalDateTime.of(2026, 10, 14, 0, 30));
+	}
+
+	@Test
+	void createExpense_justAfterMidnightInManila_datedToday_isStampedAtTheConfirmTime() {
+		clockAt(HALF_PAST_MIDNIGHT_IN_MANILA);
+
+		assertThat(createdDate("""
+				{"amount":70,"description":"Lunch","date":"2026-10-14"}
+				""")).isEqualTo(LocalDateTime.of(2026, 10, 14, 0, 30));
+	}
+
+	/** The assistant restating the row's own date must not reset its time to midnight. */
+	@Test
+	void updateExpense_anUnchangedDate_keepsTheExpensesTime() {
+		clockAt(MIDDAY_IN_MANILA);
+		Expense existing = storedExpense();
+		existing.setDate(LocalDateTime.of(2026, 8, 1, 19, 45));
+
+		assertThat(updatedDate(existing, """
+				{"id":7,"amount":950,"description":"Dinner","date":"2026-08-01"}
+				""")).isEqualTo(LocalDateTime.of(2026, 8, 1, 19, 45));
+	}
+
+	/** Moving an expense to another day moves the day only; the time it was spent at stays. */
+	@Test
+	void updateExpense_aChangedDate_movesTheDayAndKeepsTheTime() {
+		clockAt(MIDDAY_IN_MANILA);
+		Expense existing = storedExpense();
+		existing.setDate(LocalDateTime.of(2026, 8, 1, 19, 45));
+
+		assertThat(updatedDate(existing, """
+				{"id":7,"amount":950,"description":"Dinner","date":"2026-07-31"}
+				""")).isEqualTo(LocalDateTime.of(2026, 7, 31, 19, 45));
+	}
+
+	@Test
+	void updateExpense_aDateOnARowWithNoDate_takesTheConfirmTimeOfDay() {
+		clockAt(MIDDAY_IN_MANILA);
+		Expense existing = storedExpense();
+		existing.setDate(null);
+
+		assertThat(updatedDate(existing, """
+				{"id":7,"amount":950,"description":"Dinner","date":"2026-08-01"}
+				""")).isEqualTo(LocalDateTime.of(2026, 8, 1, 12, 42, 17));
+	}
+
+	/** No date stated: the request carries none, and {@code update} keeps the row's own. */
+	@Test
+	void updateExpense_noDate_leavesTheDateToTheRow() {
+		clockAt(MIDDAY_IN_MANILA);
+
+		assertThat(updatedDate(storedExpense(), """
+				{"id":7,"amount":950,"description":"Dinner"}
+				""")).isNull();
 	}
 
 	// --- update_expense ---
@@ -259,7 +382,7 @@ class ChatActionServiceWritePathsTest extends ChatActionServiceUnitTestSupport {
 		assertThat(req.getValue().category()).isNull();
 		assertThat(req.getValue().expenseType()).isNull();
 		assertThat(req.getValue().project()).isNull();
-		assertThat(req.getValue().date()).isEqualTo(LocalDateTime.of(2026, 9, 2, 0, 0));
+		assertThat(req.getValue().date().toLocalDate()).isEqualTo(LocalDate.of(2026, 9, 2));
 	}
 
 	/** An ADMIN reads the row unscoped — the same lookup rule {@code update} itself applies. */
