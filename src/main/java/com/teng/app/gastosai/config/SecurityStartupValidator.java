@@ -67,7 +67,10 @@ public class SecurityStartupValidator {
 	}
 
 	private boolean isProdEnvironment() {
-		return Arrays.asList(environment.getActiveProfiles()).contains("prod") || looksLikeRemoteDatabase();
+		// Explicit signals only. A JDBC-URL guess misses a remote database reached through a tunnel
+		// whose URL still reads localhost, so it must never decide whether a dev secret is allowed.
+		return Arrays.asList(environment.getActiveProfiles()).contains("prod")
+				|| "production".equalsIgnoreCase(String.valueOf(environment.getProperty("gastos.env")).trim());
 	}
 
 	private boolean looksLikeRemoteDatabase() {

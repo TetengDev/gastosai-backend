@@ -23,9 +23,19 @@ class SecurityStartupValidatorTest {
             String aiKeySecret,
             String datasourceUrl,
             String[] activeProfiles) {
+        return validatorWith(jwtSecret, aiKeySecret, datasourceUrl, activeProfiles, null);
+    }
+
+    private SecurityStartupValidator validatorWith(
+            String jwtSecret,
+            String aiKeySecret,
+            String datasourceUrl,
+            String[] activeProfiles,
+            String gastosEnv) {
         JwtProperties jwtProperties = new JwtProperties(jwtSecret, 28800000L);
         Environment environment = mock(Environment.class);
         when(environment.getActiveProfiles()).thenReturn(activeProfiles);
+        when(environment.getProperty("gastos.env")).thenReturn(gastosEnv);
 
         SecurityStartupValidator v = new SecurityStartupValidator(jwtProperties, environment);
         ReflectionTestUtils.setField(v, "datasourceUrl", datasourceUrl);
@@ -49,17 +59,41 @@ class SecurityStartupValidatorTest {
     }
 
     @Test
-    void remoteDatabase_devJwtSecret_throws() {
-        var v = validatorWith(DEV_JWT, SAFE_AI, "jdbc:postgresql://db.supabase.co/gastos", new String[]{});
+    void explicitProdFlag_tunnelledLocalhostUrl_devJwtSecret_throws() {
+        var v = validatorWith(DEV_JWT, SAFE_AI, "jdbc:postgresql://localhost:5432/gastos", new String[]{}, "production");
         assertThatThrownBy(v::validate).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("JWT_SECRET");
     }
 
     @Test
-    void remoteDatabase_devAiKeySecret_throws() {
-        var v = validatorWith(SAFE_JWT, DEV_AI, "jdbc:postgresql://db.supabase.co/gastos", new String[]{});
+    void explicitProdFlag_tunnelledLocalhostUrl_devAiKeySecret_throws() {
+        var v = validatorWith(SAFE_JWT, DEV_AI, "jdbc:postgresql://127.0.0.1:5432/gastos", new String[]{}, "production");
         assertThatThrownBy(v::validate).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AI_KEY_ENCRYPTION_SECRET");
+    }
+
+    @Test
+    void explicitProdFlag_isCaseInsensitive() {
+        var v = validatorWith(DEV_JWT, SAFE_AI, "jdbc:h2:mem:test", new String[]{}, "Production");
+        assertThatThrownBy(v::validate).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void explicitProdFlag_safeSecrets_doesNotThrow() {
+        var v = validatorWith(SAFE_JWT, SAFE_AI, "jdbc:postgresql://localhost:5432/gastos", new String[]{}, "production");
+        assertThatCode(v::validate).doesNotThrowAnyException();
+    }
+
+    @Test
+    void noFlag_remoteDatabase_devSecrets_warnsAndContinues() {
+        var v = validatorWith(DEV_JWT, DEV_AI, "jdbc:postgresql://db.supabase.co/gastos", new String[]{});
+        assertThatCode(v::validate).doesNotThrowAnyException();
+    }
+
+    @Test
+    void nonProductionFlag_devSecrets_warnsAndContinues() {
+        var v = validatorWith(DEV_JWT, DEV_AI, "jdbc:h2:mem:test", new String[]{}, "development");
+        assertThatCode(v::validate).doesNotThrowAnyException();
     }
 
     @Test
