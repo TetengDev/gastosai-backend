@@ -85,9 +85,17 @@ class SecurityStartupValidatorTest {
     }
 
     @Test
-    void noFlag_remoteDatabase_devSecrets_warnsAndContinues() {
-        var v = validatorWith(DEV_JWT, DEV_AI, "jdbc:postgresql://db.supabase.co/gastos", new String[]{});
-        assertThatCode(v::validate).doesNotThrowAnyException();
+    void noFlag_remoteDatabase_devJwtSecret_throws() {
+        var v = validatorWith(DEV_JWT, SAFE_AI, "jdbc:postgresql://db.supabase.co/gastos", new String[]{});
+        assertThatThrownBy(v::validate).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("JWT_SECRET");
+    }
+
+    @Test
+    void noFlag_remoteDatabase_devAiKeySecret_throws() {
+        var v = validatorWith(SAFE_JWT, DEV_AI, "jdbc:postgresql://db.supabase.co/gastos", new String[]{});
+        assertThatThrownBy(v::validate).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("AI_KEY_ENCRYPTION_SECRET");
     }
 
     @Test
