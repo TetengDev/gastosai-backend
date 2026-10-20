@@ -21,13 +21,17 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -101,6 +105,24 @@ class ExpenseServiceTest {
 
         assertThat(response.category()).isEqualTo("Uncategorized");
         verify(categoryService).getOrCreateByName("Uncategorized", user);
+    }
+
+    /**
+     * TEN-457: 00:30 in Manila is 16:30 UTC the day before. A server in UTC that stamped "now" in
+     * its own zone stored the expense on the previous day, in the wrong day and month totals.
+     */
+    @Test
+    void create_withoutDate_stampsManilaWallClock_onAUtcClock() {
+        User user = regularUser();
+        Category uncategorized = Category.builder().id(1L).name("Uncategorized").build();
+        when(categoryService.getOrCreateByName("Uncategorized", user)).thenReturn(uncategorized);
+        when(expenseRepository.save(any(Expense.class))).thenAnswer(inv -> inv.getArgument(0));
+        ReflectionTestUtils.setField(expenseService, "clock",
+                Clock.fixed(Instant.parse("2026-08-31T16:30:00Z"), ZoneOffset.UTC));
+
+        expenseService.create(new ExpenseRequest(new BigDecimal("50"), "", null, "Test", null, null, null, null), user);
+
+        verify(expenseRepository).save(argThat(e -> e.getDate().equals(LocalDateTime.of(2026, 9, 1, 0, 30))));
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.teng.app.gastosai.service;
 
 import com.teng.app.gastosai.config.CacheConfig.InsightCacheEvictor;
+import com.teng.app.gastosai.config.JacksonTimeConfig;
 import com.teng.app.gastosai.dto.CategoryReportItem;
 import com.teng.app.gastosai.dto.DailyReportItem;
 import com.teng.app.gastosai.dto.ExpenseRequest;
@@ -41,6 +42,7 @@ import java.io.StringWriter;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -58,6 +60,13 @@ public class ExpenseService {
 	private final CategoryService categoryService;
 	private final ProjectRepository projectRepository;
 	private final InsightCacheEvictor insightCaches;
+
+	/**
+	 * Where "now" comes from when an expense arrives without a date. Not a constructor dependency:
+	 * there is no {@code Clock} bean, and the zone is applied when the clock is read rather than taken
+	 * from it, so the stamp is Manila wall-clock whatever the server's zone is (TEN-457).
+	 */
+	private Clock clock = Clock.systemUTC();
 
 	/**
 	 * Create an expense a client asked for directly, recording the source the client declared.
@@ -112,7 +121,8 @@ public class ExpenseService {
 				.amount(request.amount())
 				.user(user)
 				.category(category)
-				.date(request.date() != null ? request.date() : LocalDateTime.now())
+				.date(request.date() != null ? request.date()
+						: LocalDateTime.ofInstant(clock.instant(), JacksonTimeConfig.APP_ZONE))
 				.description(request.description())
 				.expenseType(expenseType)
 				.reimbursable(reimbursable)
