@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.context.WebApplicationContext;
 
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup;
@@ -43,6 +44,20 @@ class AiRateLimitIntegrationTest extends PostgresBackedTest {
     @Test
     void aiEndpoint_returns429_pastQuota() throws Exception {
         // Window allows 2; the first two pass the limiter (outcome irrelevant), the third is throttled.
+        for (int i = 0; i < 2; i++) {
+            mockMvc.perform(query());
+        }
+        mockMvc.perform(query()).andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void topCategory_makesNoModelCall_soItNeverSpendsTheAiWindow() throws Exception {
+        // The window allows 2; 21 reads must all pass, because top-category is a category report read.
+        for (int i = 0; i < 21; i++) {
+            mockMvc.perform(get("/ai/insights/top-category").param("month", "2026-10").header("Authorization", authHeader))
+                    .andExpect(status().isOk());
+        }
+        // ...and it left the window untouched: the model-calling path still has its full allowance.
         for (int i = 0; i < 2; i++) {
             mockMvc.perform(query());
         }
