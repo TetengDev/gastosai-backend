@@ -8,6 +8,7 @@ import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.ai.LlmUsage;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.config.AiProviderProperties;
+import com.teng.app.gastosai.config.AiRateLimitInterceptor;
 import com.teng.app.gastosai.config.ClaudeProperties;
 import com.teng.app.gastosai.config.OpenAiProperties;
 import com.teng.app.gastosai.dto.CategoryReportItem;
@@ -59,6 +60,9 @@ class AiInsightServiceTest {
 
     @Mock
     ClaudeProperties claudeProperties;
+
+    @Mock
+    AiRateLimitInterceptor aiRateLimit;
 
     /**
      * The real registry over a minimal configured set, not a mock: what these tests care about is

@@ -114,12 +114,15 @@ public class WebConfig implements WebMvcConfigurer {
 				.excludePathPatterns(PublicEndpoints.atEveryVersion("/ai/usage", "/ai/languages"));
 		// /ai/insights/top-category is a category report read with no model call (TEN-464), so it
 		// spends no token from the AI window; it keeps the key gate above because that gate is
-		// harmless for a read and unchanged here.
+		// harmless for a read and unchanged here. month-summary and recommendations are answered
+		// from the insight cache, so a hit must not spend a token either: they spend it inside
+		// AiInsightService on a miss only (TEN-483).
 		registry.addInterceptor(aiRateLimitInterceptor)
 				.addPathPatterns(PublicEndpoints.atEveryVersion(
 						"/ai/**", "/expenses/parse", "/expenses/quick-add"))
 				.excludePathPatterns(PublicEndpoints.atEveryVersion(
-						"/ai/usage", "/ai/languages", "/ai/insights/top-category"));
+						"/ai/usage", "/ai/languages", "/ai/insights/top-category",
+						"/ai/insights/month-summary", "/ai/insights/recommendations"));
 		// /user/ai-settings/** covers PUT /user/ai-settings and DELETE /user/ai-settings/{provider}:
 		// a "/**" pattern matches the base path too, which is why POST /expenses is limited by
 		// "/expenses/**". GET stays usable — the interceptor exempts GET/HEAD/OPTIONS by method, so a

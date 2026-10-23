@@ -9,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 /**
@@ -25,6 +26,10 @@ import org.springframework.web.servlet.HandlerInterceptor;
  * it is deliberately not here: this interceptor runs before the multipart body is read and has no
  * way to hold a slot across the handler.
  *
+ * <p>The cached insight endpoints ({@code month-summary}, {@code recommendations}) are metered from
+ * inside {@code AiInsightService} instead, on a cache miss only, so every model call still spends from
+ * this window (TEN-483).
+ *
  * <p><strong>This limiter is load-bearing for that gate.</strong> A decode refused for capacity
  * deliberately writes no {@code AiUsage} row — it read no bytes and decoded nothing, so charging it
  * against the caller's monthly cap would bill honest contention — which leaves the window below as
@@ -34,6 +39,8 @@ import org.springframework.web.servlet.HandlerInterceptor;
  */
 @Component
 public class AiRateLimitInterceptor implements HandlerInterceptor {
+
+    static final String LIMIT_DETAIL = "AI request rate limit exceeded. Please slow down.";
 
     private final int requestsPerMinute;
     private final RateLimiterStore store;
@@ -50,12 +57,26 @@ public class AiRateLimitInterceptor implements HandlerInterceptor {
         if (authentication == null || !(authentication.getPrincipal() instanceof User user) || user.getId() == null) {
             return true;
         }
-        if (store.tryAcquire("ai:" + user.getId(), requestsPerMinute)) {
+        if (tryAcquire(user)) {
             return true;
         }
         response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.getWriter().write("{\"title\":\"Too Many Requests\",\"detail\":\"AI request rate limit exceeded. Please slow down.\"}");
+        response.getWriter().write("{\"title\":\"Too Many Requests\",\"detail\":\"" + LIMIT_DETAIL + "\"}");
         return false;
+    }
+
+    /**
+     * Spends a token for a model call that the path-level gate does not cover: the cached insight
+     * endpoints, whose cache hits make no model call and so must not spend one (TEN-483).
+     */
+    public void acquireOrThrow(User user) {
+        if (!tryAcquire(user)) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, LIMIT_DETAIL);
+        }
+    }
+
+    private boolean tryAcquire(User user) {
+        return store.tryAcquire("ai:" + user.getId(), requestsPerMinute);
     }
 }
