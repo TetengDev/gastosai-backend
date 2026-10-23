@@ -67,7 +67,12 @@ public class SecurityStartupValidator {
 	}
 
 	private boolean isProdEnvironment() {
-		return Arrays.asList(environment.getActiveProfiles()).contains("prod") || looksLikeRemoteDatabase();
+		// Explicit signals decide on their own. The remote-URL guess stays as an extra trigger only:
+		// it catches an unflagged remote deployment, but it misses a tunnel whose URL reads localhost,
+		// so its absence must never allow a dev secret when the flag or prod profile says production.
+		return Arrays.asList(environment.getActiveProfiles()).contains("prod")
+				|| "production".equalsIgnoreCase(String.valueOf(environment.getProperty("gastos.env")).trim())
+				|| looksLikeRemoteDatabase();
 	}
 
 	private boolean looksLikeRemoteDatabase() {

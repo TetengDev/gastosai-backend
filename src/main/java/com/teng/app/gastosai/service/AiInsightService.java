@@ -8,6 +8,7 @@ import com.teng.app.gastosai.ai.AiLanguage;
 import com.teng.app.gastosai.ai.AiLanguageRegistry;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.config.AiProviderProperties;
+import com.teng.app.gastosai.config.AiRateLimitInterceptor;
 import com.teng.app.gastosai.config.ClaudeProperties;
 import com.teng.app.gastosai.config.OpenAiProperties;
 import com.teng.app.gastosai.dto.CategoryReportItem;
@@ -39,6 +40,7 @@ public class AiInsightService {
     private final OpenAiProperties openAiProperties;
     private final ClaudeProperties claudeProperties;
     private final AiLanguageRegistry languages;
+    private final AiRateLimitInterceptor aiRateLimit;
 
     @Cacheable(cacheNames = "insightTopCategory", key = "#user.id + '-' + #month")
     @Transactional(readOnly = true)
@@ -64,6 +66,7 @@ public class AiInsightService {
     @Cacheable(cacheNames = "insightMonthSummary", key = "#user.id + '-' + #month + '-' + @aiLanguageRegistry.fromCodeOrDefault(#user.insightLanguage).code()")
     @Transactional(readOnly = true)
     public MonthSummaryInsightResponse getMonthSummary(User user, String month) throws Exception {
+        aiRateLimit.acquireOrThrow(user);
         AiLanguage language = languages.fromCodeOrDefault(user.getInsightLanguage());
         String contextJson = buildContext(user, month);
         try {
@@ -83,6 +86,7 @@ public class AiInsightService {
     @Cacheable(cacheNames = "insightRecommendations", key = "#user.id + '-' + #month + '-' + @aiLanguageRegistry.fromCodeOrDefault(#user.insightLanguage).code()")
     @Transactional(readOnly = true)
     public RecommendationsInsightResponse getRecommendations(User user, String month) throws Exception {
+        aiRateLimit.acquireOrThrow(user);
         AiLanguage language = languages.fromCodeOrDefault(user.getInsightLanguage());
         String contextJson = buildContext(user, month);
         try {

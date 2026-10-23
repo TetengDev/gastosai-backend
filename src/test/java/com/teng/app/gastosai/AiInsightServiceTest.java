@@ -8,6 +8,7 @@ import com.teng.app.gastosai.ai.LlmResult;
 import com.teng.app.gastosai.ai.LlmUsage;
 import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.config.AiProviderProperties;
+import com.teng.app.gastosai.config.AiRateLimitInterceptor;
 import com.teng.app.gastosai.config.ClaudeProperties;
 import com.teng.app.gastosai.config.OpenAiProperties;
 import com.teng.app.gastosai.dto.CategoryReportItem;
@@ -34,6 +35,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -59,6 +61,9 @@ class AiInsightServiceTest {
 
     @Mock
     ClaudeProperties claudeProperties;
+
+    @Mock
+    AiRateLimitInterceptor aiRateLimit;
 
     /**
      * The real registry over a minimal configured set, not a mock: what these tests care about is
@@ -122,6 +127,7 @@ class AiInsightServiceTest {
 
         MonthSummaryInsightResponse result = aiInsightService.getMonthSummary(user, "2026-06");
 
+        verify(aiRateLimit).acquireOrThrow(user);
         assertThat(result.summary()).isEqualTo("You spent ₱1200 in June.");
         assertThat(contextCaptor.getValue()).contains("2026-06");
         assertThat(contextCaptor.getValue()).contains("topCategories");
@@ -141,6 +147,7 @@ class AiInsightServiceTest {
 
         RecommendationsInsightResponse result = aiInsightService.getRecommendations(user, "2026-06");
 
+        verify(aiRateLimit).acquireOrThrow(user);
         assertThat(result.recommendations()).hasSize(2);
         assertThat(result.recommendations().get(0)).isEqualTo("Reduce Food spending.");
     }
