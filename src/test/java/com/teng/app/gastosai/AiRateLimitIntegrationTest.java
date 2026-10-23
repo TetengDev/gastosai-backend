@@ -1,5 +1,8 @@
 package com.teng.app.gastosai;
 
+import com.teng.app.gastosai.ai.LlmResult;
+import com.teng.app.gastosai.ai.LlmUsage;
+import com.teng.app.gastosai.ai.SqlGenerator;
 import com.teng.app.gastosai.config.JwtUtil;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.UserRepository;
@@ -10,10 +13,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.context.WebApplicationContext;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -28,6 +34,7 @@ class AiRateLimitIntegrationTest extends PostgresBackedTest {
     @Autowired UserRepository userRepository;
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired JwtUtil jwtUtil;
+    @MockitoBean SqlGenerator sqlGenerator;
 
     MockMvc mockMvc;
     String authHeader;
@@ -39,6 +46,8 @@ class AiRateLimitIntegrationTest extends PostgresBackedTest {
         User user = userRepository.save(User.builder()
                 .name("Rate User").email("rate@test.com").password(passwordEncoder.encode("pw")).build());
         authHeader = "Bearer " + jwtUtil.generate(user.getEmail());
+        when(sqlGenerator.generateInsightSummary(any(), any(), any(), any()))
+                .thenReturn(LlmResult.of("A quiet month.", LlmUsage.absent()));
     }
 
     @Test
@@ -62,6 +71,56 @@ class AiRateLimitIntegrationTest extends PostgresBackedTest {
             mockMvc.perform(query());
         }
         mockMvc.perform(query()).andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void cachedMonthSummary_spendsOneTokenForTheMiss_andNoneForHits() throws Exception {
+        for (int i = 0; i < 21; i++) {
+            mockMvc.perform(get("/ai/insights/month-summary").param("month", "2026-10").header("Authorization", authHeader))
+                    .andExpect(status().isOk());
+        }
+        // The miss spent one of two; one model call is left, then the window is full.
+        mockMvc.perform(query());
+        mockMvc.perform(query()).andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void uncachedMonthSummary_stillSpendsAToken() throws Exception {
+        for (String month : new String[] {"2026-08", "2026-09"}) {
+            mockMvc.perform(get("/ai/insights/month-summary").param("month", month).header("Authorization", authHeader))
+                    .andExpect(status().isOk());
+        }
+        mockMvc.perform(get("/ai/insights/month-summary").param("month", "2026-07").header("Authorization", authHeader))
+                .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void cachedRecommendations_spendsOneTokenForTheMiss_andNoneForHits() throws Exception {
+        for (int i = 0; i < 21; i++) {
+            mockMvc.perform(get("/ai/insights/recommendations").param("month", "2026-10").header("Authorization", authHeader))
+                    .andExpect(status().isOk());
+        }
+        // The miss spent one of two; one model call is left, then the window is full.
+        mockMvc.perform(query());
+        mockMvc.perform(query()).andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void uncachedRecommendations_stillSpendsAToken() throws Exception {
+        for (String month : new String[] {"2026-08", "2026-09"}) {
+            mockMvc.perform(get("/ai/insights/recommendations").param("month", month).header("Authorization", authHeader))
+                    .andExpect(status().isOk());
+        }
+        mockMvc.perform(get("/ai/insights/recommendations").param("month", "2026-07").header("Authorization", authHeader))
+                .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void topCategory_isExemptAtV2Too() throws Exception {
+        for (int i = 0; i < 21; i++) {
+            mockMvc.perform(get("/api/v2/ai/insights/top-category").param("month", "2026-10").header("Authorization", authHeader))
+                    .andExpect(status().isOk());
+        }
     }
 
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder query() {
