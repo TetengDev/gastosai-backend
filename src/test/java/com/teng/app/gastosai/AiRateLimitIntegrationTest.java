@@ -95,6 +95,27 @@ class AiRateLimitIntegrationTest extends PostgresBackedTest {
     }
 
     @Test
+    void cachedRecommendations_spendsOneTokenForTheMiss_andNoneForHits() throws Exception {
+        for (int i = 0; i < 21; i++) {
+            mockMvc.perform(get("/ai/insights/recommendations").param("month", "2026-10").header("Authorization", authHeader))
+                    .andExpect(status().isOk());
+        }
+        // The miss spent one of two; one model call is left, then the window is full.
+        mockMvc.perform(query());
+        mockMvc.perform(query()).andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void uncachedRecommendations_stillSpendsAToken() throws Exception {
+        for (String month : new String[] {"2026-08", "2026-09"}) {
+            mockMvc.perform(get("/ai/insights/recommendations").param("month", month).header("Authorization", authHeader))
+                    .andExpect(status().isOk());
+        }
+        mockMvc.perform(get("/ai/insights/recommendations").param("month", "2026-07").header("Authorization", authHeader))
+                .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
     void topCategory_isExemptAtV2Too() throws Exception {
         for (int i = 0; i < 21; i++) {
             mockMvc.perform(get("/api/v2/ai/insights/top-category").param("month", "2026-10").header("Authorization", authHeader))
