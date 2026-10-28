@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
@@ -21,7 +22,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.servlet.NoHandlerFoundException;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -30,8 +34,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -138,6 +144,63 @@ class GlobalExceptionHandlerTest extends PostgresBackedTest {
     void unmatchedBareRoute_returns404NotA500() throws Exception {
         mockMvc.perform(get("/user").header("Authorization", authHeader))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void wrongMethodOnExistingRoute_returns405WithAllowHeader() throws Exception {
+        MvcResult result = mockMvc.perform(delete("/api/v2/user/profile")
+                        .header("Authorization", authHeader))
+                .andExpect(status().isMethodNotAllowed())
+                .andReturn();
+
+        assertThat(result.getResponse().getHeader(HttpHeaders.ALLOW)).contains("GET").contains("PUT");
+        String body = result.getResponse().getContentAsString();
+        assertThat(body).contains("This endpoint does not support the request method.");
+        assertThat(body).doesNotContain("HttpRequestMethodNotSupportedException").doesNotContain("com.teng")
+                .doesNotContain("not supported");
+    }
+
+    @Test
+    void unsupportedContentType_returns415() throws Exception {
+        MvcResult result = mockMvc.perform(put("/api/v2/user/profile")
+                        .header("Authorization", authHeader)
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("name=Someone"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        assertThat(body).contains("This endpoint does not accept the request's content type.");
+        assertThat(body).doesNotContain("HttpMediaTypeNotSupportedException").doesNotContain("text/plain");
+    }
+
+    @Test
+    void unsatisfiableAccept_returns406() throws Exception {
+        MvcResult result = mockMvc.perform(get("/api/v2/features")
+                        .header("Authorization", authHeader)
+                        .accept(MediaType.APPLICATION_XML))
+                .andExpect(status().isNotAcceptable())
+                .andReturn();
+
+        assertThat(result.getResponse().getContentAsString())
+                .doesNotContain("HttpMediaTypeNotAcceptableException").doesNotContain("com.teng");
+    }
+
+    @Test
+    void unsupportedRequest_isNotRecordedAsAnError() {
+        AppEventService appEventService = mock(AppEventService.class);
+        GlobalExceptionHandler handler = new GlobalExceptionHandler(appEventService);
+
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getRequestURI()).thenReturn("/api/v2/user/profile");
+        when(request.getMethod()).thenReturn("DELETE");
+
+        ResponseEntity<ProblemDetail> response = handler.unsupportedRequest(
+                new HttpRequestMethodNotSupportedException("DELETE", List.of("GET", "PUT")), request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
+        assertThat(response.getHeaders().getAllow()).contains(HttpMethod.GET, HttpMethod.PUT);
+        verifyNoInteractions(appEventService);
     }
 
     @Test
