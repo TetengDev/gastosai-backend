@@ -11,6 +11,10 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.ErrorResponse;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -64,6 +68,28 @@ public class GlobalExceptionHandler {
 				"No endpoint matches this request.");
 		pd.setTitle("Not Found");
 		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(pd);
+	}
+
+	/**
+	 * A route that exists, asked with the wrong verb or media type. Same shape as {@link #noRoute}:
+	 * each exception carries its own status (405/415/406) that the catch-all would otherwise turn
+	 * into a 500. Its headers are kept — {@code Allow} on a 405, {@code Accept} on a 415 — because
+	 * they tell the client how to fix the request. Not recorded to app_event, and the detail is
+	 * fixed text rather than Spring's message.
+	 */
+	@ExceptionHandler({ HttpRequestMethodNotSupportedException.class, HttpMediaTypeNotSupportedException.class,
+			HttpMediaTypeNotAcceptableException.class })
+	public ResponseEntity<ProblemDetail> unsupportedRequest(ServletException ex, HttpServletRequest request) {
+		log.debug("Unsupported request {} {}: {}", request.getMethod(), request.getRequestURI(), ex.getMessage());
+		ErrorResponse error = (ErrorResponse) ex;
+		HttpStatusCode status = error.getStatusCode();
+		String detail = switch (status.value()) {
+			case 405 -> "This endpoint does not support the request method.";
+			case 415 -> "This endpoint does not accept the request's content type.";
+			default -> "This endpoint cannot produce a response in an acceptable media type.";
+		};
+		ProblemDetail pd = ProblemDetail.forStatusAndDetail(status, detail);
+		return ResponseEntity.status(status).headers(error.getHeaders()).body(pd);
 	}
 
 	@ExceptionHandler(FeatureLockedException.class)
