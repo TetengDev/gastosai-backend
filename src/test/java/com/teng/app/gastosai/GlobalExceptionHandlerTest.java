@@ -169,6 +169,7 @@ class GlobalExceptionHandlerTest extends PostgresBackedTest {
                 .andExpect(status().isUnsupportedMediaType())
                 .andReturn();
 
+        assertThat(result.getResponse().getHeader(HttpHeaders.ACCEPT)).contains("application/json");
         String body = result.getResponse().getContentAsString();
         assertThat(body).contains("This endpoint does not accept the request's content type.");
         assertThat(body).doesNotContain("HttpMediaTypeNotSupportedException").doesNotContain("text/plain");
@@ -182,7 +183,10 @@ class GlobalExceptionHandlerTest extends PostgresBackedTest {
                 .andExpect(status().isNotAcceptable())
                 .andReturn();
 
+        // The client's Accept cannot be met, so the problem body must still go out as problem+json.
+        assertThat(result.getResponse().getContentType()).startsWith("application/problem+json");
         assertThat(result.getResponse().getContentAsString())
+                .contains("This endpoint cannot produce a response in an acceptable media type.")
                 .doesNotContain("HttpMediaTypeNotAcceptableException").doesNotContain("com.teng");
     }
 
