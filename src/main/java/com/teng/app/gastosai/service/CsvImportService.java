@@ -1,5 +1,6 @@
 package com.teng.app.gastosai.service;
 
+import com.teng.app.gastosai.config.JacksonTimeConfig;
 import com.teng.app.gastosai.dto.ImportResult;
 import com.teng.app.gastosai.entity.Category;
 import com.teng.app.gastosai.entity.Expense;
@@ -24,6 +25,7 @@ import java.io.Reader;
 import java.io.StringWriter;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -51,6 +53,9 @@ public class CsvImportService {
 	private final ExpenseRepository expenseRepository;
 	private final CategoryService categoryService;
 	private final PlatformTransactionManager transactionManager;
+
+	/** Source of "now" for a row with no usable date; read as UTC and converted to Manila (TEN-468, as TEN-457). */
+	private Clock clock = Clock.systemUTC();
 
 	// Abuse limits — a 10 MB upload could otherwise carry hundreds of thousands of rows
 	// (unbounded memory + DB/category storage amplification, CWE-770) or multi-megabyte
@@ -231,8 +236,8 @@ public class CsvImportService {
 		return "";
 	}
 
-	private static LocalDateTime parseDate(String raw) {
-		if (raw == null || raw.isBlank()) return LocalDateTime.now();
+	private LocalDateTime parseDate(String raw) {
+		if (raw == null || raw.isBlank()) return LocalDateTime.ofInstant(clock.instant(), JacksonTimeConfig.APP_ZONE);
 		for (DateTimeFormatter fmt : DATE_FORMATS) {
 			try {
 				if (fmt.toString().contains("HH")) {
@@ -241,6 +246,6 @@ public class CsvImportService {
 				return LocalDate.parse(raw, fmt).atStartOfDay();
 			} catch (DateTimeParseException ignored) {}
 		}
-		return LocalDateTime.now();
+		return LocalDateTime.ofInstant(clock.instant(), JacksonTimeConfig.APP_ZONE);
 	}
 }
