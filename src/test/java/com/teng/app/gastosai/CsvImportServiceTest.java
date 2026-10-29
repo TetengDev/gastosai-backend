@@ -21,6 +21,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -355,5 +359,24 @@ class CsvImportServiceTest {
         String csv = new String(csvImportService.buildTemplate(), StandardCharsets.UTF_8);
         assertThat(csv).contains("date,amount,category,description");
         assertThat(csv).contains("Food");
+    }
+
+    /**
+     * TEN-468: 00:30 in Manila is 16:30 UTC the day before. A blank or unparseable date stamped in
+     * the server's zone landed the row on the previous Manila day.
+     */
+    @Test
+    void import_blankOrUnparseableDate_stampsManilaWallClock_onAUtcClock() throws IOException {
+        when(categoryService.getOrCreateByName(anyString(), any())).thenAnswer(inv ->
+                category(inv.getArgument(0)));
+        ReflectionTestUtils.setField(csvImportService, "clock",
+                Clock.fixed(Instant.parse("2026-08-31T16:30:00Z"), ZoneOffset.UTC));
+
+        csvImportService.importCsv(csv("date,amount,category\n,10,Food\nnot-a-date,20,Food\n"), user());
+
+        ArgumentCaptor<Expense> cap = ArgumentCaptor.forClass(Expense.class);
+        verify(expenseRepository, times(2)).save(cap.capture());
+        assertThat(cap.getAllValues()).extracting(Expense::getDate)
+                .containsOnly(LocalDateTime.of(2026, 9, 1, 0, 30));
     }
 }
