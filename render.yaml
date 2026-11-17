@@ -42,6 +42,9 @@ services:
       # The prod profile exposes /actuator/health and tunes the connection pool.
       - key: SPRING_PROFILES_ACTIVE
         value: prod
+      # Second, independent signal: the startup check refuses dev-default secrets on either one.
+      - key: GASTOS_ENV
+        value: production
       # Flyway owns the schema. `validate` means a drifted schema fails startup loudly instead of
       # Hibernate quietly "fixing" production.
       - key: SPRING_JPA_HIBERNATE_DDL_AUTO
