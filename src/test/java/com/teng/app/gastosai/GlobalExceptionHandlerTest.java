@@ -9,6 +9,15 @@ import com.teng.app.gastosai.support.PostgresBackedTest;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.hibernate.exception.JDBCConnectionException;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.TransientDataAccessResourceException;
+import org.springframework.transaction.CannotCreateTransactionException;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
@@ -25,7 +34,10 @@ import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 
+import java.sql.SQLException;
+import java.sql.SQLTransientConnectionException;
 import java.util.List;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -38,6 +50,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -240,5 +254,78 @@ class GlobalExceptionHandlerTest extends PostgresBackedTest {
         assertThat(response.getBody().getDetail()).isEqualTo("An unexpected error occurred.");
         verify(appEventService).recordError(eq("/expenses"), eq(500), eq("secret internal detail"),
                 org.mockito.ArgumentMatchers.contains("IllegalStateException"));
+    }
+
+    /**
+     * What a request sees when Postgres cannot be reached (TEN-511). Driven through the real
+     * exception resolver, not by calling a handler method, because the bug is which handler the
+     * resolver picks: {@code CannotCreateTransactionException} is not a {@code DataAccessException}
+     * and fell to the 500 catch-all, and the pool's own failures matched the 400 handler.
+     */
+    static Stream<RuntimeException> unreachableDatabaseFailures() {
+        SQLTransientConnectionException poolTimeout = new SQLTransientConnectionException(
+                "HikariPool-1 - Connection is not available, request timed out after 10000ms.");
+        return Stream.of(
+                new DataAccessResourceFailureException("Unable to acquire JDBC Connection", poolTimeout),
+                new CannotCreateTransactionException("Could not open JPA EntityManager for transaction",
+                        new JDBCConnectionException("Unable to acquire JDBC Connection", poolTimeout)),
+                new JDBCConnectionException("An I/O error occurred while sending to the backend",
+                        new SQLException("Read timed out", "08006")),
+                // JdbcTemplate's SQLExceptionSubclassTranslator turns the pool's exception into this
+                // TransientDataAccessException, which is not a DataAccessResourceFailureException.
+                new TransientDataAccessResourceException("Connection is not available", poolTimeout));
+    }
+
+    @ParameterizedTest
+    @MethodSource("unreachableDatabaseFailures")
+    void unreachableDatabase_returns503ProblemDetailWithoutInternals(RuntimeException failure) throws Exception {
+        AppEventService appEventService = mock(AppEventService.class);
+        MockMvc standalone = MockMvcBuilders.standaloneSetup(new ThrowingEndpoint(failure))
+                .setControllerAdvice(new GlobalExceptionHandler(appEventService))
+                .build();
+
+        MvcResult result = standalone.perform(get("/throws"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(503))
+                .andExpect(jsonPath("$.title").value("Service Unavailable"))
+                .andReturn();
+
+        assertThat(result.getResponse().getContentAsString())
+                .doesNotContain("Exception").doesNotContain("Hikari").doesNotContain("\tat ")
+                .doesNotContain("JDBC");
+        // Recording to app_event would write to the database that is down.
+        verifyNoInteractions(appEventService);
+    }
+
+    @Test
+    void otherDataAccessFailure_stillReturns400() throws Exception {
+        MockMvc standalone = MockMvcBuilders.standaloneSetup(new ThrowingEndpoint(
+                        new DataIntegrityViolationException("duplicate key value violates unique constraint")))
+                .setControllerAdvice(new GlobalExceptionHandler(mock(AppEventService.class)))
+                .build();
+
+        standalone.perform(get("/throws"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Query execution failed"));
+    }
+
+    /**
+     * An inner (non-static) class on purpose: standalone MockMvc only maps a {@code @Controller},
+     * and component scanning skips classes that are not independent, so this stays out of every
+     * application context and out of {@code openapi.json}.
+     */
+    @RestController
+    class ThrowingEndpoint {
+        private final RuntimeException failure;
+
+        ThrowingEndpoint(RuntimeException failure) {
+            this.failure = failure;
+        }
+
+        @GetMapping("/throws")
+        String fail() {
+            throw failure;
+        }
     }
 }
