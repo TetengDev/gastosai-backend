@@ -117,8 +117,11 @@ Fill in:
 | `JWT_SECRET`, `AI_KEY_ENCRYPTION_SECRET` | strong random values |
 | `OPENAI_API_KEY`, `PAYMONGO_*`, `MAIL_*`, `FRONTEND_BASE_URL` | as before |
 
-> In the prod profile startup **fails fast** if `JWT_SECRET` or `AI_KEY_ENCRYPTION_SECRET`
-> still equals its dev default. That is deliberate — a placeholder secret stops the deploy
+> Startup **fails fast** if `JWT_SECRET` or `AI_KEY_ENCRYPTION_SECRET` still equals its dev
+> default when any one of three triggers holds: the `prod` profile is active, `GASTOS_ENV=production`
+> (case-insensitive), or the JDBC URL looks remote (not `jdbc:h2:` and not containing `localhost`
+> or `127.0.0.1`). `compose.prod.yml` sets the first two, so either alone protects the deploy.
+> That is deliberate — a placeholder secret stops the deploy
 > rather than silently weakening auth.
 
 Available image tags:

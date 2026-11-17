@@ -12,6 +12,7 @@ primary_region = "sin"
 # Non-secret runtime config. Secrets are injected separately via `flyctl secrets set`.
 [env]
   SPRING_PROFILES_ACTIVE = "prod"
+  GASTOS_ENV = "production"
   SPRING_JPA_HIBERNATE_DDL_AUTO = "validate"
   GASTOS_SEED_SAMPLE_DATA = "false"
   GASTOS_AI_PROVIDER = "openai"
