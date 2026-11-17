@@ -31,6 +31,7 @@ import tools.jackson.databind.DatabindException;
 import tools.jackson.databind.exc.InvalidFormatException;
 import tools.jackson.databind.exc.MismatchedInputException;
 
+import java.sql.SQLException;
 import java.sql.SQLTransientConnectionException;
 import java.util.Arrays;
 import java.util.stream.Collectors;
@@ -185,11 +186,21 @@ public class GlobalExceptionHandler {
 	 * {@link SQLTransientConnectionException} is what Hikari throws when no connection frees up in
 	 * time; JdbcTemplate translates it to a {@code TransientDataAccessResourceException}, which is
 	 * not a {@link DataAccessResourceFailureException}, so the chain has to be walked.
+	 *
+	 * <p>The last case is a socket timeout inside a {@code @Transactional} method. The rollback then
+	 * fails on the connection Hikari has already closed, and Spring throws that failure in place of
+	 * the original one ("Application exception overridden by rollback exception"), so the chain
+	 * holds only Hibernate's {@code TransactionException} over Hikari's "Connection is closed",
+	 * which carries no SQLState. A commit the database itself refuses has a SQLState, and stays 400.
 	 */
 	public static boolean isDatabaseUnreachable(Throwable ex) {
 		for (Throwable t = ex; t != null; t = t.getCause()) {
 			if (t instanceof DataAccessResourceFailureException || t instanceof CannotCreateTransactionException
 					|| t instanceof JDBCConnectionException || t instanceof SQLTransientConnectionException) {
+				return true;
+			}
+			if (t instanceof org.hibernate.TransactionException && t.getCause() instanceof SQLException sql
+					&& (sql.getSQLState() == null || sql.getSQLState().startsWith("08"))) {
 				return true;
 			}
 		}

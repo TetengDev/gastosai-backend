@@ -15,6 +15,7 @@ import org.hibernate.exception.JDBCConnectionException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.TransientDataAccessResourceException;
+import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -273,7 +274,21 @@ class GlobalExceptionHandlerTest extends PostgresBackedTest {
                         new SQLException("Read timed out", "08006")),
                 // JdbcTemplate's SQLExceptionSubclassTranslator turns the pool's exception into this
                 // TransientDataAccessException, which is not a DataAccessResourceFailureException.
-                new TransientDataAccessResourceException("Connection is not available", poolTimeout));
+                new TransientDataAccessResourceException("Connection is not available", poolTimeout),
+                // A socket timeout inside a @Transactional service: the rollback then fails on the
+                // connection Hikari has already closed, and Spring throws that in place of the
+                // original failure. Hikari's closed proxy reports no SQLState. Observed at runtime.
+                new JpaSystemException(new org.hibernate.TransactionException(
+                        "Unable to rollback against JDBC Connection", new SQLException("Connection is closed"))));
+    }
+
+    static Stream<RuntimeException> otherDataAccessFailures() {
+        return Stream.of(
+                new DataIntegrityViolationException("duplicate key value violates unique constraint"),
+                // A commit refused by the database itself, not a lost connection.
+                new JpaSystemException(new org.hibernate.TransactionException(
+                        "Unable to commit against JDBC Connection",
+                        new SQLException("duplicate key value violates unique constraint", "23505"))));
     }
 
     @ParameterizedTest
@@ -298,10 +313,10 @@ class GlobalExceptionHandlerTest extends PostgresBackedTest {
         verifyNoInteractions(appEventService);
     }
 
-    @Test
-    void otherDataAccessFailure_stillReturns400() throws Exception {
-        MockMvc standalone = MockMvcBuilders.standaloneSetup(new ThrowingEndpoint(
-                        new DataIntegrityViolationException("duplicate key value violates unique constraint")))
+    @ParameterizedTest
+    @MethodSource("otherDataAccessFailures")
+    void otherDataAccessFailure_stillReturns400(RuntimeException failure) throws Exception {
+        MockMvc standalone = MockMvcBuilders.standaloneSetup(new ThrowingEndpoint(failure))
                 .setControllerAdvice(new GlobalExceptionHandler(mock(AppEventService.class)))
                 .build();
 
