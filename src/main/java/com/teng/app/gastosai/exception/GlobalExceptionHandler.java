@@ -5,12 +5,15 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.hibernate.exception.JDBCConnectionException;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
@@ -28,6 +31,8 @@ import tools.jackson.databind.DatabindException;
 import tools.jackson.databind.exc.InvalidFormatException;
 import tools.jackson.databind.exc.MismatchedInputException;
 
+import java.sql.SQLException;
+import java.sql.SQLTransientConnectionException;
 import java.util.Arrays;
 import java.util.stream.Collectors;
 
@@ -38,6 +43,10 @@ public class GlobalExceptionHandler {
 
 	/** Provider callbacks (today only {@code /webhooks/paymongo}); never a request from a user. */
 	private static final String WEBHOOK_PATH_PREFIX = "/webhooks/";
+
+	/** Shared with {@code JwtAuthFilter}, which writes the same 503 before any controller runs. */
+	public static final String DATABASE_UNAVAILABLE_DETAIL =
+			"The service is temporarily unavailable. Retry the request shortly.";
 
 	private final AppEventService appEventService;
 
@@ -147,10 +156,55 @@ public class GlobalExceptionHandler {
 			pd.setTitle("Service Unavailable");
 			return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(pd);
 		}
+		if (isDatabaseUnreachable(ex)) {
+			return databaseUnavailable(ex, request);
+		}
 		log.warn("Data access error: {}", ex.getMessage());
 		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Query execution failed");
 		pd.setTitle("Bad Request");
 		return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd);
+	}
+
+	/**
+	 * Postgres cannot be reached: the pool timed out, or a socket read did. That is not the
+	 * client's fault, and a 400 would tell clients and uptime checks not to retry. The two types
+	 * listed here are not {@link DataAccessException}s, so without this they fell to the 500
+	 * catch-all; {@link #dataAccess} routes its own unreachable-database cases here too. Not
+	 * recorded to app_event, which lives in the database that is down.
+	 */
+	@ExceptionHandler({ CannotCreateTransactionException.class, JDBCConnectionException.class })
+	public ResponseEntity<ProblemDetail> databaseUnavailable(Exception ex, HttpServletRequest request) {
+		log.warn("Database unreachable on {} {}: {}", request.getMethod(), request.getRequestURI(), ex.getMessage());
+		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
+				DATABASE_UNAVAILABLE_DETAIL);
+		pd.setTitle("Service Unavailable");
+		return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(pd);
+	}
+
+	/**
+	 * Whether {@code ex} means the database could not be reached, anywhere in its cause chain.
+	 * {@link SQLTransientConnectionException} is what Hikari throws when no connection frees up in
+	 * time; JdbcTemplate translates it to a {@code TransientDataAccessResourceException}, which is
+	 * not a {@link DataAccessResourceFailureException}, so the chain has to be walked.
+	 *
+	 * <p>The last case is a socket timeout inside a {@code @Transactional} method. The rollback then
+	 * fails on the connection Hikari has already closed, and Spring throws that failure in place of
+	 * the original one ("Application exception overridden by rollback exception"), so the chain
+	 * holds only Hibernate's {@code TransactionException} over Hikari's "Connection is closed",
+	 * which carries no SQLState. A commit the database itself refuses has a SQLState, and stays 400.
+	 */
+	public static boolean isDatabaseUnreachable(Throwable ex) {
+		for (Throwable t = ex; t != null; t = t.getCause()) {
+			if (t instanceof DataAccessResourceFailureException || t instanceof CannotCreateTransactionException
+					|| t instanceof JDBCConnectionException || t instanceof SQLTransientConnectionException) {
+				return true;
+			}
+			if (t instanceof org.hibernate.TransactionException && t.getCause() instanceof SQLException sql
+					&& (sql.getSQLState() == null || sql.getSQLState().startsWith("08"))) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	@ExceptionHandler(MissingServletRequestParameterException.class)
