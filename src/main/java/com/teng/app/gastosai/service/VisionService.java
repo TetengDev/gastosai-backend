@@ -183,7 +183,8 @@ public class VisionService {
 	 * ({@code server.tomcat.threads.max}, default 200), vision decoding can never hold more than 4 of
 	 * the 200 at the defaults. Raising the global bound spends connector threads one for one. The
 	 * provider call that follows a decode runs on the same request thread with no slot held, so it
-	 * is outside this bound; only the per-minute limiter in front of the endpoint caps it.
+	 * is outside this bound. The per-account limiter ({@code gastos.ratelimit.ai-per-minute}) caps how
+	 * often one account reaches it; across accounts, only the connector pool bounds it.
 	 */
 	private final int maxConcurrentDecodes;
 
@@ -334,8 +335,8 @@ public class VisionService {
 	 *
 	 * <p>Both limits refuse at once with 429. Neither waits for a slot: since TEN-414 the request
 	 * thread is already held for the decode itself, up to the budget, and a wait on top of that would
-	 * only hold it longer doing nothing (TEN-413). A refused client retries; the per-minute limiter
-	 * in front of this endpoint bounds how often.
+	 * only hold it longer doing nothing (TEN-413). A refused client may retry; the per-account
+	 * limiter in front of this endpoint bounds how often.
 	 *
 	 * <p>Public so a test can drive the bound directly — the whole behaviour is what does *not*
 	 * happen concurrently, which is not observable from the encoded output.
