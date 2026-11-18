@@ -414,9 +414,14 @@ public class VisionService {
 					releaseSlots(userId);
 				}
 			});
-		} catch (RejectedExecutionException e) {
+		} catch (Throwable t) {
+			// Any failure to hand off — including an OutOfMemoryError starting a worker — must give the
+			// slots back, or they are gone for good.
 			releaseIfUnclaimed.run();
-			throw busy("The server is processing as many receipt images as it can at once. Try again shortly.");
+			if (t instanceof RejectedExecutionException) {
+				throw busy("The server is processing as many receipt images as it can at once. Try again shortly.");
+			}
+			throw t;
 		}
 		try {
 			return task.get(decodeBudgetMillis, TimeUnit.MILLISECONDS);

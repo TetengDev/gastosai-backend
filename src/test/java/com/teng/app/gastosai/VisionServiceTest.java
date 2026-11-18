@@ -162,6 +162,12 @@ class VisionServiceTest {
 
     /** A receipt-shaped image generated in memory: white card, dark text bars, no binary fixture. */
     private static byte[] receiptPng(int width, int height) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ImageIO.write(receiptImage(width, height), "png", out);
+        return out.toByteArray();
+    }
+
+    private static BufferedImage receiptImage(int width, int height) {
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = image.createGraphics();
         g.setColor(Color.WHITE);
@@ -171,9 +177,7 @@ class VisionServiceTest {
             g.fillRect(width / 8, y, width * 3 / 4, Math.max(1, height / 100));
         }
         g.dispose();
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        ImageIO.write(image, "png", out);
-        return out.toByteArray();
+        return image;
     }
 
     private static BufferedImage decodeBase64(String base64) throws Exception {
@@ -638,11 +642,14 @@ class VisionServiceTest {
         assertThat(bounded.runBoundedDecode(6L, () -> "decoded")).isEqualTo("decoded");
     }
 
-    /** A 1600x1600 bilevel image: over MAX_EDGE_PX, so it is decoded rather than passed through. */
+    /**
+     * A 1600x1600 24-bit image, the kind a receipt photo is: over MAX_EDGE_PX, so it is decoded rather
+     * than passed through. Null for a format with no writer for it (WBMP is bilevel only).
+     */
     private static byte[] sampleIn(String format) {
         try {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
-            boolean written = ImageIO.write(new BufferedImage(1600, 1600, BufferedImage.TYPE_BYTE_BINARY), format, out);
+            boolean written = ImageIO.write(receiptImage(1600, 1600), format, out);
             return written ? out.toByteArray() : null;
         } catch (Exception e) {
             return null;
