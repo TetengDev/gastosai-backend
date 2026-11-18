@@ -15,6 +15,7 @@ import com.teng.app.gastosai.config.OpenAiProperties;
 import com.teng.app.gastosai.dto.ParsedExpenseResult;
 import com.teng.app.gastosai.entity.AiUsageStatus;
 import com.teng.app.gastosai.entity.User;
+import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -239,6 +240,12 @@ public class VisionService {
 		this.decodeExecutor.allowCoreThreadTimeOut(true);
 	}
 
+	/** Interrupts any decode still running when the context closes; its threads are daemons regardless. */
+	@PreDestroy
+	void shutdownDecodes() {
+		decodeExecutor.shutdownNow();
+	}
+
 	public ParsedExpenseResult analyze(String question, MultipartFile file, String mode) throws IOException {
 		return analyze(question, file, mode, null);
 	}
@@ -433,7 +440,8 @@ public class VisionService {
 			task.cancel(true);
 			releaseIfUnclaimed.run();
 			Thread.currentThread().interrupt();
-			throw new IllegalStateException("Interrupted while waiting for an image decode", e);
+			// The same answer as an interrupt while queued for a slot: 429, and not charged.
+			throw busy("Receipt scanning was interrupted. Try again.");
 		} catch (ExecutionException e) {
 			// Rethrown as itself, so callers see DecodeTimedOutException, IllegalArgumentException or an
 			// OutOfMemoryError exactly as they would have from a decode run on their own thread.

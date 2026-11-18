@@ -642,6 +642,60 @@ class VisionServiceTest {
         assertThat(bounded.runBoundedDecode(6L, () -> "decoded")).isEqualTo("decoded");
     }
 
+    @Test
+    void errorInsideTheDecode_reachesTheCallerAsItself_andGivesTheSlotBack() {
+        // analyze() records t.getClass().getSimpleName() for TEN-409's cap, so an OutOfMemoryError
+        // raised on the decode thread must not arrive wrapped in an ExecutionException.
+        VisionService bounded = visionServiceWith(1, 1, 50, 8000);
+
+        assertThatThrownBy(() -> bounded.runBoundedDecode(9L, () -> {
+            throw new OutOfMemoryError("simulated");
+        }))
+                .isExactlyInstanceOf(OutOfMemoryError.class)
+                .hasMessage("simulated");
+        assertThat(bounded.decodesInFlight(9L)).isZero();
+    }
+
+    @Test
+    void callerInterruptedDuringTheDecode_getsA429_keepsTheFlag_andTheSlotStaysWithTheDecode() throws Exception {
+        VisionService bounded = visionServiceWith(1, 1, 50, 8000);
+        CountDownLatch running = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger status = new AtomicInteger();
+        boolean[] interruptFlag = {false};
+        Thread caller = new Thread(() -> {
+            status.set(refusalStatusOf(() -> bounded.runBoundedDecode(10L, () -> {
+                running.countDown();
+                while (true) {
+                    try {
+                        if (release.await(10, TimeUnit.SECONDS)) {
+                            return "decoded";
+                        }
+                    } catch (InterruptedException ignored) {
+                        // Ignored, like an ImageIO reader: the cancel's interrupt must not end the decode.
+                    }
+                }
+            })));
+            interruptFlag[0] = Thread.currentThread().isInterrupted();
+        });
+        try {
+            caller.start();
+            assertThat(running.await(10, TimeUnit.SECONDS)).isTrue();
+            caller.interrupt();
+            caller.join(5000);
+            assertThat(caller.isAlive()).isFalse();
+
+            // The same answer as a caller interrupted while queued: 429, not charged, flag kept.
+            assertThat(status.get()).isEqualTo(429);
+            assertThat(interruptFlag[0]).isTrue();
+            // The decode is still running, so it still holds the slot.
+            assertThat(bounded.decodesInFlight(10L)).isEqualTo(1);
+        } finally {
+            release.countDown();
+        }
+        awaitTrue(() -> bounded.decodesInFlight(10L) == 0, "the decode to give its slot back");
+    }
+
     /**
      * A 1600x1600 24-bit image, the kind a receipt photo is: over MAX_EDGE_PX, so it is decoded rather
      * than passed through. Null for a format with no writer for it (WBMP is bilevel only).
