@@ -180,8 +180,10 @@ public class VisionService {
 	 * {@code gastos.vision.decode-budget-millis}; none are held waiting for a slot, because both bounds
 	 * refuse with 429 the moment they are full (see {@link #acquireSlots}). Per account the cap is
 	 * {@code gastos.vision.max-concurrent-decodes-per-user}. Set against Tomcat's request pool
-	 * ({@code server.tomcat.threads.max}, default 200), the vision path can never hold more than 4 of
-	 * the 200 at the defaults. Raising the global bound spends connector threads one for one.
+	 * ({@code server.tomcat.threads.max}, default 200), vision decoding can never hold more than 4 of
+	 * the 200 at the defaults. Raising the global bound spends connector threads one for one. The
+	 * provider call that follows a decode runs on the same request thread with no slot held, so it
+	 * is outside this bound; only the per-minute limiter in front of the endpoint caps it.
 	 */
 	private final int maxConcurrentDecodes;
 
