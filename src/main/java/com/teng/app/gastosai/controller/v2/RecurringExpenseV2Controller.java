@@ -6,6 +6,8 @@ import com.teng.app.gastosai.dto.v2.RecurringExpenseResponseV2;
 import com.teng.app.gastosai.dto.v2.UpcomingBillResponseV2;
 import com.teng.app.gastosai.entity.User;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -71,7 +73,8 @@ public class RecurringExpenseV2Controller {
 	@PutMapping("/{id}/payments/{month}")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	@Operation(operationId = "v2MarkRecurringExpensePaid")
-	public void markPaid(@PathVariable Long id, @PathVariable String month,
+	public void markPaid(@PathVariable Long id,
+			@Parameter(schema = @Schema(type = "string", pattern = RecurringExpenseController.MONTH_PATTERN)) @PathVariable String month,
 			@AuthenticationPrincipal User user) {
 		delegate.markPaid(id, month, user);
 	}
@@ -79,7 +82,8 @@ public class RecurringExpenseV2Controller {
 	@DeleteMapping("/{id}/payments/{month}")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	@Operation(operationId = "v2UnmarkRecurringExpensePaid")
-	public void unmarkPaid(@PathVariable Long id, @PathVariable String month,
+	public void unmarkPaid(@PathVariable Long id,
+			@Parameter(schema = @Schema(type = "string", pattern = RecurringExpenseController.MONTH_PATTERN)) @PathVariable String month,
 			@AuthenticationPrincipal User user) {
 		delegate.unmarkPaid(id, month, user);
 	}

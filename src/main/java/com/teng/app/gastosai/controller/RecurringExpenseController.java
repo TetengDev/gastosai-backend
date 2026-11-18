@@ -7,6 +7,8 @@ import com.teng.app.gastosai.dto.UpcomingBillResponse;
 import com.teng.app.gastosai.dto.UpcomingBillWithBase;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.service.RecurringExpenseService;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -30,6 +32,12 @@ import java.util.List;
 public class RecurringExpenseController {
 
 	private final RecurringExpenseService recurringExpenseService;
+
+	/**
+	 * The {@code {month}} path segment as the contract publishes it: {@code YYYY-MM} with a real
+	 * month. The service enforces the same rule, so a client that skips the check still gets a 400.
+	 */
+	public static final String MONTH_PATTERN = "^\\d{4}-(0[1-9]|1[0-2])$";
 
 	@PostMapping
 	@ResponseStatus(HttpStatus.CREATED)
@@ -86,7 +94,8 @@ public class RecurringExpenseController {
 	 */
 	@PutMapping("/{id}/payments/{month}")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
-	public void markPaid(@PathVariable Long id, @PathVariable String month,
+	public void markPaid(@PathVariable Long id,
+			@Parameter(schema = @Schema(type = "string", pattern = MONTH_PATTERN)) @PathVariable String month,
 			@AuthenticationPrincipal User user) {
 		recurringExpenseService.markPaid(id, month, user);
 	}
@@ -94,7 +103,8 @@ public class RecurringExpenseController {
 	/** Undoes {@link #markPaid}. Idempotent: undoing an unpaid month is a 204. */
 	@DeleteMapping("/{id}/payments/{month}")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
-	public void unmarkPaid(@PathVariable Long id, @PathVariable String month,
+	public void unmarkPaid(@PathVariable Long id,
+			@Parameter(schema = @Schema(type = "string", pattern = MONTH_PATTERN)) @PathVariable String month,
 			@AuthenticationPrincipal User user) {
 		recurringExpenseService.unmarkPaid(id, month, user);
 	}
