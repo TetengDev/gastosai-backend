@@ -19,14 +19,24 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import org.springframework.test.util.ReflectionTestUtils;
+
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -218,5 +228,112 @@ class RecurringExpenseServiceTest {
 
 		assertThat(results).hasSize(1);
 		assertThat(results.get(0).dueDate()).isEqualTo("2026-06-20");
+	}
+
+	// --- Paid state (TEN-503) ---
+
+	/** 16:30 UTC on 30 September is 00:30 on 1 October in Manila. */
+	private static final Instant MANILA_OCTOBER_FIRST = Instant.parse("2026-09-30T16:30:00Z");
+
+	private void pinClock(Instant instant) {
+		ReflectionTestUtils.setField(recurringExpenseService, "clock", Clock.fixed(instant, ZoneOffset.UTC));
+	}
+
+	private RecurringExpense bill(long id, User user) {
+		return RecurringExpense.builder()
+				.id(id).user(user).name("Bill " + id).amount(new BigDecimal("100.00"))
+				.category(testCategory()).frequency(Frequency.MONTHLY).dayOfMonth(5).active(true)
+				.build();
+	}
+
+	/**
+	 * The current occurrence is decided in Asia/Manila, not in UTC or the server's zone: at
+	 * 2026-09-30T16:30Z a UTC reading would still say September, and a bill paid for October would
+	 * show as unpaid for the first eight hours of the Manila month.
+	 */
+	@Test
+	void findAll_paidFlagUsesTheManilaMonth_atTheUtcMonthBoundary() {
+		User user = testUser();
+		pinClock(MANILA_OCTOBER_FIRST);
+		when(recurringExpenseRepository.findAllByUser(user)).thenReturn(List.of(bill(1L, user), bill(2L, user)));
+		when(recurringExpenseRepository.findPaidRecurringExpenseIds(1L, "2026-10")).thenReturn(List.of(1L));
+
+		List<RecurringExpenseResponse> result = recurringExpenseService.findAll(user);
+
+		assertThat(result).extracting(RecurringExpenseResponse::id, RecurringExpenseResponse::paidThisMonth)
+				.containsExactly(org.assertj.core.groups.Tuple.tuple(1L, true),
+						org.assertj.core.groups.Tuple.tuple(2L, false));
+	}
+
+	@Test
+	void update_servesTheStoredPaidFlag_notADefaultFalse() {
+		User user = testUser();
+		pinClock(MANILA_OCTOBER_FIRST);
+		RecurringExpense existing = bill(7L, user);
+		when(recurringExpenseRepository.findByIdAndUser(7L, user)).thenReturn(Optional.of(existing));
+		when(categoryService.getOrCreateByName(eq("Utilities"), any())).thenReturn(testCategory());
+		when(recurringExpenseRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+		when(recurringExpenseRepository.findPaidRecurringExpenseIds(1L, "2026-10")).thenReturn(List.of(7L));
+
+		RecurringExpenseResponse result = recurringExpenseService.update(7L, new RecurringExpenseRequest(
+				"Bill 7", new BigDecimal("120.00"), "Utilities", Frequency.MONTHLY, 5, null, null, true, null, null),
+				user);
+
+		assertThat(result.paidThisMonth()).isTrue();
+	}
+
+	@Test
+	void markPaid_recordsTheMonthWithAUtcTimestamp() {
+		User user = testUser();
+		pinClock(MANILA_OCTOBER_FIRST);
+		when(recurringExpenseRepository.findByIdAndUser(7L, user)).thenReturn(Optional.of(bill(7L, user)));
+
+		recurringExpenseService.markPaid(7L, "2026-09", user);
+
+		verify(recurringExpenseRepository).insertPaymentIfAbsent(7L, "2026-09",
+				LocalDateTime.of(2026, 9, 30, 16, 30));
+	}
+
+	@Test
+	void markPaid_anotherUsersBill_isNotFound_andWritesNothing() {
+		User user = testUser();
+		when(recurringExpenseRepository.findByIdAndUser(99L, user)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> recurringExpenseService.markPaid(99L, "2026-09", user))
+				.isInstanceOf(ResourceNotFoundException.class);
+		verify(recurringExpenseRepository, never()).insertPaymentIfAbsent(anyLong(), anyString(), any());
+	}
+
+	@Test
+	void unmarkPaid_deletesTheMonth() {
+		User user = testUser();
+		when(recurringExpenseRepository.findByIdAndUser(7L, user)).thenReturn(Optional.of(bill(7L, user)));
+
+		recurringExpenseService.unmarkPaid(7L, "2026-09", user);
+
+		verify(recurringExpenseRepository).deletePayment(7L, "2026-09");
+	}
+
+	@Test
+	void unmarkPaid_anotherUsersBill_isNotFound_andDeletesNothing() {
+		User user = testUser();
+		when(recurringExpenseRepository.findByIdAndUser(99L, user)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> recurringExpenseService.unmarkPaid(99L, "2026-09", user))
+				.isInstanceOf(ResourceNotFoundException.class);
+		verify(recurringExpenseRepository, never()).deletePayment(anyLong(), anyString());
+	}
+
+	/** {@code 2026-13} passes a {@code \d{4}-\d{2}} shape check; it must still be a 400, not a 500. */
+	@Test
+	void markPaid_malformedMonth_isRejectedBeforeAnyLookup() {
+		User user = testUser();
+		for (String month : List.of("bad", "2026-13", "2026-1", "2026-09-01", "+2026-09")) {
+			assertThatThrownBy(() -> recurringExpenseService.markPaid(7L, month, user))
+					.as(month)
+					.isInstanceOf(IllegalArgumentException.class)
+					.hasMessageContaining("YYYY-MM");
+		}
+		verify(recurringExpenseRepository, never()).findByIdAndUser(anyLong(), any());
 	}
 }

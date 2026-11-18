@@ -81,6 +81,25 @@ public class RecurringExpenseController {
 	}
 
 	/**
+	 * Marks the bill paid for {@code month} ({@code YYYY-MM}). Idempotent: marking a paid month
+	 * again is a 204 too. Another user's bill is a 404; a malformed month is a 400.
+	 */
+	@PutMapping("/{id}/payments/{month}")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	public void markPaid(@PathVariable Long id, @PathVariable String month,
+			@AuthenticationPrincipal User user) {
+		recurringExpenseService.markPaid(id, month, user);
+	}
+
+	/** Undoes {@link #markPaid}. Idempotent: undoing an unpaid month is a 204. */
+	@DeleteMapping("/{id}/payments/{month}")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	public void unmarkPaid(@PathVariable Long id, @PathVariable String month,
+			@AuthenticationPrincipal User user) {
+		recurringExpenseService.unmarkPaid(id, month, user);
+	}
+
+	/**
 	 * Declares {@code List<UpcomingBillResponse>} rather than {@code ResponseEntity<?>}.
 	 *
 	 * The wildcard erased the payload type, so springdoc could only describe this response as a

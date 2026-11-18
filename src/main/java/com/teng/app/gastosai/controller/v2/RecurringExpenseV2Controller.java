@@ -68,6 +68,22 @@ public class RecurringExpenseV2Controller {
 		delegate.deleteAll(user);
 	}
 
+	@PutMapping("/{id}/payments/{month}")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	@Operation(operationId = "v2MarkRecurringExpensePaid")
+	public void markPaid(@PathVariable Long id, @PathVariable String month,
+			@AuthenticationPrincipal User user) {
+		delegate.markPaid(id, month, user);
+	}
+
+	@DeleteMapping("/{id}/payments/{month}")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	@Operation(operationId = "v2UnmarkRecurringExpensePaid")
+	public void unmarkPaid(@PathVariable Long id, @PathVariable String month,
+			@AuthenticationPrincipal User user) {
+		delegate.unmarkPaid(id, month, user);
+	}
+
 	@GetMapping("/upcoming")
 	@Operation(operationId = "v2UpcomingBills")
 	public List<UpcomingBillResponseV2> getUpcoming(@RequestParam String month,
