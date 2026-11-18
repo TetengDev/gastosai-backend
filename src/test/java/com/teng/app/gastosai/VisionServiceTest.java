@@ -23,6 +23,9 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.mock.web.MockMultipartFile;
 
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.event.IIOReadProgressListener;
+import javax.imageio.stream.ImageInputStream;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
@@ -30,14 +33,18 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -585,6 +592,144 @@ class VisionServiceTest {
         // endpoint for every caller after it.
         assertThat(bounded.decodesInFlight(3L)).isZero();
         assertThat(bounded.runBoundedDecode(3L, () -> "decoded")).isEqualTo("decoded");
+    }
+
+    @Test
+    void decodeThatIgnoresAbort_releasesTheCallerAtTheBudget_butKeepsItsSlotUntilItStops() throws Exception {
+        // One slot, a 300 ms budget, and a decode that cooperates with nothing: no progress
+        // callbacks for abort() to act on, and interrupts swallowed. This is the codec path TEN-411's
+        // cooperative abort cannot reach, and the caller must be released anyway.
+        VisionService bounded = visionServiceWith(1, 1, 50, 300);
+        CountDownLatch stop = new CountDownLatch(1);
+        Supplier<String> runaway = () -> {
+            while (true) {
+                try {
+                    if (stop.await(10, TimeUnit.SECONDS)) {
+                        return "finished late";
+                    }
+                } catch (InterruptedException ignored) {
+                    // Deliberately ignored, like an ImageIO reader would.
+                }
+            }
+        };
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<Long> caller = pool.submit(() -> {
+                long startedAt = System.nanoTime();
+                assertThatThrownBy(() -> bounded.runBoundedDecode(5L, runaway))
+                        .isInstanceOf(VisionService.DecodeTimedOutException.class);
+                return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+            });
+            // Generous upper bound: the claim is "released at about the budget", not "precisely".
+            long elapsed = caller.get(5, TimeUnit.SECONDS);
+            assertThat(elapsed).isBetween(250L, 3000L);
+
+            // The runaway still holds its slot and its per-user count: releasing them with the
+            // caller would let hostile uploads stack decode threads past the concurrency bound.
+            assertThat(bounded.decodesInFlight(5L)).isEqualTo(1);
+            assertThat(refusalStatusOf(() -> bounded.runBoundedDecode(6L, () -> "decoded"))).isEqualTo(429);
+        } finally {
+            stop.countDown();
+            pool.shutdownNow();
+        }
+
+        // Once the thread really ends, the slot comes back.
+        awaitTrue(() -> bounded.decodesInFlight(5L) == 0, "the runaway decode to give its slot back");
+        assertThat(bounded.runBoundedDecode(6L, () -> "decoded")).isEqualTo("decoded");
+    }
+
+    /** A 1600x1600 bilevel image: over MAX_EDGE_PX, so it is decoded rather than passed through. */
+    private static byte[] sampleIn(String format) {
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            boolean written = ImageIO.write(new BufferedImage(1600, 1600, BufferedImage.TYPE_BYTE_BINARY), format, out);
+            return written ? out.toByteArray() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Every format this JVM decodes on VisionService's path, which picks the reader by content.
+     *
+     * <p>Discovered rather than listed, so a codec added to the JVM is covered without editing this.
+     * WBMP is registered but never reaches the decode: its reader only claims a stream under 1024x768,
+     * which is inside the pixel budget and so goes out as uploaded.
+     */
+    @Test
+    void everyDecodableFormat_isDecoded_abandonedOverBudget_andItsReaderAbortsMidRead() throws Exception {
+        VisionService bounded = visionServiceWith(1, 1, 2000, 8000);
+        Set<String> covered = new TreeSet<>();
+        for (String name : ImageIO.getReaderFormatNames()) {
+            byte[] sample = sampleIn(name.toLowerCase());
+            if (sample == null) {
+                continue;
+            }
+            String format;
+            try (ImageInputStream probe = ImageIO.createImageInputStream(new ByteArrayInputStream(sample))) {
+                Iterator<ImageReader> readers = ImageIO.getImageReaders(probe);
+                if (!readers.hasNext()) {
+                    continue;
+                }
+                format = readers.next().getOriginatingProvider().getFormatNames()[0].toLowerCase();
+            }
+            if (!covered.add(format)) {
+                continue;
+            }
+            String mediaType = "image/" + format;
+
+            // VisionService really decodes it, on the bounded path: downscaled and re-encoded.
+            VisionService.EncodedImage encoded = bounded.runBoundedDecode(8L,
+                    () -> VisionService.encodeForVision(sample, mediaType, 8000));
+            assertThat(encoded.mediaType()).as(format).isEqualTo("image/jpeg");
+            assertThat(decodeBase64(encoded.base64()).getWidth()).as(format)
+                    .isLessThanOrEqualTo(VisionService.MAX_EDGE_PX);
+
+            // Over budget it is abandoned, never fallen open to the full-size original.
+            assertThatThrownBy(() -> bounded.runBoundedDecode(8L,
+                    () -> VisionService.encodeForVision(sample, mediaType, 1)))
+                    .as(format)
+                    .isInstanceOf(VisionService.DecodeTimedOutException.class);
+            awaitTrue(() -> bounded.decodesInFlight(8L) == 0, "the " + format + " slot to come back");
+
+            // The codec itself honours abort() part-way through a read — the cooperative path,
+            // which is what frees the slot early instead of at the end of the work.
+            assertThat(readerAbortsMidRead(sample)).as(format + " reader honours abort()").isTrue();
+        }
+        assertThat(covered).containsExactlyInAnyOrder("bmp", "gif", "jpeg", "png", "tif");
+    }
+
+    /** Reads with the real reader, aborting at its first progress callback. */
+    private static boolean readerAbortsMidRead(byte[] bytes) throws Exception {
+        boolean[] aborted = {false};
+        boolean[] completed = {false};
+        try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+            ImageReader reader = ImageIO.getImageReaders(input).next();
+            try {
+                reader.setInput(input, true, true);
+                reader.addIIOReadProgressListener(new IIOReadProgressListener() {
+                    @Override public void imageProgress(ImageReader source, float percentageDone) {
+                        source.abort();
+                    }
+                    @Override public void readAborted(ImageReader source) {
+                        aborted[0] = true;
+                    }
+                    @Override public void imageComplete(ImageReader source) {
+                        completed[0] = true;
+                    }
+                    @Override public void sequenceStarted(ImageReader source, int minIndex) { }
+                    @Override public void sequenceComplete(ImageReader source) { }
+                    @Override public void imageStarted(ImageReader source, int imageIndex) { }
+                    @Override public void thumbnailStarted(ImageReader source, int imageIndex, int thumbnailIndex) { }
+                    @Override public void thumbnailProgress(ImageReader source, float percentageDone) { }
+                    @Override public void thumbnailComplete(ImageReader source) { }
+                });
+                reader.read(0);
+            } finally {
+                reader.dispose();
+            }
+        }
+        return aborted[0] && !completed[0];
     }
 
     private static byte[] receiptPngQuietly(int width, int height) {

@@ -40,9 +40,16 @@ import java.util.Base64;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 @Service
@@ -185,6 +192,18 @@ public class VisionService {
 	 */
 	private final Map<Long, Integer> decodesInFlightByUser = new ConcurrentHashMap<>();
 
+	/**
+	 * Where decodes run, so the request thread can be released at the budget (see
+	 * {@link #runWithinBudget}).
+	 *
+	 * <p>Sized to {@link #maxConcurrentDecodes} threads, never more. The queue exists only for the
+	 * moment between a finished decode releasing its permit and its thread coming back for work — the
+	 * permits already keep live tasks at or under the thread count — and it is bounded too, so a
+	 * rejection is possible in principle and answered as 429, not 500. Daemon threads that time out
+	 * when idle: an instance that is not scanning receipts holds none, and none can block shutdown.
+	 */
+	private final ThreadPoolExecutor decodeExecutor;
+
 	public VisionService(RestClient claudeRestClient,
 			RestClient openAiRestClient,
 			AiProviderProperties providerProps,
@@ -214,6 +233,10 @@ public class VisionService {
 		this.decodeQueueWaitMillis = Math.max(0, decodeQueueWaitMillis);
 		this.decodeBudgetMillis = decodeBudgetMillis > 0 ? decodeBudgetMillis : DEFAULT_DECODE_BUDGET_MILLIS;
 		this.decodeSlots = new Semaphore(this.maxConcurrentDecodes, true);
+		this.decodeExecutor = new ThreadPoolExecutor(this.maxConcurrentDecodes, this.maxConcurrentDecodes,
+				30, TimeUnit.SECONDS, new ArrayBlockingQueue<>(this.maxConcurrentDecodes),
+				Thread.ofPlatform().name("vision-decode-", 0).daemon().factory());
+		this.decodeExecutor.allowCoreThreadTimeOut(true);
 	}
 
 	public ParsedExpenseResult analyze(String question, MultipartFile file, String mode) throws IOException {
@@ -309,29 +332,113 @@ public class VisionService {
 	 * @throws ResponseStatusException 429 when the excess is neither admitted nor queued into a slot
 	 */
 	public <T> T runBoundedDecode(Long userId, Supplier<T> decode) {
+		acquireSlots(userId);
+		return runWithinBudget(userId, decode);
+	}
+
+	/**
+	 * Takes the per-user slot, then a global one, or throws 429 holding neither. Kept apart from the
+	 * budget logic below so the wait for a slot can change without touching the cutoff.
+	 */
+	private void acquireSlots(Long userId) {
 		if (userId != null && !acquireUserSlot(userId)) {
 			throw busy("Too many receipt scans running for this account. Wait for one to finish.");
 		}
+		boolean acquired = false;
 		try {
-			boolean acquired;
-			try {
-				acquired = decodeSlots.tryAcquire(decodeQueueWaitMillis, TimeUnit.MILLISECONDS);
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-				throw busy("Receipt scanning was interrupted while queued. Try again.");
-			}
-			if (!acquired) {
-				throw busy("The server is processing as many receipt images as it can at once. Try again shortly.");
-			}
-			try {
-				return decode.get();
-			} finally {
-				decodeSlots.release();
-			}
+			acquired = decodeSlots.tryAcquire(decodeQueueWaitMillis, TimeUnit.MILLISECONDS);
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw busy("Receipt scanning was interrupted while queued. Try again.");
 		} finally {
-			if (userId != null) {
+			if (!acquired && userId != null) {
 				releaseUserSlot(userId);
 			}
+		}
+		if (!acquired) {
+			throw busy("The server is processing as many receipt images as it can at once. Try again shortly.");
+		}
+	}
+
+	/** Global first, then the user's: a caller that sees its own count at zero can then get a global slot. */
+	private void releaseSlots(Long userId) {
+		decodeSlots.release();
+		if (userId != null) {
+			releaseUserSlot(userId);
+		}
+	}
+
+	/**
+	 * Runs a decode that already holds its slots, and gives the caller up at the budget whether or not
+	 * the decode stops.
+	 *
+	 * <p>TEN-411's budget is cooperative: {@link DeadlineAbort} calls {@code abort()}, which a codec
+	 * only honours at its next progress checkpoint, so a stream that produces few or late checkpoints
+	 * held the request thread past the budget. Here the decode runs on {@link #decodeExecutor} and the
+	 * caller waits on it for {@link #decodeBudgetMillis} at most. <b>The stated bound: a caller holding
+	 * its slots is released no later than {@code decodeBudgetMillis} after its decode is handed off</b>,
+	 * plus scheduling jitter — so at most queue wait + budget overall.
+	 *
+	 * <p>The abort itself stays {@link DeadlineAbort}, inside the decoding thread: it fires at the same
+	 * deadline, and an {@code abort()} sent from here would only set the same flag for the same
+	 * checkpoints to read. {@code cancel(true)} is a best-effort interrupt and nothing more — ImageIO
+	 * readers do not check for interruption, so nothing here relies on it.
+	 *
+	 * <p><b>The slots are released when the decode thread actually finishes, not when the caller is.</b>
+	 * Releasing at the caller would keep the concurrency bound on paper only: each hostile upload that
+	 * ignores {@code abort()} would leave a thread decoding behind it, and the next request would get
+	 * a fresh slot to start another. Held to the end, at most {@link #maxConcurrentDecodes} decode
+	 * threads ever exist, and while a runaway lives its slot answers 429 — which is true, the instance
+	 * is busy. Its work is still finite: {@link #MAX_DECODE_PX} caps what any one decode can do.
+	 *
+	 * <p>Exactly one side releases: the task claims the slots when it starts, and a caller that gives
+	 * up before then (timeout, interrupt, rejection) claims and releases them itself. Without that, a
+	 * task cancelled while still queued would never run its {@code finally} and the slot would leak.
+	 */
+	private <T> T runWithinBudget(Long userId, Supplier<T> decode) {
+		AtomicBoolean claimed = new AtomicBoolean();
+		Runnable releaseIfUnclaimed = () -> {
+			if (claimed.compareAndSet(false, true)) {
+				releaseSlots(userId);
+			}
+		};
+		Future<T> task;
+		try {
+			task = decodeExecutor.submit(() -> {
+				if (!claimed.compareAndSet(false, true)) {
+					return null; // the caller already gave up and released; nobody reads this result
+				}
+				try {
+					return decode.get();
+				} finally {
+					releaseSlots(userId);
+				}
+			});
+		} catch (RejectedExecutionException e) {
+			releaseIfUnclaimed.run();
+			throw busy("The server is processing as many receipt images as it can at once. Try again shortly.");
+		}
+		try {
+			return task.get(decodeBudgetMillis, TimeUnit.MILLISECONDS);
+		} catch (TimeoutException e) {
+			task.cancel(true);
+			releaseIfUnclaimed.run();
+			throw new DecodeTimedOutException();
+		} catch (InterruptedException e) {
+			task.cancel(true);
+			releaseIfUnclaimed.run();
+			Thread.currentThread().interrupt();
+			throw new IllegalStateException("Interrupted while waiting for an image decode", e);
+		} catch (ExecutionException e) {
+			// Rethrown as itself, so callers see DecodeTimedOutException, IllegalArgumentException or an
+			// OutOfMemoryError exactly as they would have from a decode run on their own thread.
+			if (e.getCause() instanceof RuntimeException runtime) {
+				throw runtime;
+			}
+			if (e.getCause() instanceof Error error) {
+				throw error;
+			}
+			throw new IllegalStateException(e.getCause());
 		}
 	}
 
