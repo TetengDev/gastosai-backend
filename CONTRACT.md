@@ -231,7 +231,7 @@ field, path or validation changed.
   `RecurringExpenseResponse` and `RecurringExpenseResponseV2`. Months are decided in Asia/Manila,
   and one mark covers a whole month, so a WEEKLY bill is paid or unpaid for the month as a whole.
   A `lastPaidMonth` at or after the current month means nothing is overdue.
-- **`PUT` / `DELETE /api/v2/recurring/{id}/payments/{month}`**, and the same under `/api/v1`,
+- **`PUT` / `DELETE /api/v2/recurring/{id}/payments/{month}`**, and on v1 at `/recurring/{id}/payments/{month}`,
   mark and unmark a month paid. `{month}` is `YYYY-MM`. Both are idempotent.
 
 ## Cross-repo change ordering

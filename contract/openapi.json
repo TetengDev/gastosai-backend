@@ -1030,6 +1030,7 @@
             "type" : "string"
           },
           "percentUsed" : {
+            "description" : "Total spent as a whole-number percentage of total budgeted, rounded half-up. May exceed 100, and saturates at the int limit. 0 when nothing is budgeted, which reads the same as nothing spent, so check totalBudgeted > 0 before showing it.",
             "format" : "int32",
             "type" : "integer"
           },
@@ -1061,6 +1062,7 @@
             "type" : "string"
           },
           "percentUsed" : {
+            "description" : "Total spent as a whole-number percentage of total budgeted, rounded half-up. May exceed 100, and saturates at the int limit. 0 when nothing is budgeted, which reads the same as nothing spent, so check totalBudgeted > 0 before showing it.",
             "format" : "int32",
             "type" : "integer"
           },

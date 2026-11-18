@@ -1,5 +1,7 @@
 package com.teng.app.gastosai.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
@@ -16,6 +18,9 @@ public record BudgetSummaryResponse(
 		BigDecimal totalSpent,
 		BigDecimal safeToSpend,
 		BigDecimal dailyAllowance,
+		@Schema(description = "Total spent as a whole-number percentage of total budgeted, rounded half-up. "
+				+ "May exceed 100, and saturates at the int limit. 0 when nothing is budgeted, which reads the "
+				+ "same as nothing spent, so check totalBudgeted > 0 before showing it.")
 		int percentUsed
 ) {
 
