@@ -34,6 +34,9 @@ public record BudgetSummaryResponse(
 		if (budgeted == null || spent == null || budgeted.signum() <= 0) {
 			return 0;
 		}
-		return spent.multiply(BigDecimal.valueOf(100)).divide(budgeted, 0, RoundingMode.HALF_UP).intValueExact();
+		// Uncapped, except that it saturates at the int limit: a ₱0.01 budget against real spending
+		// overflows int, and that must not 500 the summary.
+		return spent.multiply(BigDecimal.valueOf(100)).divide(budgeted, 0, RoundingMode.HALF_UP)
+				.min(BigDecimal.valueOf(Integer.MAX_VALUE)).intValue();
 	}
 }

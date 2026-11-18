@@ -170,6 +170,7 @@ class BudgetApiIntegrationTest extends PostgresBackedTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.month").value("2030-12"))
 				.andExpect(jsonPath("$.totalBudgeted").value(1000.00))
+				.andExpect(jsonPath("$.percentUsed").value(0))
 				.andExpect(jsonPath("$.items[0].status").value("ON_TRACK"));
 	}
 

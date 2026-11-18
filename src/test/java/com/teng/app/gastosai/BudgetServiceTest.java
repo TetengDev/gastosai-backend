@@ -320,6 +320,18 @@ class BudgetServiceTest {
 	}
 
 	@Test
+	void percentUsed_isZeroWhenBudgetedIsZeroButSpendIsNot() {
+		assertThat(BudgetSummaryResponse.percentUsed(new BigDecimal("500.00"), BigDecimal.ZERO)).isZero();
+	}
+
+	@Test
+	void percentUsed_saturatesAtIntLimitInsteadOfThrowing() {
+		// ₱1,000,000 against a ₱0.01 budget is 10^10 %, past int: saturate, never 500 the summary.
+		assertThat(BudgetSummaryResponse.percentUsed(new BigDecimal("1000000.00"), new BigDecimal("0.01")))
+				.isEqualTo(Integer.MAX_VALUE);
+	}
+
+	@Test
 	void getSummary_percentUsed_leavesItemPercentDecimal() {
 		BudgetSummaryResponse summary = summaryFor("20000.00", "2499.00");
 		assertThat(summary.items().get(0).percentUsed()).isEqualByComparingTo("12.50");
