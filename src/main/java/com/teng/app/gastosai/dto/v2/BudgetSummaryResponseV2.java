@@ -11,7 +11,8 @@ public record BudgetSummaryResponseV2(
 		Long totalBudgeted,
 		Long totalSpent,
 		Long safeToSpend,
-		Long dailyAllowance
+		Long dailyAllowance,
+		int percentUsed
 ) {
 
 	public static BudgetSummaryResponseV2 from(BudgetSummaryResponse v1) {
@@ -21,6 +22,7 @@ public record BudgetSummaryResponseV2(
 				Money.toCentavos(v1.totalBudgeted()),
 				Money.toCentavos(v1.totalSpent()),
 				Money.toCentavos(v1.safeToSpend()),
-				Money.toCentavos(v1.dailyAllowance()));
+				Money.toCentavos(v1.dailyAllowance()),
+				v1.percentUsed());
 	}
 }

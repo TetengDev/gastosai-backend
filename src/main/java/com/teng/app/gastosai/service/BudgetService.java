@@ -215,7 +215,8 @@ public class BudgetService {
 
 		BigDecimal dailyAllowance = computeDailyAllowance(month, year, monthInt, safeToSpend);
 
-		return new BudgetSummaryResponse(month, items, totalBudgeted, totalSpent, safeToSpend, dailyAllowance);
+		return new BudgetSummaryResponse(month, items, totalBudgeted, totalSpent, safeToSpend, dailyAllowance,
+				BudgetSummaryResponse.percentUsed(totalSpent, totalBudgeted));
 	}
 
 	private static YearMonth parseMonth(String month) {

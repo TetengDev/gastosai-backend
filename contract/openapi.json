@@ -1029,6 +1029,10 @@
           "month" : {
             "type" : "string"
           },
+          "percentUsed" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
           "safeToSpend" : {
             "type" : "number"
           },
@@ -1055,6 +1059,10 @@
           },
           "month" : {
             "type" : "string"
+          },
+          "percentUsed" : {
+            "format" : "int32",
+            "type" : "integer"
           },
           "safeToSpend" : {
             "format" : "int64",
