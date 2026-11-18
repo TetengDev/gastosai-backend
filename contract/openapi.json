@@ -2895,6 +2895,10 @@
           },
           "name" : {
             "type" : "string"
+          },
+          "paidThisMonth" : {
+            "description" : "Whether this bill is marked paid for the current month, decided in Asia/Manila. One mark covers the whole month, so a WEEKLY bill is paid or unpaid for the month as a whole.",
+            "type" : "boolean"
           }
         },
         "type" : "object"
@@ -2943,6 +2947,10 @@
           },
           "name" : {
             "type" : "string"
+          },
+          "paidThisMonth" : {
+            "description" : "Whether this bill is marked paid for the current month, decided in Asia/Manila. One mark covers the whole month, so a WEEKLY bill is paid or unpaid for the month as a whole.",
+            "type" : "boolean"
           }
         },
         "type" : "object"
@@ -5974,6 +5982,64 @@
         "tags" : [ "recurring-expense-v-2-controller" ]
       }
     },
+    "/api/v2/recurring/{id}/payments/{month}" : {
+      "delete" : {
+        "operationId" : "v2UnmarkRecurringExpensePaid",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        }, {
+          "in" : "path",
+          "name" : "month",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "recurring-expense-v-2-controller" ]
+      },
+      "put" : {
+        "operationId" : "v2MarkRecurringExpensePaid",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        }, {
+          "in" : "path",
+          "name" : "month",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "recurring-expense-v-2-controller" ]
+      }
+    },
     "/api/v2/submissions" : {
       "get" : {
         "operationId" : "v2ListSubmissions",
@@ -8020,6 +8086,64 @@
               }
             },
             "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "recurring-expense-controller" ]
+      }
+    },
+    "/recurring/{id}/payments/{month}" : {
+      "delete" : {
+        "operationId" : "unmarkPaid",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        }, {
+          "in" : "path",
+          "name" : "month",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "recurring-expense-controller" ]
+      },
+      "put" : {
+        "operationId" : "markPaid",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        }, {
+          "in" : "path",
+          "name" : "month",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
           }
         },
         "security" : [ {
