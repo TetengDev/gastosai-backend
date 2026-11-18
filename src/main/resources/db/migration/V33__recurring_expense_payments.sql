@@ -26,3 +26,7 @@ CREATE TABLE recurring_expense_payments (
     CONSTRAINT ck_recurring_expense_payments_month CHECK (payment_month ~ '^[0-9]{4}-(0[1-9]|1[0-2])$')
 );
 
+
+-- TIMESTAMP has no zone of its own, so the column states which one it holds (as V32 does for users).
+COMMENT ON COLUMN recurring_expense_payments.paid_at IS
+    'When the month was marked paid, in UTC. TIMESTAMP without time zone, so the zone is this convention, not the type.';
