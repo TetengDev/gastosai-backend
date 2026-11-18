@@ -1029,6 +1029,11 @@
           "month" : {
             "type" : "string"
           },
+          "percentUsed" : {
+            "description" : "Total spent as a whole-number percentage of total budgeted, rounded half-up. May exceed 100, and saturates at the int limit. 0 when nothing is budgeted, which reads the same as nothing spent, so check totalBudgeted > 0 before showing it.",
+            "format" : "int32",
+            "type" : "integer"
+          },
           "safeToSpend" : {
             "type" : "number"
           },
@@ -1055,6 +1060,11 @@
           },
           "month" : {
             "type" : "string"
+          },
+          "percentUsed" : {
+            "description" : "Total spent as a whole-number percentage of total budgeted, rounded half-up. May exceed 100, and saturates at the int limit. 0 when nothing is budgeted, which reads the same as nothing spent, so check totalBudgeted > 0 before showing it.",
+            "format" : "int32",
+            "type" : "integer"
           },
           "safeToSpend" : {
             "format" : "int64",
@@ -2881,12 +2891,21 @@
             "format" : "int64",
             "type" : "integer"
           },
+          "lastPaidMonth" : {
+            "description" : "The latest month this bill was marked paid, `YYYY-MM` in Asia/Manila, or null if it has never been marked paid. Clients use it to show a previous month left unpaid, so an overdue bill stays visible after its month ends.",
+            "example" : "2026-09",
+            "type" : [ "string", "null" ]
+          },
           "monthOfYear" : {
             "format" : "int32",
             "type" : "integer"
           },
           "name" : {
             "type" : "string"
+          },
+          "paidThisMonth" : {
+            "description" : "Whether this bill is marked paid for the current month, decided in Asia/Manila. One mark covers the whole month, so a WEEKLY bill is paid or unpaid for the month as a whole.",
+            "type" : "boolean"
           }
         },
         "type" : "object"
@@ -2929,12 +2948,21 @@
             "format" : "int64",
             "type" : "integer"
           },
+          "lastPaidMonth" : {
+            "description" : "The latest month this bill was marked paid, `YYYY-MM` in Asia/Manila, or null if it has never been marked paid. Clients use it to show a previous month left unpaid, so an overdue bill stays visible after its month ends.",
+            "example" : "2026-09",
+            "type" : [ "string", "null" ]
+          },
           "monthOfYear" : {
             "format" : "int32",
             "type" : "integer"
           },
           "name" : {
             "type" : "string"
+          },
+          "paidThisMonth" : {
+            "description" : "Whether this bill is marked paid for the current month, decided in Asia/Manila. One mark covers the whole month, so a WEEKLY bill is paid or unpaid for the month as a whole.",
+            "type" : "boolean"
           }
         },
         "type" : "object"
@@ -5966,6 +5994,66 @@
         "tags" : [ "recurring-expense-v-2-controller" ]
       }
     },
+    "/api/v2/recurring/{id}/payments/{month}" : {
+      "delete" : {
+        "operationId" : "v2UnmarkRecurringExpensePaid",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        }, {
+          "in" : "path",
+          "name" : "month",
+          "required" : true,
+          "schema" : {
+            "pattern" : "^\\d{4}-(0[1-9]|1[0-2])$",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "recurring-expense-v-2-controller" ]
+      },
+      "put" : {
+        "operationId" : "v2MarkRecurringExpensePaid",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        }, {
+          "in" : "path",
+          "name" : "month",
+          "required" : true,
+          "schema" : {
+            "pattern" : "^\\d{4}-(0[1-9]|1[0-2])$",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "recurring-expense-v-2-controller" ]
+      }
+    },
     "/api/v2/submissions" : {
       "get" : {
         "operationId" : "v2ListSubmissions",
@@ -8012,6 +8100,66 @@
               }
             },
             "description" : "OK"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "recurring-expense-controller" ]
+      }
+    },
+    "/recurring/{id}/payments/{month}" : {
+      "delete" : {
+        "operationId" : "unmarkPaid",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        }, {
+          "in" : "path",
+          "name" : "month",
+          "required" : true,
+          "schema" : {
+            "pattern" : "^\\d{4}-(0[1-9]|1[0-2])$",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "recurring-expense-controller" ]
+      },
+      "put" : {
+        "operationId" : "markPaid",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        }, {
+          "in" : "path",
+          "name" : "month",
+          "required" : true,
+          "schema" : {
+            "pattern" : "^\\d{4}-(0[1-9]|1[0-2])$",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
           }
         },
         "security" : [ {

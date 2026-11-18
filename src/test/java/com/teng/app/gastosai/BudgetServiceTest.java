@@ -269,6 +269,74 @@ class BudgetServiceTest {
 		assertThat(summary.dailyAllowance()).isEqualByComparingTo("0.00");
 	}
 
+	// --- percentUsed on the summary (TEN-502): what web Dashboard.tsx and mobile homeStatus.ts
+	// compute today, Math.round(totalSpent * 100 / totalBudgeted), not capped at 100.
+
+	private BudgetSummaryResponse summaryFor(String budgeted, String spent) {
+		User user = testUser();
+		String month = "2030-12";
+		Budget budget = Budget.builder()
+				.id(1L).user(user).category(testCategory()).month(month)
+				.amountLimit(new BigDecimal(budgeted))
+				.amountLimitInBaseCurrency(new BigDecimal(budgeted))
+				.build();
+		ArrayList<Object[]> rows = new ArrayList<>();
+		rows.add(new Object[]{10L, new BigDecimal(spent)});
+		when(budgetRepository.findAllByUserAndMonth(user, month)).thenReturn(List.of(budget));
+		when(expenseRepository.sumByCategoryAndMonth(user, 2030, 12)).thenReturn(rows);
+		return budgetService.getSummary(month, user);
+	}
+
+	@Test
+	void getSummary_percentUsed_isZeroWhenNothingIsBudgeted() {
+		User user = testUser();
+		ArrayList<Object[]> rows = new ArrayList<>();
+		rows.add(new Object[]{99L, new BigDecimal("500.00")});
+		when(budgetRepository.findAllByUserAndMonth(user, "2030-12")).thenReturn(List.of());
+		when(expenseRepository.sumByCategoryAndMonth(user, 2030, 12)).thenReturn(rows);
+
+		assertThat(budgetService.getSummary("2030-12", user).percentUsed()).isZero();
+	}
+
+	@Test
+	void getSummary_percentUsed_isExactly100WhenSpentEqualsBudgeted() {
+		assertThat(summaryFor("1000.00", "1000.00").percentUsed()).isEqualTo(100);
+	}
+
+	@Test
+	void getSummary_percentUsed_isNotCappedOver100() {
+		assertThat(summaryFor("1000.00", "2500.00").percentUsed()).isEqualTo(250);
+	}
+
+	@Test
+	void getSummary_percentUsed_roundsHalfUp() {
+		assertThat(summaryFor("1000.00", "125.00").percentUsed()).isEqualTo(13);
+	}
+
+	@Test
+	void getSummary_percentUsed_roundsOnceNotTwice() {
+		// 12.495%: one half-up rounding gives 12; rounding to 12.50 first would give 13.
+		assertThat(summaryFor("20000.00", "2499.00").percentUsed()).isEqualTo(12);
+	}
+
+	@Test
+	void percentUsed_isZeroWhenBudgetedIsZeroButSpendIsNot() {
+		assertThat(BudgetSummaryResponse.percentUsed(new BigDecimal("500.00"), BigDecimal.ZERO)).isZero();
+	}
+
+	@Test
+	void percentUsed_saturatesAtIntLimitInsteadOfThrowing() {
+		// ₱1,000,000 against a ₱0.01 budget is 10^10 %, past int: saturate, never 500 the summary.
+		assertThat(BudgetSummaryResponse.percentUsed(new BigDecimal("1000000.00"), new BigDecimal("0.01")))
+				.isEqualTo(Integer.MAX_VALUE);
+	}
+
+	@Test
+	void getSummary_percentUsed_leavesItemPercentDecimal() {
+		BudgetSummaryResponse summary = summaryFor("20000.00", "2499.00");
+		assertThat(summary.items().get(0).percentUsed()).isEqualByComparingTo("12.50");
+	}
+
 	@Test
 	void delete_notOwned_throwsNotFound() {
 		User user = testUser();

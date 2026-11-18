@@ -23,6 +23,9 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.mock.web.MockMultipartFile;
 
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.event.IIOReadProgressListener;
+import javax.imageio.stream.ImageInputStream;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
@@ -30,14 +33,18 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -77,17 +84,16 @@ class VisionServiceTest {
         objectMapper = new ObjectMapper();
         objectMapper.findAndRegisterModules();
 
-        visionService = visionServiceWith(4, 2, 2000, 8000);
+        visionService = visionServiceWith(4, 2, 8000);
     }
 
     /** A service whose decode bounds are the test's, not the defaults. */
-    private VisionService visionServiceWith(int maxConcurrent, int maxPerUser, long queueWaitMillis,
-            long budgetMillis) {
+    private VisionService visionServiceWith(int maxConcurrent, int maxPerUser, long budgetMillis) {
         return new VisionService(
                 claudeRestClient, openAiRestClient,
                 providerProps, claudeProps, openAiProps, objectMapper,
                 aiQuotaService, aiUsageService, managedProps, new AiRedactionService(),
-                maxConcurrent, maxPerUser, queueWaitMillis, budgetMillis);
+                maxConcurrent, maxPerUser, budgetMillis);
     }
 
     private void mockOpenAiChain(String responseJson) {
@@ -155,6 +161,12 @@ class VisionServiceTest {
 
     /** A receipt-shaped image generated in memory: white card, dark text bars, no binary fixture. */
     private static byte[] receiptPng(int width, int height) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ImageIO.write(receiptImage(width, height), "png", out);
+        return out.toByteArray();
+    }
+
+    private static BufferedImage receiptImage(int width, int height) {
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = image.createGraphics();
         g.setColor(Color.WHITE);
@@ -164,9 +176,7 @@ class VisionServiceTest {
             g.fillRect(width / 8, y, width * 3 / 4, Math.max(1, height / 100));
         }
         g.dispose();
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        ImageIO.write(image, "png", out);
-        return out.toByteArray();
+        return image;
     }
 
     private static BufferedImage decodeBase64(String base64) throws Exception {
@@ -412,7 +422,7 @@ class VisionServiceTest {
     void decodesBeyondTheGlobalBound_areRefused_notRunConcurrently() throws Exception {
         // Two slots, six simultaneous callers, each a different account: this is the global bound
         // under test, and the per-user one is set high enough not to be what refuses anybody.
-        VisionService bounded = visionServiceWith(2, 6, 100, 8000);
+        VisionService bounded = visionServiceWith(2, 6, 8000);
         int callers = 6;
         AtomicInteger inFlight = new AtomicInteger();
         AtomicInteger peakInFlight = new AtomicInteger();
@@ -444,11 +454,12 @@ class VisionServiceTest {
                 }));
             }
 
-            // The four that could not get a slot wait out the queue window and are refused. Only
-            // once every one of them has given up is the pair holding the slots released, so a
-            // freed slot cannot quietly admit a caller this test counted as refused.
+            // The four that could not get a slot are refused. Only once every one of them has given
+            // up is the pair holding the slots released, so a freed slot cannot quietly admit a
+            // caller this test counted as refused.
             awaitTrue(() -> refused.get() == callers - 2, "the excess callers to be refused");
-            assertThat(ran.get()).isEqualTo(2);
+            // A refusal is now immediate, so it can land before the admitted pair's decodes start.
+            awaitTrue(() -> ran.get() == 2, "the two admitted decodes to start");
             release.countDown();
             for (Future<?> call : calls) {
                 call.get(10, TimeUnit.SECONDS);
@@ -468,7 +479,7 @@ class VisionServiceTest {
     void perUserBound_refusesTheSameAccount_whileAnotherStillGetsASlot() throws Exception {
         // Four global slots and one per account: whatever refuses the second call from user 1 is
         // the per-user bound, because the instance is nowhere near full.
-        VisionService bounded = visionServiceWith(4, 1, 2000, 8000);
+        VisionService bounded = visionServiceWith(4, 1, 8000);
         CountDownLatch holding = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         ExecutorService pool = Executors.newSingleThreadExecutor();
@@ -484,10 +495,10 @@ class VisionServiceTest {
             }));
             assertThat(holding.await(10, TimeUnit.SECONDS)).isTrue();
 
-            // Same account: refused at once, without spending the queue window.
+            // Same account: refused at once.
             long startedAt = System.nanoTime();
             assertThat(refusalStatusOf(() -> bounded.runBoundedDecode(1L, () -> "decoded"))).isEqualTo(429);
-            assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)).isLessThan(2000);
+            assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)).isLessThan(500);
 
             // A different account is unaffected — one caller cannot take the whole instance.
             assertThat(bounded.runBoundedDecode(2L, () -> "decoded")).isEqualTo("decoded");
@@ -505,52 +516,53 @@ class VisionServiceTest {
     }
 
     @Test
-    void callerThatArrivesWhileFull_isQueuedAndAdmittedWhenASlotFrees() throws Exception {
-        // The other half of "queued or refused", and the only behaviour the wait window adds over
-        // a gate that refuses the moment it is full: a caller that arrives while the single slot is
-        // taken waits, and runs as soon as the holder releases — no refusal, and never alongside it.
-        VisionService bounded = visionServiceWith(1, 1, 5000, 8000);
-        AtomicInteger inFlight = new AtomicInteger();
-        AtomicInteger peakInFlight = new AtomicInteger();
-        CountDownLatch holding = new CountDownLatch(1);
+    void callerThatArrivesWhileTheGlobalSlotsAreFull_isRefusedAtOnce_andChargedNothing() throws Exception {
+        // TEN-413: the global bound refuses like the per-user one, with no wait for a slot. Both
+        // slots are held by other accounts, so what this caller meets is the global bound.
+        VisionService bounded = visionServiceWith(2, 2, 8000);
+        User user = User.builder().id(3L).build();
+        CountDownLatch holding = new CountDownLatch(2);
         CountDownLatch release = new CountDownLatch(1);
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
-            Future<?> holder = pool.submit(() -> bounded.runBoundedDecode(1L, () -> {
-                peakInFlight.accumulateAndGet(inFlight.incrementAndGet(), Math::max);
-                holding.countDown();
-                try {
-                    release.await(10, TimeUnit.SECONDS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-                inFlight.decrementAndGet();
-                return "first";
-            }));
+            List<Future<?>> holders = new ArrayList<>();
+            for (long holderId : new long[] {1L, 2L}) {
+                holders.add(pool.submit(() -> bounded.runBoundedDecode(holderId, () -> {
+                    holding.countDown();
+                    try {
+                        release.await(10, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return "decoded";
+                })));
+            }
             assertThat(holding.await(10, TimeUnit.SECONDS)).isTrue();
 
-            // A different account, so the global bound — the one that queues — is what it meets.
-            Future<String> queued = pool.submit(() -> bounded.runBoundedDecode(2L, () -> {
-                peakInFlight.accumulateAndGet(inFlight.incrementAndGet(), Math::max);
-                inFlight.decrementAndGet();
-                return "second";
-            }));
-            // The per-user slot is taken before the global wait, so this says the caller has reached
-            // the global gate — not that it is parked in the semaphore's queue, which is not
-            // observable. What proves it waited is the pair below: it is not done while the only
-            // slot is held, and it completes once the holder releases.
-            awaitTrue(() -> bounded.decodesInFlight(2L) == 1, "the second caller to reach the global gate");
-            assertThat(queued.isDone()).isFalse();
+            long startedAt = System.nanoTime();
+            assertThatThrownBy(() -> bounded.analyze(null, whitePixel(), "plain", user))
+                    .isInstanceOf(VisionService.DecodeCapacityException.class)
+                    .isInstanceOfSatisfying(ResponseStatusException.class,
+                            e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS));
+            assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)).isLessThan(500);
+
+            // Nothing charged, nothing leaked: no attempt recorded against the cap, no per-user count
+            // left behind for the refused caller, and the holders' counts untouched.
+            verifyNoInteractions(aiUsageService);
+            assertThat(bounded.decodesInFlight(3L)).isZero();
+            assertThat(bounded.decodesInFlight(1L)).isEqualTo(1);
+            assertThat(bounded.decodesInFlight(2L)).isEqualTo(1);
 
             release.countDown();
-            assertThat(queued.get(10, TimeUnit.SECONDS)).isEqualTo("second");
-            holder.get(10, TimeUnit.SECONDS);
+            for (Future<?> holder : holders) {
+                holder.get(10, TimeUnit.SECONDS);
+            }
         } finally {
             pool.shutdownNow();
         }
 
-        // Admitted, not refused — and still never two at once.
-        assertThat(peakInFlight.get()).isEqualTo(1);
+        // Both global slots are back: a refusal that kept a permit would leave room for only one.
+        assertThat(bounded.runBoundedDecode(3L, () -> bounded.runBoundedDecode(4L, () -> "both"))).isEqualTo("both");
     }
 
     @Test
@@ -574,7 +586,7 @@ class VisionServiceTest {
 
     @Test
     void abandonedDecode_releasesItsSlotForTheNextCaller() {
-        VisionService bounded = visionServiceWith(1, 1, 50, 8000);
+        VisionService bounded = visionServiceWith(1, 1, 8000);
         byte[] original = receiptPngQuietly(4032, 3024);
 
         assertThatThrownBy(() -> bounded.runBoundedDecode(3L,
@@ -587,6 +599,201 @@ class VisionServiceTest {
         assertThat(bounded.runBoundedDecode(3L, () -> "decoded")).isEqualTo("decoded");
     }
 
+    @Test
+    void decodeThatIgnoresAbort_releasesTheCallerAtTheBudget_butKeepsItsSlotUntilItStops() throws Exception {
+        // One slot, a 300 ms budget, and a decode that cooperates with nothing: no progress
+        // callbacks for abort() to act on, and interrupts swallowed. This is the codec path TEN-411's
+        // cooperative abort cannot reach, and the caller must be released anyway.
+        VisionService bounded = visionServiceWith(1, 1, 300);
+        CountDownLatch stop = new CountDownLatch(1);
+        Supplier<String> runaway = () -> {
+            while (true) {
+                try {
+                    if (stop.await(10, TimeUnit.SECONDS)) {
+                        return "finished late";
+                    }
+                } catch (InterruptedException ignored) {
+                    // Deliberately ignored, like an ImageIO reader would.
+                }
+            }
+        };
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<Long> caller = pool.submit(() -> {
+                long startedAt = System.nanoTime();
+                assertThatThrownBy(() -> bounded.runBoundedDecode(5L, runaway))
+                        .isInstanceOf(VisionService.DecodeTimedOutException.class);
+                return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+            });
+            // Generous upper bound: the claim is "released at about the budget", not "precisely".
+            long elapsed = caller.get(5, TimeUnit.SECONDS);
+            assertThat(elapsed).isBetween(250L, 3000L);
+
+            // The runaway still holds its slot and its per-user count: releasing them with the
+            // caller would let hostile uploads stack decode threads past the concurrency bound.
+            assertThat(bounded.decodesInFlight(5L)).isEqualTo(1);
+            assertThat(refusalStatusOf(() -> bounded.runBoundedDecode(6L, () -> "decoded"))).isEqualTo(429);
+        } finally {
+            stop.countDown();
+            pool.shutdownNow();
+        }
+
+        // Once the thread really ends, the slot comes back.
+        awaitTrue(() -> bounded.decodesInFlight(5L) == 0, "the runaway decode to give its slot back");
+        assertThat(bounded.runBoundedDecode(6L, () -> "decoded")).isEqualTo("decoded");
+    }
+
+    @Test
+    void errorInsideTheDecode_reachesTheCallerAsItself_andGivesTheSlotBack() {
+        // analyze() records t.getClass().getSimpleName() for TEN-409's cap, so an OutOfMemoryError
+        // raised on the decode thread must not arrive wrapped in an ExecutionException.
+        VisionService bounded = visionServiceWith(1, 1, 8000);
+
+        assertThatThrownBy(() -> bounded.runBoundedDecode(9L, () -> {
+            throw new OutOfMemoryError("simulated");
+        }))
+                .isExactlyInstanceOf(OutOfMemoryError.class)
+                .hasMessage("simulated");
+        assertThat(bounded.decodesInFlight(9L)).isZero();
+    }
+
+    @Test
+    void callerInterruptedDuringTheDecode_getsA429_keepsTheFlag_andTheSlotStaysWithTheDecode() throws Exception {
+        VisionService bounded = visionServiceWith(1, 1, 8000);
+        CountDownLatch running = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger status = new AtomicInteger();
+        boolean[] interruptFlag = {false};
+        Thread caller = new Thread(() -> {
+            status.set(refusalStatusOf(() -> bounded.runBoundedDecode(10L, () -> {
+                running.countDown();
+                while (true) {
+                    try {
+                        if (release.await(10, TimeUnit.SECONDS)) {
+                            return "decoded";
+                        }
+                    } catch (InterruptedException ignored) {
+                        // Ignored, like an ImageIO reader: the cancel's interrupt must not end the decode.
+                    }
+                }
+            })));
+            interruptFlag[0] = Thread.currentThread().isInterrupted();
+        });
+        try {
+            caller.start();
+            assertThat(running.await(10, TimeUnit.SECONDS)).isTrue();
+            caller.interrupt();
+            caller.join(5000);
+            assertThat(caller.isAlive()).isFalse();
+
+            // 429, not charged, flag kept.
+            assertThat(status.get()).isEqualTo(429);
+            assertThat(interruptFlag[0]).isTrue();
+            // The decode is still running, so it still holds the slot.
+            assertThat(bounded.decodesInFlight(10L)).isEqualTo(1);
+        } finally {
+            release.countDown();
+        }
+        awaitTrue(() -> bounded.decodesInFlight(10L) == 0, "the decode to give its slot back");
+    }
+
+    /**
+     * A 1600x1600 24-bit image, the kind a receipt photo is: over MAX_EDGE_PX, so it is decoded rather
+     * than passed through. Null for a format with no writer for it (WBMP is bilevel only).
+     */
+    private static byte[] sampleIn(String format) {
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            boolean written = ImageIO.write(receiptImage(1600, 1600), format, out);
+            return written ? out.toByteArray() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Every format this JVM decodes on VisionService's path, which picks the reader by content.
+     *
+     * <p>Discovered rather than listed, so a codec added to the JVM is covered without editing this.
+     * WBMP is registered but never reaches the decode: its reader only claims a stream under 1024x768,
+     * which is inside the pixel budget and so goes out as uploaded.
+     */
+    @Test
+    void everyDecodableFormat_isDecoded_abandonedOverBudget_andItsReaderAbortsMidRead() throws Exception {
+        VisionService bounded = visionServiceWith(1, 1, 8000);
+        Set<String> covered = new TreeSet<>();
+        for (String name : ImageIO.getReaderFormatNames()) {
+            byte[] sample = sampleIn(name.toLowerCase());
+            if (sample == null) {
+                continue;
+            }
+            String format;
+            try (ImageInputStream probe = ImageIO.createImageInputStream(new ByteArrayInputStream(sample))) {
+                Iterator<ImageReader> readers = ImageIO.getImageReaders(probe);
+                if (!readers.hasNext()) {
+                    continue;
+                }
+                format = readers.next().getOriginatingProvider().getFormatNames()[0].toLowerCase();
+            }
+            if (!covered.add(format)) {
+                continue;
+            }
+            String mediaType = "image/" + format;
+
+            // VisionService really decodes it, on the bounded path: downscaled and re-encoded.
+            VisionService.EncodedImage encoded = bounded.runBoundedDecode(8L,
+                    () -> VisionService.encodeForVision(sample, mediaType, 8000));
+            assertThat(encoded.mediaType()).as(format).isEqualTo("image/jpeg");
+            assertThat(decodeBase64(encoded.base64()).getWidth()).as(format)
+                    .isLessThanOrEqualTo(VisionService.MAX_EDGE_PX);
+
+            // Over budget it is abandoned, never fallen open to the full-size original.
+            assertThatThrownBy(() -> bounded.runBoundedDecode(8L,
+                    () -> VisionService.encodeForVision(sample, mediaType, 1)))
+                    .as(format)
+                    .isInstanceOf(VisionService.DecodeTimedOutException.class);
+            awaitTrue(() -> bounded.decodesInFlight(8L) == 0, "the " + format + " slot to come back");
+
+            // The codec itself honours abort() part-way through a read — the cooperative path,
+            // which is what frees the slot early instead of at the end of the work.
+            assertThat(readerAbortsMidRead(sample)).as(format + " reader honours abort()").isTrue();
+        }
+        assertThat(covered).containsExactlyInAnyOrder("bmp", "gif", "jpeg", "png", "tif");
+    }
+
+    /** Reads with the real reader, aborting at its first progress callback. */
+    private static boolean readerAbortsMidRead(byte[] bytes) throws Exception {
+        boolean[] aborted = {false};
+        boolean[] completed = {false};
+        try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+            ImageReader reader = ImageIO.getImageReaders(input).next();
+            try {
+                reader.setInput(input, true, true);
+                reader.addIIOReadProgressListener(new IIOReadProgressListener() {
+                    @Override public void imageProgress(ImageReader source, float percentageDone) {
+                        source.abort();
+                    }
+                    @Override public void readAborted(ImageReader source) {
+                        aborted[0] = true;
+                    }
+                    @Override public void imageComplete(ImageReader source) {
+                        completed[0] = true;
+                    }
+                    @Override public void sequenceStarted(ImageReader source, int minIndex) { }
+                    @Override public void sequenceComplete(ImageReader source) { }
+                    @Override public void imageStarted(ImageReader source, int imageIndex) { }
+                    @Override public void thumbnailStarted(ImageReader source, int imageIndex, int thumbnailIndex) { }
+                    @Override public void thumbnailProgress(ImageReader source, float percentageDone) { }
+                    @Override public void thumbnailComplete(ImageReader source) { }
+                });
+                reader.read(0);
+            } finally {
+                reader.dispose();
+            }
+        }
+        return aborted[0] && !completed[0];
+    }
+
     private static byte[] receiptPngQuietly(int width, int height) {
         try {
             return receiptPng(width, height);
@@ -597,7 +804,7 @@ class VisionServiceTest {
 
     @Test
     void visionRequest_atTheBound_isRefusedWithoutCallingTheProvider() throws Exception {
-        VisionService bounded = visionServiceWith(1, 1, 50, 8000);
+        VisionService bounded = visionServiceWith(1, 1, 8000);
         User user = User.builder().id(42L).build();
         CountDownLatch holding = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);

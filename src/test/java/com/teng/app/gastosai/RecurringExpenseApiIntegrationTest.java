@@ -1,6 +1,7 @@
 package com.teng.app.gastosai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.teng.app.gastosai.config.JacksonTimeConfig;
 import com.teng.app.gastosai.config.JwtUtil;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.repository.RecurringExpenseRepository;
@@ -11,11 +12,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
+
+import java.time.YearMonth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -43,6 +47,9 @@ class RecurringExpenseApiIntegrationTest extends PostgresBackedTest {
 
 	@Autowired
 	JwtUtil jwtUtil;
+
+	@Autowired
+	JdbcTemplate jdbcTemplate;
 
 	ObjectMapper objectMapper = new ObjectMapper();
 
@@ -184,5 +191,171 @@ class RecurringExpenseApiIntegrationTest extends PostgresBackedTest {
 								{"name":"Test","amount":100.00,"frequency":"MONTHLY"}
 								"""))
 				.andExpect(status().isUnauthorized());
+	}
+
+	// --- Paid state (TEN-503) ---
+
+	private long createBill(String name, String auth) throws Exception {
+		MvcResult created = mockMvc.perform(post("/recurring")
+						.header("Authorization", auth)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"name":"%s","amount":1000.00,"categoryName":"Utilities",
+								"frequency":"MONTHLY","dayOfMonth":5}
+								""".formatted(name)))
+				.andExpect(status().isCreated())
+				.andReturn();
+		return objectMapper.readTree(created.getResponse().getContentAsString()).get("id").asLong();
+	}
+
+	/** The month the server will call "this month" — Manila, whatever zone the JVM runs in. */
+	private static String manilaMonth() {
+		return YearMonth.now(JacksonTimeConfig.APP_ZONE).toString();
+	}
+
+	private int paymentRows(long billId) {
+		return jdbcTemplate.queryForObject(
+				"SELECT count(*) FROM recurring_expense_payments WHERE recurring_expense_id = ?",
+				Integer.class, billId);
+	}
+
+	@Test
+	void v2_markPaid_isIdempotent_andTheListShowsTheCurrentMonthOnly() throws Exception {
+		long paid = createBill("Electric", authHeader);
+		long paidLastMonth = createBill("Water", authHeader);
+		String lastMonth = YearMonth.now(JacksonTimeConfig.APP_ZONE).minusMonths(1).toString();
+
+		mockMvc.perform(put("/api/v2/recurring/" + paid + "/payments/" + manilaMonth())
+						.header("Authorization", authHeader))
+				.andExpect(status().isNoContent());
+		// Marking an already-paid month is a no-op success, not a 409 or a second row.
+		mockMvc.perform(put("/api/v2/recurring/" + paid + "/payments/" + manilaMonth())
+						.header("Authorization", authHeader))
+				.andExpect(status().isNoContent());
+		mockMvc.perform(put("/api/v2/recurring/" + paidLastMonth + "/payments/" + lastMonth)
+						.header("Authorization", authHeader))
+				.andExpect(status().isNoContent());
+
+		assertThat(paymentRows(paid)).isEqualTo(1);
+		mockMvc.perform(get("/api/v2/recurring").header("Authorization", authHeader))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[?(@.id == " + paid + ")].paidThisMonth").value(true))
+				.andExpect(jsonPath("$[?(@.id == " + paidLastMonth + ")].paidThisMonth").value(false));
+	}
+
+	@Test
+	void v2_undo_isIdempotent() throws Exception {
+		long bill = createBill("Internet", authHeader);
+		String path = "/api/v2/recurring/" + bill + "/payments/" + manilaMonth();
+
+		mockMvc.perform(put(path).header("Authorization", authHeader)).andExpect(status().isNoContent());
+		mockMvc.perform(delete(path).header("Authorization", authHeader)).andExpect(status().isNoContent());
+		// Undoing an unpaid month is a no-op success.
+		mockMvc.perform(delete(path).header("Authorization", authHeader)).andExpect(status().isNoContent());
+
+		assertThat(paymentRows(bill)).isZero();
+		mockMvc.perform(get("/api/v2/recurring").header("Authorization", authHeader))
+				.andExpect(jsonPath("$[0].paidThisMonth").value(false));
+	}
+
+	@Test
+	void v1_markPaid_andListFlag() throws Exception {
+		long bill = createBill("Rent", authHeader);
+
+		mockMvc.perform(put("/recurring/" + bill + "/payments/" + manilaMonth())
+						.header("Authorization", authHeader))
+				.andExpect(status().isNoContent());
+
+		mockMvc.perform(get("/recurring").header("Authorization", authHeader))
+				.andExpect(jsonPath("$[0].paidThisMonth").value(true));
+	}
+
+	@Test
+	void markPaid_onAnotherUsersBill_is404_andWritesNothing() throws Exception {
+		User other = userRepository.save(User.builder()
+				.name("Other").email("other-recurring@test.com")
+				.password(passwordEncoder.encode("password")).build());
+		String otherAuth = "Bearer " + jwtUtil.generate(other.getEmail());
+		long theirs = createBill("Their Bill", otherAuth);
+		String path = "/api/v2/recurring/" + theirs + "/payments/" + manilaMonth();
+
+		mockMvc.perform(put(path).header("Authorization", authHeader)).andExpect(status().isNotFound());
+		assertThat(paymentRows(theirs)).isZero();
+
+		// The owner pays; a stranger's undo is a 404 and must leave that payment in place.
+		mockMvc.perform(put(path).header("Authorization", otherAuth)).andExpect(status().isNoContent());
+		mockMvc.perform(delete(path).header("Authorization", authHeader)).andExpect(status().isNotFound());
+		assertThat(paymentRows(theirs)).isEqualTo(1);
+
+		mockMvc.perform(put("/api/v2/recurring/999999/payments/" + manilaMonth())
+						.header("Authorization", authHeader))
+				.andExpect(status().isNotFound());
+	}
+
+	private com.fasterxml.jackson.databind.JsonNode v2Bill(long id) throws Exception {
+		String body = mockMvc.perform(get("/api/v2/recurring").header("Authorization", authHeader))
+				.andExpect(status().isOk())
+				.andReturn().getResponse().getContentAsString();
+		for (var node : objectMapper.readTree(body)) {
+			if (node.get("id").asLong() == id) {
+				return node;
+			}
+		}
+		throw new AssertionError("bill " + id + " not in the list");
+	}
+
+	/**
+	 * lastPaidMonth is the latest month on record for that bill: null when never paid, the later of
+	 * two paid months, and untouched by a later payment on another user's bill.
+	 */
+	@Test
+	void v2_lastPaidMonth_isTheLatestMonthOnRecord_perBill() throws Exception {
+		long neverPaid = createBill("Never Paid", authHeader);
+		long paidTwice = createBill("Paid Twice", authHeader);
+		User other = userRepository.save(User.builder()
+				.name("Other").email("other-last-paid@test.com")
+				.password(passwordEncoder.encode("password")).build());
+		String otherAuth = "Bearer " + jwtUtil.generate(other.getEmail());
+		long theirs = createBill("Their Bill", otherAuth);
+
+		for (String month : new String[] {"2026-10", "2026-09"}) {
+			mockMvc.perform(put("/api/v2/recurring/" + paidTwice + "/payments/" + month)
+							.header("Authorization", authHeader))
+					.andExpect(status().isNoContent());
+		}
+		mockMvc.perform(put("/api/v2/recurring/" + theirs + "/payments/2026-12")
+						.header("Authorization", otherAuth))
+				.andExpect(status().isNoContent());
+
+		assertThat(v2Bill(neverPaid).get("lastPaidMonth").isNull()).isTrue();
+		assertThat(v2Bill(paidTwice).get("lastPaidMonth").asText()).isEqualTo("2026-10");
+		mockMvc.perform(get("/recurring").header("Authorization", authHeader))
+				.andExpect(jsonPath("$[?(@.id == " + paidTwice + ")].lastPaidMonth").value("2026-10"));
+	}
+
+	@Test
+	void markPaid_malformedMonth_is400ProblemDetail() throws Exception {
+		long bill = createBill("Gym", authHeader);
+
+		for (String month : new String[] {"bad-month", "2026-13", "2026-9"}) {
+			mockMvc.perform(put("/api/v2/recurring/" + bill + "/payments/" + month)
+							.header("Authorization", authHeader))
+					.andExpect(status().isBadRequest())
+					.andExpect(jsonPath("$.title").value("Bad Request"));
+		}
+	}
+
+	/** Recurring expenses are deleted with a plain JPA delete; the FK has to cascade for that to work. */
+	@Test
+	void deletingAPaidBill_removesItsPayments() throws Exception {
+		long bill = createBill("Streaming", authHeader);
+		mockMvc.perform(put("/api/v2/recurring/" + bill + "/payments/" + manilaMonth())
+						.header("Authorization", authHeader))
+				.andExpect(status().isNoContent());
+
+		mockMvc.perform(delete("/api/v2/recurring/" + bill).header("Authorization", authHeader))
+				.andExpect(status().isNoContent());
+
+		assertThat(paymentRows(bill)).isZero();
 	}
 }

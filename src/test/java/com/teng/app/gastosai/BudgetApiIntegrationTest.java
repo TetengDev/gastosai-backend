@@ -170,7 +170,39 @@ class BudgetApiIntegrationTest extends PostgresBackedTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.month").value("2030-12"))
 				.andExpect(jsonPath("$.totalBudgeted").value(1000.00))
+				.andExpect(jsonPath("$.percentUsed").value(0))
 				.andExpect(jsonPath("$.items[0].status").value("ON_TRACK"));
+	}
+
+	@Test
+	void getBudgetSummaryV2_carriesIntegerPercentUsed() throws Exception {
+		mockMvc.perform(post("/budgets")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"categoryId": %d, "month": "2030-12", "amountLimit": 1000.00}
+								""".formatted(categoryId)))
+				.andExpect(status().isCreated());
+		mockMvc.perform(post("/expenses")
+						.header("Authorization", authHeader)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"amount": 1125.00, "category": "Meal Plan", "date": "2030-12-05T12:00:00", "description": "Groceries"}
+								"""))
+				.andExpect(status().isCreated());
+
+		MvcResult result = mockMvc.perform(get("/api/v2/budgets/summary")
+						.header("Authorization", authHeader)
+						.param("month", "2030-12"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.totalSpent").value(112500))
+				.andReturn();
+
+		var body = objectMapper.readTree(result.getResponse().getContentAsString());
+		// 112.5% rounds half-up to 113; the per-category figure stays the decimal it always was.
+		assertThat(body.path("percentUsed").isInt()).isTrue();
+		assertThat(body.path("percentUsed").intValue()).isEqualTo(113);
+		assertThat(body.path("items").get(0).path("percentUsed").decimalValue()).isEqualByComparingTo("112.5");
 	}
 
 	@Test

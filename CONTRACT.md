@@ -216,6 +216,24 @@ silently republishing the wrong bound.
 
 ---
 
+## 3.5.0 — budget `percentUsed` and the recurring-bill paid state
+
+*Recorded 2026-11-18 (backend v0.95.0).*
+
+Additive only, so a minor: new optional response fields and two new endpoints. No existing
+field, path or validation changed.
+
+- **`percentUsed`** on `BudgetSummaryResponse` and `BudgetSummaryResponseV2` (integer). It is the
+  share of the month's budget spent, rounded half-up, and saturates at `Integer.MAX_VALUE` rather
+  than failing on a huge overspend. It is 0 when nothing is budgeted, which reads the same as
+  "nothing spent", so clients keep their own `totalBudgeted > 0` guard.
+- **`paidThisMonth`** (boolean) and **`lastPaidMonth`** (`YYYY-MM` or null) on
+  `RecurringExpenseResponse` and `RecurringExpenseResponseV2`. Months are decided in Asia/Manila,
+  and one mark covers a whole month, so a WEEKLY bill is paid or unpaid for the month as a whole.
+  A `lastPaidMonth` at or after the current month means nothing is overdue.
+- **`PUT` / `DELETE /api/v2/recurring/{id}/payments/{month}`**, and on v1 at `/recurring/{id}/payments/{month}`,
+  mark and unmark a month paid. `{month}` is `YYYY-MM`. Both are idempotent.
+
 ## Cross-repo change ordering
 
 A change that spans the contract is **not** one commit anymore — it's an ordered

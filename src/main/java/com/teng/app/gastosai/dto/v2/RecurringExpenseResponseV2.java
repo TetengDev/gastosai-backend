@@ -3,6 +3,7 @@ package com.teng.app.gastosai.dto.v2;
 import com.teng.app.gastosai.dto.RecurringExpenseResponse;
 import com.teng.app.gastosai.dto.RecurringExpenseWithBase;
 import com.teng.app.gastosai.entity.Frequency;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.math.BigDecimal;
 
@@ -30,7 +31,16 @@ public record RecurringExpenseResponseV2(
 		boolean active,
 		String currency,
 		BigDecimal exchangeRate,
-		Long amountInBaseCurrency
+		Long amountInBaseCurrency,
+		@Schema(description = "Whether this bill is marked paid for the current month, decided in "
+				+ "Asia/Manila. One mark covers the whole month, so a WEEKLY bill is paid or unpaid "
+				+ "for the month as a whole.")
+		boolean paidThisMonth,
+		@Schema(description = "The latest month this bill was marked paid, `YYYY-MM` in Asia/Manila, "
+				+ "or null if it has never been marked paid. Clients use it to show a previous month "
+				+ "left unpaid, so an overdue bill stays visible after its month ends.",
+				example = "2026-09", nullable = true)
+		String lastPaidMonth
 ) {
 
 	public static RecurringExpenseResponseV2 from(RecurringExpenseWithBase withBase) {
@@ -47,6 +57,8 @@ public record RecurringExpenseResponseV2(
 				v1.active(),
 				v1.currency(),
 				v1.exchangeRate(),
-				Money.toCentavos(withBase.amountInBaseCurrency()));
+				Money.toCentavos(withBase.amountInBaseCurrency()),
+				v1.paidThisMonth(),
+				v1.lastPaidMonth());
 	}
 }

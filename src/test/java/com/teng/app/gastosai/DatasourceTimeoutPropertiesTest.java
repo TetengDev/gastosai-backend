@@ -41,7 +41,9 @@ class DatasourceTimeoutPropertiesTest {
 		// The key reaches the driver verbatim; pgjdbc looks it up case-sensitively.
 		String socketTimeout = config.getDataSourceProperties().getProperty("socketTimeout");
 		assertThat(socketTimeout).as("pgjdbc socketTimeout, seconds").isNotNull();
-		assertThat(Integer.parseInt(socketTimeout)).isBetween(1, 60);
+		// TEN-520: strictly under the mobile client's 20s request timeout, or a client that is
+		// mid-request during a Postgres stall gives up before the 503 can reach it.
+		assertThat(Integer.parseInt(socketTimeout)).isBetween(1, 15);
 		assertThat(config.getConnectionTimeout()).isBetween(1L, 30_000L);
 	}
 

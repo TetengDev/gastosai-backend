@@ -1,5 +1,6 @@
 package com.teng.app.gastosai.service;
 
+import com.teng.app.gastosai.config.JacksonTimeConfig;
 import com.teng.app.gastosai.dto.RecurringExpenseRequest;
 import com.teng.app.gastosai.dto.RecurringExpenseResponse;
 import com.teng.app.gastosai.dto.RecurringExpenseWithBase;
@@ -12,6 +13,7 @@ import com.teng.app.gastosai.entity.RecurringExpense;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.RecurringExpenseRepository;
+import com.teng.app.gastosai.repository.RecurringExpenseRepository.PaymentSummary;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -20,12 +22,19 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -33,6 +42,13 @@ public class RecurringExpenseService {
 
 	private final RecurringExpenseRepository recurringExpenseRepository;
 	private final CategoryService categoryService;
+
+	/**
+	 * Where "now" comes from for the paid state. Not a constructor dependency: there is no
+	 * {@code Clock} bean, and the zone is applied when the clock is read, so "this month" is the
+	 * Manila month whatever the server's zone is (same seam as {@code ExpenseService}).
+	 */
+	private Clock clock = Clock.systemUTC();
 
 	/** No duplicate check (chat path — explicit user intent). */
 	@Transactional
@@ -71,7 +87,7 @@ public class RecurringExpenseService {
 				.exchangeRate(req.exchangeRate() != null ? req.exchangeRate() : BigDecimal.ONE)
 				.build());
 
-		return toResponse(saved);
+		return toResponse(saved, null);
 	}
 
 	@Transactional(readOnly = true)
@@ -84,8 +100,9 @@ public class RecurringExpenseService {
 	/** {@link #findAll(User)} with each row's converted amount attached. */
 	@Transactional(readOnly = true)
 	public List<RecurringExpenseWithBase> findAllWithBase(User user) {
+		Map<Long, PaymentSummary> payments = paymentSummaries(user);
 		return recurringExpenseRepository.findAllByUser(user).stream()
-				.map(this::toResponse)
+				.map(e -> toResponse(e, payments.get(e.getId())))
 				.toList();
 	}
 
@@ -118,7 +135,8 @@ public class RecurringExpenseService {
 		expense.setCurrency(req.currency() != null ? req.currency() : "PHP");
 		expense.setExchangeRate(req.exchangeRate() != null ? req.exchangeRate() : BigDecimal.ONE);
 
-		return toResponse(recurringExpenseRepository.save(expense));
+		RecurringExpense saved = recurringExpenseRepository.save(expense);
+		return toResponse(saved, paymentSummaries(user).get(saved.getId()));
 	}
 
 	@Transactional
@@ -132,6 +150,57 @@ public class RecurringExpenseService {
 	@Transactional
 	public void deleteAll(User user) {
 		recurringExpenseRepository.deleteAll(recurringExpenseRepository.findAllByUser(user));
+	}
+
+	/**
+	 * Marks the bill paid for {@code month} ({@code YYYY-MM}). Idempotent: an already-paid month is
+	 * left as it is, by the database's unique constraint rather than a check-then-insert.
+	 */
+	@Transactional
+	public void markPaid(Long id, String month, User user) {
+		String validMonth = parseMonth(month);
+		RecurringExpense bill = findOwned(id, user);
+		recurringExpenseRepository.insertPaymentIfAbsent(bill.getId(), validMonth,
+				LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC));
+	}
+
+	/** Undoes {@link #markPaid}. Idempotent: undoing an unpaid month succeeds and changes nothing. */
+	@Transactional
+	public void unmarkPaid(Long id, String month, User user) {
+		String validMonth = parseMonth(month);
+		RecurringExpense bill = findOwned(id, user);
+		recurringExpenseRepository.deletePayment(bill.getId(), validMonth);
+	}
+
+	/** Another user's bill is a 404, the same as a missing one — its existence is not disclosed. */
+	private RecurringExpense findOwned(Long id, User user) {
+		return recurringExpenseRepository.findByIdAndUser(id, user)
+				.orElseThrow(() -> new ResourceNotFoundException("RecurringExpense not found: " + id));
+	}
+
+	/**
+	 * A strict {@code YYYY-MM}. The shape check alone would let {@code 2026-13} through to a
+	 * {@link DateTimeParseException}, which no handler maps and so would surface as a 500.
+	 */
+	private static String parseMonth(String month) {
+		if (month == null || !month.matches("\\d{4}-\\d{2}")) {
+			throw new IllegalArgumentException("Invalid month format. Expected YYYY-MM.");
+		}
+		try {
+			return YearMonth.parse(month).toString();
+		} catch (DateTimeParseException e) {
+			throw new IllegalArgumentException("Invalid month format. Expected YYYY-MM.");
+		}
+	}
+
+	/**
+	 * The paid state of the user's bills, keyed by bill id, in one query for the whole list. "This
+	 * month" is the current Manila month. A bill never paid has no entry.
+	 */
+	private Map<Long, PaymentSummary> paymentSummaries(User user) {
+		String month = YearMonth.now(clock.withZone(JacksonTimeConfig.APP_ZONE)).toString();
+		return recurringExpenseRepository.findPaymentSummaries(user.getId(), month).stream()
+				.collect(Collectors.toMap(PaymentSummary::getId, Function.identity()));
 	}
 
 	@Transactional(readOnly = true)
@@ -198,7 +267,8 @@ public class RecurringExpenseService {
 		return new UpcomingBillWithBase(response, amountInBaseCurrency(bill));
 	}
 
-	private RecurringExpenseWithBase toResponse(RecurringExpense e) {
+	/** {@code payments} is null for a bill with no payment on record. */
+	private RecurringExpenseWithBase toResponse(RecurringExpense e, PaymentSummary payments) {
 		RecurringExpenseResponse response = new RecurringExpenseResponse(
 				e.getId(),
 				e.getName(),
@@ -210,7 +280,9 @@ public class RecurringExpenseService {
 				e.getMonthOfYear(),
 				e.isActive(),
 				e.getCurrency(),
-				e.getExchangeRate().setScale(4, RoundingMode.HALF_UP)
+				e.getExchangeRate().setScale(4, RoundingMode.HALF_UP),
+				payments != null && Boolean.TRUE.equals(payments.getPaidThisMonth()),
+				payments != null ? payments.getLastPaidMonth() : null
 		);
 		return new RecurringExpenseWithBase(response, amountInBaseCurrency(e));
 	}
