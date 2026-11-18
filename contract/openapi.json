@@ -2889,6 +2889,11 @@
             "format" : "int64",
             "type" : "integer"
           },
+          "lastPaidMonth" : {
+            "description" : "The latest month this bill was marked paid, `YYYY-MM` in Asia/Manila, or null if it has never been marked paid. Clients use it to show a previous month left unpaid, so an overdue bill stays visible after its month ends.",
+            "example" : "2026-09",
+            "type" : [ "string", "null" ]
+          },
           "monthOfYear" : {
             "format" : "int32",
             "type" : "integer"
@@ -2940,6 +2945,11 @@
           "id" : {
             "format" : "int64",
             "type" : "integer"
+          },
+          "lastPaidMonth" : {
+            "description" : "The latest month this bill was marked paid, `YYYY-MM` in Asia/Manila, or null if it has never been marked paid. Clients use it to show a previous month left unpaid, so an overdue bill stays visible after its month ends.",
+            "example" : "2026-09",
+            "type" : [ "string", "null" ]
           },
           "monthOfYear" : {
             "format" : "int32",
@@ -5998,6 +6008,7 @@
           "name" : "month",
           "required" : true,
           "schema" : {
+            "pattern" : "^\\d{4}-(0[1-9]|1[0-2])$",
             "type" : "string"
           }
         } ],
@@ -6026,6 +6037,7 @@
           "name" : "month",
           "required" : true,
           "schema" : {
+            "pattern" : "^\\d{4}-(0[1-9]|1[0-2])$",
             "type" : "string"
           }
         } ],
@@ -8110,6 +8122,7 @@
           "name" : "month",
           "required" : true,
           "schema" : {
+            "pattern" : "^\\d{4}-(0[1-9]|1[0-2])$",
             "type" : "string"
           }
         } ],
@@ -8138,6 +8151,7 @@
           "name" : "month",
           "required" : true,
           "schema" : {
+            "pattern" : "^\\d{4}-(0[1-9]|1[0-2])$",
             "type" : "string"
           }
         } ],
