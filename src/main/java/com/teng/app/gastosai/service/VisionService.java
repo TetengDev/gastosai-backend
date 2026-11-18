@@ -95,7 +95,7 @@ public class VisionService {
 	 * upload — a highly-compressed multi-gigapixel canvas that clears {@link #MAX_DECODE_PX}, or a
 	 * format whose reader degenerates — can run for minutes while holding a decode slot and its
 	 * raster. Eight seconds is two orders of magnitude above the honest case and still short enough
-	 * that a blocked slot frees itself long before the queue behind it times out.
+	 * that a blocked slot frees itself quickly.
 	 */
 	public static final long DEFAULT_DECODE_BUDGET_MILLIS = 8_000L;
 
@@ -174,17 +174,22 @@ public class VisionService {
 	 * ~18 MP (see {@link #decode}) at 4 bytes a pixel, so four of them is ~280 MB of worst case,
 	 * which a 512 MB heap survives alongside the rest of the API. Two per user leaves the other two
 	 * slots reachable by somebody else, so a single account cannot fill the instance on its own.
+	 *
+	 * <p><b>What this costs the servlet connector.</b> At most {@code gastos.vision.max-concurrent-decodes}
+	 * request threads are ever held in a vision decode, each for at most
+	 * {@code gastos.vision.decode-budget-millis}; none are held waiting for a slot, because both bounds
+	 * refuse with 429 the moment they are full (see {@link #acquireSlots}). Per account the cap is
+	 * {@code gastos.vision.max-concurrent-decodes-per-user}. Set against Tomcat's request pool
+	 * ({@code server.tomcat.threads.max}, default 200), the vision path can never hold more than 4 of
+	 * the 200 at the defaults. Raising the global bound spends connector threads one for one.
 	 */
 	private final int maxConcurrentDecodes;
 
 	private final int maxConcurrentDecodesPerUser;
 
-	/** How long an over-limit request waits for a global slot before it is refused rather than queued. */
-	private final long decodeQueueWaitMillis;
-
 	private final long decodeBudgetMillis;
 
-	/** Fair, so a queued request cannot be starved indefinitely by a steady stream of new ones. */
+	/** Only ever taken with a non-blocking {@code tryAcquire()}, so nobody queues and fairness has nothing to order. */
 	private final Semaphore decodeSlots;
 
 	/**
@@ -217,7 +222,6 @@ public class VisionService {
 			AiRedactionService aiRedactionService,
 			@Value("${gastos.vision.max-concurrent-decodes:4}") int maxConcurrentDecodes,
 			@Value("${gastos.vision.max-concurrent-decodes-per-user:2}") int maxConcurrentDecodesPerUser,
-			@Value("${gastos.vision.decode-queue-wait-millis:2000}") long decodeQueueWaitMillis,
 			@Value("${gastos.vision.decode-budget-millis:8000}") long decodeBudgetMillis) {
 		this.claudeRestClient = claudeRestClient;
 		this.openAiRestClient = openAiRestClient;
@@ -231,9 +235,8 @@ public class VisionService {
 		this.aiRedactionService = aiRedactionService;
 		this.maxConcurrentDecodes = Math.max(1, maxConcurrentDecodes);
 		this.maxConcurrentDecodesPerUser = Math.max(1, maxConcurrentDecodesPerUser);
-		this.decodeQueueWaitMillis = Math.max(0, decodeQueueWaitMillis);
 		this.decodeBudgetMillis = decodeBudgetMillis > 0 ? decodeBudgetMillis : DEFAULT_DECODE_BUDGET_MILLIS;
-		this.decodeSlots = new Semaphore(this.maxConcurrentDecodes, true);
+		this.decodeSlots = new Semaphore(this.maxConcurrentDecodes);
 		this.decodeExecutor = new ThreadPoolExecutor(this.maxConcurrentDecodes, this.maxConcurrentDecodes,
 				30, TimeUnit.SECONDS, new ArrayBlockingQueue<>(this.maxConcurrentDecodes),
 				Thread.ofPlatform().name("vision-decode-", 0).daemon().factory());
@@ -327,16 +330,15 @@ public class VisionService {
 	/**
 	 * Runs {@code decode} with a global slot and, for an identified user, one of that user's own.
 	 *
-	 * <p>The two limits refuse differently on purpose. The per-user one refuses at once: a caller
-	 * already holding its share gains nothing by waiting, and letting it queue is how one account
-	 * occupies the waiting room. The global one queues for {@link #decodeQueueWaitMillis} first,
-	 * because a burst from several honest users is the ordinary case and a slot usually frees within
-	 * one decode; only past that wait is the request refused with 429.
+	 * <p>Both limits refuse at once with 429. Neither waits for a slot: since TEN-414 the request
+	 * thread is already held for the decode itself, up to the budget, and a wait on top of that would
+	 * only hold it longer doing nothing (TEN-413). A refused client retries; the per-minute limiter
+	 * in front of this endpoint bounds how often.
 	 *
 	 * <p>Public so a test can drive the bound directly — the whole behaviour is what does *not*
 	 * happen concurrently, which is not observable from the encoded output.
 	 *
-	 * @throws ResponseStatusException 429 when the excess is neither admitted nor queued into a slot
+	 * @throws DecodeCapacityException 429 when either bound is full
 	 */
 	public <T> T runBoundedDecode(Long userId, Supplier<T> decode) {
 		acquireSlots(userId);
@@ -344,25 +346,18 @@ public class VisionService {
 	}
 
 	/**
-	 * Takes the per-user slot, then a global one, or throws 429 holding neither. Kept apart from the
-	 * budget logic below so the wait for a slot can change without touching the cutoff.
+	 * Takes the per-user slot, then a global one, or throws 429 holding neither. Never blocks: the
+	 * request thread is not held waiting for a slot (see {@link #maxConcurrentDecodes} for what that
+	 * bounds against the connector's thread pool).
 	 */
 	private void acquireSlots(Long userId) {
 		if (userId != null && !acquireUserSlot(userId)) {
 			throw busy("Too many receipt scans running for this account. Wait for one to finish.");
 		}
-		boolean acquired = false;
-		try {
-			acquired = decodeSlots.tryAcquire(decodeQueueWaitMillis, TimeUnit.MILLISECONDS);
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-			throw busy("Receipt scanning was interrupted while queued. Try again.");
-		} finally {
-			if (!acquired && userId != null) {
+		if (!decodeSlots.tryAcquire()) {
+			if (userId != null) {
 				releaseUserSlot(userId);
 			}
-		}
-		if (!acquired) {
 			throw busy("The server is processing as many receipt images as it can at once. Try again shortly.");
 		}
 	}
@@ -384,7 +379,7 @@ public class VisionService {
 	 * held the request thread past the budget. Here the decode runs on {@link #decodeExecutor} and the
 	 * caller waits on it for {@link #decodeBudgetMillis} at most. <b>The stated bound: a caller holding
 	 * its slots is released no later than {@code decodeBudgetMillis} after its decode is handed off</b>,
-	 * plus scheduling jitter — so at most queue wait + budget overall.
+	 * plus scheduling jitter. Slot acquisition does not wait, so that is the bound overall.
 	 *
 	 * <p>The abort itself stays {@link DeadlineAbort}, inside the decoding thread: it fires at the same
 	 * deadline, and an {@code abort()} sent from here would only set the same flag for the same
@@ -440,7 +435,7 @@ public class VisionService {
 			task.cancel(true);
 			releaseIfUnclaimed.run();
 			Thread.currentThread().interrupt();
-			// The same answer as an interrupt while queued for a slot: 429, and not charged.
+			// 429, and not charged: the caller gave up, the upload did nothing wrong.
 			throw busy("Receipt scanning was interrupted. Try again.");
 		} catch (ExecutionException e) {
 			// Rethrown as itself, so callers see DecodeTimedOutException, IllegalArgumentException or an
