@@ -275,16 +275,62 @@ class RecurringExpenseApiIntegrationTest extends PostgresBackedTest {
 		User other = userRepository.save(User.builder()
 				.name("Other").email("other-recurring@test.com")
 				.password(passwordEncoder.encode("password")).build());
-		long theirs = createBill("Their Bill", "Bearer " + jwtUtil.generate(other.getEmail()));
+		String otherAuth = "Bearer " + jwtUtil.generate(other.getEmail());
+		long theirs = createBill("Their Bill", otherAuth);
 		String path = "/api/v2/recurring/" + theirs + "/payments/" + manilaMonth();
 
 		mockMvc.perform(put(path).header("Authorization", authHeader)).andExpect(status().isNotFound());
+		assertThat(paymentRows(theirs)).isZero();
+
+		// The owner pays; a stranger's undo is a 404 and must leave that payment in place.
+		mockMvc.perform(put(path).header("Authorization", otherAuth)).andExpect(status().isNoContent());
 		mockMvc.perform(delete(path).header("Authorization", authHeader)).andExpect(status().isNotFound());
+		assertThat(paymentRows(theirs)).isEqualTo(1);
+
 		mockMvc.perform(put("/api/v2/recurring/999999/payments/" + manilaMonth())
 						.header("Authorization", authHeader))
 				.andExpect(status().isNotFound());
+	}
 
-		assertThat(paymentRows(theirs)).isZero();
+	private com.fasterxml.jackson.databind.JsonNode v2Bill(long id) throws Exception {
+		String body = mockMvc.perform(get("/api/v2/recurring").header("Authorization", authHeader))
+				.andExpect(status().isOk())
+				.andReturn().getResponse().getContentAsString();
+		for (var node : objectMapper.readTree(body)) {
+			if (node.get("id").asLong() == id) {
+				return node;
+			}
+		}
+		throw new AssertionError("bill " + id + " not in the list");
+	}
+
+	/**
+	 * lastPaidMonth is the latest month on record for that bill: null when never paid, the later of
+	 * two paid months, and untouched by a later payment on another user's bill.
+	 */
+	@Test
+	void v2_lastPaidMonth_isTheLatestMonthOnRecord_perBill() throws Exception {
+		long neverPaid = createBill("Never Paid", authHeader);
+		long paidTwice = createBill("Paid Twice", authHeader);
+		User other = userRepository.save(User.builder()
+				.name("Other").email("other-last-paid@test.com")
+				.password(passwordEncoder.encode("password")).build());
+		String otherAuth = "Bearer " + jwtUtil.generate(other.getEmail());
+		long theirs = createBill("Their Bill", otherAuth);
+
+		for (String month : new String[] {"2026-10", "2026-09"}) {
+			mockMvc.perform(put("/api/v2/recurring/" + paidTwice + "/payments/" + month)
+							.header("Authorization", authHeader))
+					.andExpect(status().isNoContent());
+		}
+		mockMvc.perform(put("/api/v2/recurring/" + theirs + "/payments/2026-12")
+						.header("Authorization", otherAuth))
+				.andExpect(status().isNoContent());
+
+		assertThat(v2Bill(neverPaid).get("lastPaidMonth").isNull()).isTrue();
+		assertThat(v2Bill(paidTwice).get("lastPaidMonth").asText()).isEqualTo("2026-10");
+		mockMvc.perform(get("/recurring").header("Authorization", authHeader))
+				.andExpect(jsonPath("$[?(@.id == " + paidTwice + ")].lastPaidMonth").value("2026-10"));
 	}
 
 	@Test

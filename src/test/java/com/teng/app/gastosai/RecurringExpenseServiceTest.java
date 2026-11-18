@@ -239,6 +239,16 @@ class RecurringExpenseServiceTest {
 		ReflectionTestUtils.setField(recurringExpenseService, "clock", Clock.fixed(instant, ZoneOffset.UTC));
 	}
 
+	/** A row of the single list query: one bill's paid state, as the repository projects it. */
+	private static RecurringExpenseRepository.PaymentSummary summary(long id, boolean paidThisMonth,
+			String lastPaidMonth) {
+		return new RecurringExpenseRepository.PaymentSummary() {
+			public Long getId() { return id; }
+			public Boolean getPaidThisMonth() { return paidThisMonth; }
+			public String getLastPaidMonth() { return lastPaidMonth; }
+		};
+	}
+
 	private RecurringExpense bill(long id, User user) {
 		return RecurringExpense.builder()
 				.id(id).user(user).name("Bill " + id).amount(new BigDecimal("100.00"))
@@ -256,13 +266,34 @@ class RecurringExpenseServiceTest {
 		User user = testUser();
 		pinClock(MANILA_OCTOBER_FIRST);
 		when(recurringExpenseRepository.findAllByUser(user)).thenReturn(List.of(bill(1L, user), bill(2L, user)));
-		when(recurringExpenseRepository.findPaidRecurringExpenseIds(1L, "2026-10")).thenReturn(List.of(1L));
+		when(recurringExpenseRepository.findPaymentSummaries(1L, "2026-10"))
+				.thenReturn(List.of(summary(1L, true, "2026-10")));
 
 		List<RecurringExpenseResponse> result = recurringExpenseService.findAll(user);
 
 		assertThat(result).extracting(RecurringExpenseResponse::id, RecurringExpenseResponse::paidThisMonth)
 				.containsExactly(org.assertj.core.groups.Tuple.tuple(1L, true),
 						org.assertj.core.groups.Tuple.tuple(2L, false));
+	}
+
+	/**
+	 * A bill left unpaid past the end of its month must not vanish on the 1st: lastPaidMonth lets a
+	 * client see that September was paid and October was not. A bill never paid serves null.
+	 */
+	@Test
+	void findAll_servesLastPaidMonth_andNullForANeverPaidBill() {
+		User user = testUser();
+		pinClock(MANILA_OCTOBER_FIRST);
+		when(recurringExpenseRepository.findAllByUser(user)).thenReturn(List.of(bill(1L, user), bill(2L, user)));
+		when(recurringExpenseRepository.findPaymentSummaries(1L, "2026-10"))
+				.thenReturn(List.of(summary(1L, false, "2026-09")));
+
+		List<RecurringExpenseResponse> result = recurringExpenseService.findAll(user);
+
+		assertThat(result).extracting(RecurringExpenseResponse::id, RecurringExpenseResponse::paidThisMonth,
+						RecurringExpenseResponse::lastPaidMonth)
+				.containsExactly(org.assertj.core.groups.Tuple.tuple(1L, false, "2026-09"),
+						org.assertj.core.groups.Tuple.tuple(2L, false, null));
 	}
 
 	@Test
@@ -273,13 +304,15 @@ class RecurringExpenseServiceTest {
 		when(recurringExpenseRepository.findByIdAndUser(7L, user)).thenReturn(Optional.of(existing));
 		when(categoryService.getOrCreateByName(eq("Utilities"), any())).thenReturn(testCategory());
 		when(recurringExpenseRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-		when(recurringExpenseRepository.findPaidRecurringExpenseIds(1L, "2026-10")).thenReturn(List.of(7L));
+		when(recurringExpenseRepository.findPaymentSummaries(1L, "2026-10"))
+				.thenReturn(List.of(summary(7L, true, "2026-10")));
 
 		RecurringExpenseResponse result = recurringExpenseService.update(7L, new RecurringExpenseRequest(
 				"Bill 7", new BigDecimal("120.00"), "Utilities", Frequency.MONTHLY, 5, null, null, true, null, null),
 				user);
 
 		assertThat(result.paidThisMonth()).isTrue();
+		assertThat(result.lastPaidMonth()).isEqualTo("2026-10");
 	}
 
 	@Test

@@ -13,6 +13,7 @@ import com.teng.app.gastosai.entity.RecurringExpense;
 import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.exception.ResourceNotFoundException;
 import com.teng.app.gastosai.repository.RecurringExpenseRepository;
+import com.teng.app.gastosai.repository.RecurringExpenseRepository.PaymentSummary;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -30,9 +31,10 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -85,7 +87,7 @@ public class RecurringExpenseService {
 				.exchangeRate(req.exchangeRate() != null ? req.exchangeRate() : BigDecimal.ONE)
 				.build());
 
-		return toResponse(saved, false);
+		return toResponse(saved, null);
 	}
 
 	@Transactional(readOnly = true)
@@ -98,9 +100,9 @@ public class RecurringExpenseService {
 	/** {@link #findAll(User)} with each row's converted amount attached. */
 	@Transactional(readOnly = true)
 	public List<RecurringExpenseWithBase> findAllWithBase(User user) {
-		Set<Long> paid = paidThisMonth(user);
+		Map<Long, PaymentSummary> payments = paymentSummaries(user);
 		return recurringExpenseRepository.findAllByUser(user).stream()
-				.map(e -> toResponse(e, paid.contains(e.getId())))
+				.map(e -> toResponse(e, payments.get(e.getId())))
 				.toList();
 	}
 
@@ -134,7 +136,7 @@ public class RecurringExpenseService {
 		expense.setExchangeRate(req.exchangeRate() != null ? req.exchangeRate() : BigDecimal.ONE);
 
 		RecurringExpense saved = recurringExpenseRepository.save(expense);
-		return toResponse(saved, paidThisMonth(user).contains(saved.getId()));
+		return toResponse(saved, paymentSummaries(user).get(saved.getId()));
 	}
 
 	@Transactional
@@ -191,10 +193,14 @@ public class RecurringExpenseService {
 		}
 	}
 
-	/** Ids of the user's bills paid for the current Manila month, in one query for the whole list. */
-	private Set<Long> paidThisMonth(User user) {
+	/**
+	 * The paid state of the user's bills, keyed by bill id, in one query for the whole list. "This
+	 * month" is the current Manila month. A bill never paid has no entry.
+	 */
+	private Map<Long, PaymentSummary> paymentSummaries(User user) {
 		String month = YearMonth.now(clock.withZone(JacksonTimeConfig.APP_ZONE)).toString();
-		return new HashSet<>(recurringExpenseRepository.findPaidRecurringExpenseIds(user.getId(), month));
+		return recurringExpenseRepository.findPaymentSummaries(user.getId(), month).stream()
+				.collect(Collectors.toMap(PaymentSummary::getId, Function.identity()));
 	}
 
 	@Transactional(readOnly = true)
@@ -261,7 +267,8 @@ public class RecurringExpenseService {
 		return new UpcomingBillWithBase(response, amountInBaseCurrency(bill));
 	}
 
-	private RecurringExpenseWithBase toResponse(RecurringExpense e, boolean paidThisMonth) {
+	/** {@code payments} is null for a bill with no payment on record. */
+	private RecurringExpenseWithBase toResponse(RecurringExpense e, PaymentSummary payments) {
 		RecurringExpenseResponse response = new RecurringExpenseResponse(
 				e.getId(),
 				e.getName(),
@@ -274,7 +281,8 @@ public class RecurringExpenseService {
 				e.isActive(),
 				e.getCurrency(),
 				e.getExchangeRate().setScale(4, RoundingMode.HALF_UP),
-				paidThisMonth
+				payments != null && Boolean.TRUE.equals(payments.getPaidThisMonth()),
+				payments != null ? payments.getLastPaidMonth() : null
 		);
 		return new RecurringExpenseWithBase(response, amountInBaseCurrency(e));
 	}

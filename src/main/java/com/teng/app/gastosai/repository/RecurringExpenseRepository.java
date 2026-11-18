@@ -43,9 +43,27 @@ public interface RecurringExpenseRepository extends JpaRepository<RecurringExpen
 			+ "WHERE recurring_expense_id = :id AND payment_month = :month", nativeQuery = true)
 	void deletePayment(@Param("id") long recurringExpenseId, @Param("month") String month);
 
-	/** One query for the whole list: the ids of the user's recurring expenses paid for {@code month}. */
-	@Query(value = "SELECT p.recurring_expense_id FROM recurring_expense_payments p "
+	/** One row per bill of the user's with at least one payment; a bill with none has no row. */
+	interface PaymentSummary {
+		Long getId();
+
+		/** Whether the {@code month} passed to the query is among the bill's paid months. */
+		Boolean getPaidThisMonth();
+
+		/** The latest {@code YYYY-MM} on record for the bill. */
+		String getLastPaidMonth();
+	}
+
+	/**
+	 * The paid state of every one of the user's bills, in one query for the whole list. Payments are
+	 * reached only through the user's own bills, so another user's rows cannot be counted. The
+	 * aliases are quoted because PostgreSQL folds unquoted ones to lower case.
+	 */
+	@Query(value = "SELECT p.recurring_expense_id AS \"id\", "
+			+ "BOOL_OR(p.payment_month = :month) AS \"paidThisMonth\", "
+			+ "MAX(p.payment_month) AS \"lastPaidMonth\" "
+			+ "FROM recurring_expense_payments p "
 			+ "JOIN recurring_expenses r ON r.id = p.recurring_expense_id "
-			+ "WHERE r.user_id = :userId AND p.payment_month = :month", nativeQuery = true)
-	List<Long> findPaidRecurringExpenseIds(@Param("userId") long userId, @Param("month") String month);
+			+ "WHERE r.user_id = :userId GROUP BY p.recurring_expense_id", nativeQuery = true)
+	List<PaymentSummary> findPaymentSummaries(@Param("userId") long userId, @Param("month") String month);
 }
