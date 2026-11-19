@@ -66,6 +66,12 @@ public class AlertService {
         int year = Integer.parseInt(parts[0]);
         int monthInt = Integer.parseInt(parts[1]);
 
+        // Every generator below is look-up-then-insert. Without this, two overlapping reads (the
+        // dashboard and the bell load together) both found nothing and both inserted, and the
+        // duplicate then made every later look-up of that key throw (TEN-551). The unique indexes
+        // from V34 are the backstop; this keeps a concurrent read from hitting them.
+        alertRepository.lockAlertsOf(user.getId());
+
         generateBudgetAlerts(user, month, year, monthInt);
         generateSpendingSpikeAlert(user, month, year, monthInt);
         generateRecurringDueAlerts(user, month);

@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.hibernate.exception.JDBCConnectionException;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.IncorrectResultSizeDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
@@ -158,6 +159,13 @@ public class GlobalExceptionHandler {
 		}
 		if (isDatabaseUnreachable(ex)) {
 			return databaseUnavailable(ex, request);
+		}
+		// A query that expected one row and found several is our data breaking an invariant, never
+		// something the client sent: a 400 told clients to stop retrying a request that was valid
+		// (TEN-551). Deliberately narrow — every other DataAccessException keeps its 400, because
+		// clients may depend on it (a duplicate-key violation, for one).
+		if (ex instanceof IncorrectResultSizeDataAccessException) {
+			return unhandled(ex, request);
 		}
 		log.warn("Data access error: {}", ex.getMessage());
 		ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Query execution failed");
