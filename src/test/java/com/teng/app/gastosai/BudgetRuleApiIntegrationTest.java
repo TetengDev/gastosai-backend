@@ -39,7 +39,6 @@ class BudgetRuleApiIntegrationTest extends PostgresBackedTest {
     @BeforeEach
     void setUp() {
         mockMvc = webAppContextSetup(webApplicationContext).apply(springSecurity()).build();
-        categoryRepository.deleteAll();
         userRepository.deleteAll();
         user = userRepository.save(User.builder()
                 .name("Rule User").email("rule@test.com").password(passwordEncoder.encode("pw")).build());

@@ -244,8 +244,8 @@ validation changed.
 - **`status`** (`ON_TRACK` / `WARNING` / `OVER_BUDGET`) on `BucketSummary` and `BucketSummaryV2`,
   the buckets of the budget-rule summary. It is derived from the bucket's own `percentUsed` by the
   same thresholds as a category budget line — `WARNING` from 80%, `OVER_BUDGET` from 100%, both
-  inclusive — and the server holds those thresholds in one place, so a client never re-derives
-  them. A zero target reports `percentUsed` 0 and so `ON_TRACK`. The field reports how much of the
+  inclusive — and category lines and buckets share one server-side threshold source, so a client
+  never re-derives them. A zero target reports `percentUsed` 0 and so `ON_TRACK`. The field reports how much of the
   allocation is used and nothing more: the `SAVINGS` bucket gets the same status as the others, and
   the client decides its tone, because passing a savings target is not bad news.
 
