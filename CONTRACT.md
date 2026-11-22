@@ -236,7 +236,7 @@ field, path or validation changed.
 
 ## 3.6.0 — budget-rule bucket `status`
 
-*Recorded 2026-11-22 (TEN-541).*
+*Recorded 2026-11-22 (backend v0.96.0, TEN-541).*
 
 Additive only, so a minor: one new optional response field. No existing field, path or
 validation changed.
