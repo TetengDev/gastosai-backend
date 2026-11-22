@@ -181,14 +181,7 @@ public class BudgetService {
 							.multiply(BigDecimal.valueOf(100))
 							.setScale(2, RoundingMode.HALF_UP);
 
-			String status;
-			if (percentUsed.compareTo(BigDecimal.valueOf(100)) >= 0) {
-				status = "OVER_BUDGET";
-			} else if (percentUsed.compareTo(BigDecimal.valueOf(80)) >= 0) {
-				status = "WARNING";
-			} else {
-				status = "ON_TRACK";
-			}
+			String status = statusFor(percentUsed);
 
 			return new BudgetSummaryItem(
 					b.getCategory().getId(),
@@ -217,6 +210,20 @@ public class BudgetService {
 
 		return new BudgetSummaryResponse(month, items, totalBudgeted, totalSpent, safeToSpend, dailyAllowance,
 				BudgetSummaryResponse.percentUsed(totalSpent, totalBudgeted));
+	}
+
+	/**
+	 * The budget banding for a share used, in percent: {@code WARNING} from 80, {@code OVER_BUDGET}
+	 * from 100, both inclusive. The one source for category lines and budget-rule buckets alike.
+	 */
+	public static String statusFor(BigDecimal percentUsed) {
+		if (percentUsed.compareTo(BigDecimal.valueOf(100)) >= 0) {
+			return "OVER_BUDGET";
+		}
+		if (percentUsed.compareTo(BigDecimal.valueOf(80)) >= 0) {
+			return "WARNING";
+		}
+		return "ON_TRACK";
 	}
 
 	private static YearMonth parseMonth(String month) {

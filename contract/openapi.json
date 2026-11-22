@@ -477,6 +477,11 @@
           "spent" : {
             "type" : "number"
           },
+          "status" : {
+            "description" : "Banding derived from `percentUsed`, by the same thresholds as a category budget line: `WARNING` at 80%, `OVER_BUDGET` at 100%. It reports how much of the allocation is used; for the `SAVINGS` bucket the client decides the tone, since passing a savings target is not bad news.",
+            "enum" : [ "ON_TRACK", "WARNING", "OVER_BUDGET" ],
+            "type" : "string"
+          },
           "target" : {
             "type" : "number"
           }
@@ -504,6 +509,11 @@
           "spent" : {
             "format" : "int64",
             "type" : "integer"
+          },
+          "status" : {
+            "description" : "Banding derived from `percentUsed`, by the same thresholds as a category budget line: `WARNING` at 80%, `OVER_BUDGET` at 100%. It reports how much of the allocation is used; for the `SAVINGS` bucket the client decides the tone, since passing a savings target is not bad news.",
+            "enum" : [ "ON_TRACK", "WARNING", "OVER_BUDGET" ],
+            "type" : "string"
           },
           "target" : {
             "format" : "int64",

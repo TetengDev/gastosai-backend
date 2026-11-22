@@ -3,6 +3,7 @@ package com.teng.app.gastosai.dto.v2;
 import com.teng.app.gastosai.dto.BudgetRuleSummaryResponse;
 import com.teng.app.gastosai.entity.Bucket;
 import com.teng.app.gastosai.entity.BudgetRuleType;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
 
@@ -26,7 +27,13 @@ public record BudgetRuleSummaryResponseV2(
 			Long target,
 			Long spent,
 			Long remaining,
-			double percentUsed
+			double percentUsed,
+			@Schema(description = "Banding derived from `percentUsed`, by the same thresholds as a category budget line: "
+					+ "`WARNING` at 80%, `OVER_BUDGET` at 100%. It reports how much of the allocation is used; "
+					+ "for the `SAVINGS` bucket the client decides the tone, since passing a savings target is "
+					+ "not bad news.",
+					allowableValues = {"ON_TRACK", "WARNING", "OVER_BUDGET"})
+			String status
 	) {
 
 		public static BucketSummaryV2 from(BudgetRuleSummaryResponse.BucketSummary v1) {
@@ -36,7 +43,8 @@ public record BudgetRuleSummaryResponseV2(
 					Money.toCentavos(v1.target()),
 					Money.toCentavos(v1.spent()),
 					Money.toCentavos(v1.remaining()),
-					v1.percentUsed());
+					v1.percentUsed(),
+					v1.status());
 		}
 	}
 

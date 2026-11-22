@@ -332,6 +332,16 @@ class BudgetServiceTest {
 	}
 
 	@Test
+	void statusFor_bandsAt80And100Inclusive() {
+		assertThat(BudgetService.statusFor(new BigDecimal("0"))).isEqualTo("ON_TRACK");
+		assertThat(BudgetService.statusFor(new BigDecimal("79.99"))).isEqualTo("ON_TRACK");
+		assertThat(BudgetService.statusFor(new BigDecimal("80.00"))).isEqualTo("WARNING");
+		assertThat(BudgetService.statusFor(new BigDecimal("99.99"))).isEqualTo("WARNING");
+		assertThat(BudgetService.statusFor(new BigDecimal("100.00"))).isEqualTo("OVER_BUDGET");
+		assertThat(BudgetService.statusFor(new BigDecimal("250"))).isEqualTo("OVER_BUDGET");
+	}
+
+	@Test
 	void getSummary_percentUsed_leavesItemPercentDecimal() {
 		BudgetSummaryResponse summary = summaryFor("20000.00", "2499.00");
 		assertThat(summary.items().get(0).percentUsed()).isEqualByComparingTo("12.50");
