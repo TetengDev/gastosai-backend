@@ -154,7 +154,8 @@ public class BudgetRuleService {
         double percentUsed = target.signum() > 0
                 ? spentMoney.divide(target, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)).doubleValue()
                 : 0.0;
-        return new BucketSummary(bucket, percent, target, spentMoney, target.subtract(spentMoney), percentUsed);
+        return new BucketSummary(bucket, percent, target, spentMoney, target.subtract(spentMoney), percentUsed,
+                BudgetService.statusFor(BigDecimal.valueOf(percentUsed)));
     }
 
     private BigDecimal money(BigDecimal value) {

@@ -9,6 +9,7 @@ import com.teng.app.gastosai.entity.User;
 import com.teng.app.gastosai.entity.AiUsageStatus;
 import com.teng.app.gastosai.repository.ChatAuditLogRepository;
 import com.teng.app.gastosai.repository.ConversationRepository;
+import com.teng.app.gastosai.repository.RecurringExpenseRepository;
 import com.teng.app.gastosai.repository.UserRepository;
 import com.teng.app.gastosai.service.ChatActionService;
 import com.teng.app.gastosai.support.PostgresBackedTest;
@@ -33,6 +34,7 @@ class ChatContextResolutionTest extends PostgresBackedTest {
 	@Autowired UserRepository userRepository;
 	@Autowired ConversationRepository conversationRepository;
 	@Autowired ChatAuditLogRepository chatAuditLogRepository;
+	@Autowired RecurringExpenseRepository recurringExpenseRepository;
 
 	@MockitoBean SqlGenerator sqlGenerator;
 
@@ -74,7 +76,6 @@ class ChatContextResolutionTest extends PostgresBackedTest {
 				.thenReturn(LlmResult.ofValue(new ChatToolCall("create_expense", "{\"amount\": 12.50, \"description\": \"coffee\"}")));
 		ChatResponse first = chatActionService.dispatch("add 12.50 coffee", "execute", user, null);
 		Long convId = first.conversationId();
-		Long expenseId = conversationRepository.findById(convId).orElseThrow().getLastEntityId();
 
 		when(sqlGenerator.classifyIntent(anyString()))
 				.thenReturn(LlmResult.ofValue(new ChatToolCall("create_recurring",
@@ -83,7 +84,10 @@ class ChatContextResolutionTest extends PostgresBackedTest {
 
 		Conversation conv = conversationRepository.findById(convId).orElseThrow();
 		assertThat(conv.getLastEntityType()).isEqualTo("recurring");
-		assertThat(conv.getLastEntityId()).isNotNull().isNotEqualTo(expenseId);
+		// TEN-552: expenses and recurring_expenses have separate sequences, so an id can repeat across them.
+		Long createdRecurringId = recurringExpenseRepository.findAllByUser(user).stream()
+				.filter(r -> r.getName().equals("Netflix")).findFirst().orElseThrow().getId();
+		assertThat(conv.getLastEntityId()).isEqualTo(createdRecurringId);
 		Long recurringId = conv.getLastEntityId();
 
 		// The follow-up turn is handed the recurring id, aimed at the recurring tools.

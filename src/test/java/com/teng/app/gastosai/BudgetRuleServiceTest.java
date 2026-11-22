@@ -109,4 +109,70 @@ class BudgetRuleServiceTest {
         assertThat(savings.spent()).isEqualByComparingTo("0.00");
         assertThat(s.unassignedSpent()).isEqualByComparingTo("500.00");
     }
+
+    /** Summary of a 50/30/20 rule where the NEEDS bucket (one category) has {@code needsSpent} against it. */
+    private BudgetRuleSummaryResponse.BucketSummary needsBucket(String income, String needsSpent) {
+        BudgetRule rule = BudgetRule.builder()
+                .user(user).ruleType(BudgetRuleType.FIFTY_THIRTY_TWENTY)
+                .monthlyIncome(new BigDecimal(income)).needsPct(50).wantsPct(30).savingsPct(20)
+                .build();
+        when(budgetRuleRepository.findByUser(user)).thenReturn(Optional.of(rule));
+        when(categoryRepository.findAllByUser(user)).thenReturn(List.of(
+                Category.builder().id(1L).name("Rent").bucket(Bucket.NEEDS).user(user).build()));
+        List<Object[]> rows = new java.util.ArrayList<>();
+        rows.add(new Object[]{1L, new BigDecimal(needsSpent)});
+        when(expenseRepository.sumByCategoryAndMonth(user, 2026, 6)).thenReturn(rows);
+        return service.summary(user, "2026-06").buckets().stream()
+                .filter(b -> b.bucket() == Bucket.NEEDS).findFirst().orElseThrow();
+    }
+
+    @Test
+    void summary_bucketStatus_underTheWarningBand_isOnTrack() {
+        assertThat(needsBucket("10000", "3999.50").status()).isEqualTo("ON_TRACK"); // 79.99%
+    }
+
+    @Test
+    void summary_bucketStatus_atExactly80_isWarning() {
+        assertThat(needsBucket("10000", "4000").status()).isEqualTo("WARNING");
+    }
+
+    @Test
+    void summary_bucketStatus_insideTheWarningBand_isWarning() {
+        assertThat(needsBucket("10000", "4500").status()).isEqualTo("WARNING"); // 90%
+    }
+
+    @Test
+    void summary_bucketStatus_atExactly100_isOverBudget() {
+        assertThat(needsBucket("10000", "5000").status()).isEqualTo("OVER_BUDGET");
+    }
+
+    @Test
+    void summary_bucketStatus_overTheTarget_isOverBudget() {
+        assertThat(needsBucket("10000", "6000").status()).isEqualTo("OVER_BUDGET"); // 120%
+    }
+
+    @Test
+    void summary_bucketStatus_withZeroTarget_isOnTrack_evenWithSpend() {
+        BudgetRuleSummaryResponse.BucketSummary needs = needsBucket("0", "500");
+        assertThat(needs.percentUsed()).isZero();
+        assertThat(needs.status()).isEqualTo("ON_TRACK");
+    }
+
+    @Test
+    void summary_savingsBucket_getsTheSameStatusAsTheOthers() {
+        BudgetRule rule = BudgetRule.builder()
+                .user(user).ruleType(BudgetRuleType.FIFTY_THIRTY_TWENTY)
+                .monthlyIncome(new BigDecimal("10000")).needsPct(50).wantsPct(30).savingsPct(20)
+                .build();
+        when(budgetRuleRepository.findByUser(user)).thenReturn(Optional.of(rule));
+        when(categoryRepository.findAllByUser(user)).thenReturn(List.of(
+                Category.builder().id(4L).name("Emergency fund").bucket(Bucket.SAVINGS).user(user).build()));
+        List<Object[]> rows = new java.util.ArrayList<>();
+        rows.add(new Object[]{4L, new BigDecimal("2500")}); // 125% of the 2000 savings target
+        when(expenseRepository.sumByCategoryAndMonth(user, 2026, 6)).thenReturn(rows);
+
+        var savings = service.summary(user, "2026-06").buckets().stream()
+                .filter(b -> b.bucket() == Bucket.SAVINGS).findFirst().orElseThrow();
+        assertThat(savings.status()).isEqualTo("OVER_BUDGET");
+    }
 }
