@@ -234,6 +234,21 @@ field, path or validation changed.
 - **`PUT` / `DELETE /api/v2/recurring/{id}/payments/{month}`**, and on v1 at `/recurring/{id}/payments/{month}`,
   mark and unmark a month paid. `{month}` is `YYYY-MM`. Both are idempotent.
 
+## 3.6.0 — budget-rule bucket `status`
+
+*Recorded 2026-11-22 (TEN-541).*
+
+Additive only, so a minor: one new optional response field. No existing field, path or
+validation changed.
+
+- **`status`** (`ON_TRACK` / `WARNING` / `OVER_BUDGET`) on `BucketSummary` and `BucketSummaryV2`,
+  the buckets of the budget-rule summary. It is derived from the bucket's own `percentUsed` by the
+  same thresholds as a category budget line — `WARNING` from 80%, `OVER_BUDGET` from 100%, both
+  inclusive — and the server holds those thresholds in one place, so a client never re-derives
+  them. A zero target reports `percentUsed` 0 and so `ON_TRACK`. The field reports how much of the
+  allocation is used and nothing more: the `SAVINGS` bucket gets the same status as the others, and
+  the client decides its tone, because passing a savings target is not bad news.
+
 ## Cross-repo change ordering
 
 A change that spans the contract is **not** one commit anymore — it's an ordered
